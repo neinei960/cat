@@ -66,7 +66,7 @@
             />
           </view>
           <view class="col-item">
-            <text class="label">重量（g）</text>
+            <text class="label">重量（kg）</text>
             <input
               :value="singleSku.weight"
               type="digit"
@@ -109,7 +109,7 @@
               />
             </view>
             <view class="col-item">
-              <text class="label">重量（g）</text>
+              <text class="label">重量（kg）</text>
               <input
                 :value="sku.weight"
                 type="digit"

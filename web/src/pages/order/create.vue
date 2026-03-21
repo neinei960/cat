@@ -1,220 +1,160 @@
 <template>
   <SideLayout>
   <view class="page">
-
-    <!-- 区块1：已添加的猫咪列表 -->
-    <view v-if="petOrders.length > 0" class="section">
-      <text class="section-title">已添加猫咪（{{ petOrders.length }}只）</text>
-      <view class="pet-order-card" v-for="(po, idx) in petOrders" :key="idx">
-        <view class="poc-header">
-          <view class="poc-title-row">
-            <text class="poc-pet-name">{{ po.pet.name }}</text>
-            <text class="poc-svc-name" v-if="getServiceName(po.serviceId)">· {{ getServiceName(po.serviceId) }}</text>
+    <!-- 猫咪选择 -->
+    <view class="section">
+      <text class="section-title">选择猫咪</text>
+      <view class="search-bar" v-if="!selectedPet">
+        <input v-model="petKeyword" placeholder="输入猫咪名搜索" class="search-input" @confirm="searchPets" @input="searchPets" />
+      </view>
+      <view class="option-list" v-if="!selectedPet && petList.length > 0">
+        <view class="pet-card" v-for="p in petList" :key="p.ID" @click="selectPet(p)">
+          <view class="pet-card-row1">
+            <text class="pet-card-name">{{ p.name }}</text>
+            <text class="pet-card-owner" v-if="p.customer?.nickname">{{ p.customer.nickname }}</text>
+            <text class="pet-card-owner" v-else>散客</text>
           </view>
-          <view class="poc-actions">
-            <text class="poc-edit-btn" @click="editPetOrder(idx)">编辑</text>
-            <text class="poc-del-btn" @click="removePetOrder(idx)">✕</text>
+          <view class="pet-card-row2">
+            <text class="pet-card-info">{{ p.breed || '未知品种' }}</text>
+            <text class="pet-card-dot">·</text>
+            <text class="pet-card-info">{{ p.gender === 1 ? '公' : p.gender === 2 ? '母' : '未知' }}</text>
+            <text class="pet-card-dot" v-if="p.birth_date">·</text>
+            <text class="pet-card-info" v-if="p.birth_date">{{ calcAge(p.birth_date) }}</text>
+          </view>
+          <view class="pet-card-row3" v-if="p.fur_level || p.personality || (p.aggression && p.aggression !== '无')">
+            <text class="pet-label" v-if="p.fur_level">{{ p.fur_level }}</text>
+            <text class="pet-label" v-if="p.personality" :style="{ background: getPersonalityBg(p.personality), color: getPersonalityColor(p.personality) }">{{ p.personality }}</text>
+            <text class="pet-label warn" v-if="p.aggression && p.aggression !== '无'">{{ p.aggression }}</text>
+            <text class="pet-label" v-if="p.customer?.nickname">主人:{{ p.customer.nickname }}</text>
           </view>
         </view>
-        <view class="poc-price-row">
-          <text class="poc-spec" v-if="getSpecName(po)">{{ getSpecName(po) }}</text>
-          <text class="poc-price">
-            ¥{{ (po.useCustomPrice ? (parseFloat(po.customPrice) || 0) : po.servicePrice).toFixed(2) }}
-          </text>
+      </view>
+      <view v-if="selectedPet" class="selected-pet">
+        <view class="pet-header">
+          <text class="pet-name-lg">{{ selectedPet.name }}</text>
+          <text class="change-btn" @click="clearPet">更换</text>
         </view>
-        <view class="poc-addons" v-if="getActiveAddons(po).length > 0">
-          <text class="poc-addon-item" v-for="a in getActiveAddons(po)" :key="a.id">
-            {{ a.name }} ¥{{ a.amount }}
-          </text>
+        <view class="pet-tags">
+          <text class="tag" v-if="selectedPet.fur_level">{{ selectedPet.fur_level }}</text>
+          <text class="tag" v-if="selectedPet.personality">{{ selectedPet.personality }}</text>
+          <text class="tag warn" v-if="selectedPet.aggression && selectedPet.aggression !== '无'">攻击性:{{ selectedPet.aggression }}</text>
+        </view>
+        <view class="pet-alert" v-if="selectedPet.care_notes">
+          <text class="alert-icon">!</text>
+          <text class="alert-text">{{ selectedPet.care_notes }}</text>
+        </view>
+        <view class="pet-alert" v-if="selectedPet.forbidden_zones">
+          <text class="alert-icon">x</text>
+          <text class="alert-text">禁区: {{ selectedPet.forbidden_zones }}</text>
         </view>
       </view>
     </view>
 
-    <!-- 区块2：添加/编辑面板 -->
-    <view v-if="showAddPanel" class="section">
-      <text class="section-title">{{ editingIndex >= 0 ? '编辑猫咪' : '添加猫咪' }}</text>
-
-      <!-- 猫咪选择 -->
-      <view class="sub-section">
-        <text class="sub-title">选择猫咪</text>
-        <view class="search-bar" v-if="!panel.selectedPet">
-          <input
-            :value="petKeyword"
-            placeholder="输入猫咪名搜索"
-            class="search-input"
-            @input="(e: any) => { petKeyword = e.detail.value; searchPets() }"
-            @confirm="searchPets"
-          />
-        </view>
-        <view class="option-list" v-if="!panel.selectedPet && petList.length > 0">
-          <view class="pet-card" v-for="p in petList" :key="p.ID" @click="selectPet(p)">
-            <view class="pet-card-row1">
-              <text class="pet-card-name">{{ p.name }}</text>
-              <text class="pet-card-owner" v-if="p.customer?.nickname">{{ p.customer.nickname }}</text>
-              <text class="pet-card-owner" v-else>散客</text>
-            </view>
-            <view class="pet-card-row2">
-              <text class="pet-card-info">{{ p.breed || '未知品种' }}</text>
-              <text class="pet-card-dot">·</text>
-              <text class="pet-card-info">{{ p.gender === 1 ? '公' : p.gender === 2 ? '母' : '未知' }}</text>
-              <text class="pet-card-dot" v-if="p.birth_date">·</text>
-              <text class="pet-card-info" v-if="p.birth_date">{{ calcAge(p.birth_date) }}</text>
-            </view>
-            <view class="pet-card-row3" v-if="p.fur_level || p.personality || (p.aggression && p.aggression !== '无')">
-              <text class="pet-label" v-if="p.fur_level">{{ p.fur_level }}</text>
-              <text class="pet-label" v-if="p.personality" :style="{ background: getPersonalityBg(p.personality), color: getPersonalityColor(p.personality) }">{{ p.personality }}</text>
-              <text class="pet-label warn" v-if="p.aggression && p.aggression !== '无'">{{ p.aggression }}</text>
-            </view>
-          </view>
-        </view>
-        <view v-if="panel.selectedPet" class="selected-pet">
-          <view class="pet-header">
-            <text class="pet-name-lg">{{ panel.selectedPet.name }}</text>
-            <text class="change-btn" @click="clearPanelPet">更换</text>
-          </view>
-          <view class="pet-tags">
-            <text class="tag" v-if="panel.selectedPet.fur_level">{{ panel.selectedPet.fur_level }}</text>
-            <text class="tag" v-if="panel.selectedPet.personality">{{ panel.selectedPet.personality }}</text>
-            <text class="tag warn" v-if="panel.selectedPet.aggression && panel.selectedPet.aggression !== '无'">攻击性:{{ panel.selectedPet.aggression }}</text>
-          </view>
-          <view class="pet-alert" v-if="panel.selectedPet.care_notes">
-            <text class="alert-icon">!</text>
-            <text class="alert-text">{{ panel.selectedPet.care_notes }}</text>
-          </view>
-          <view class="pet-alert" v-if="panel.selectedPet.forbidden_zones">
-            <text class="alert-icon">x</text>
-            <text class="alert-text">禁区: {{ panel.selectedPet.forbidden_zones }}</text>
-          </view>
+    <!-- 洗浴项目 -->
+    <view class="section" v-if="selectedPet">
+      <text class="section-title">洗浴项目</text>
+      <view class="service-picker" v-if="serviceList.length > 0">
+        <view
+          class="service-opt"
+          :class="{ active: selectedServiceId === s.ID }"
+          v-for="s in serviceList"
+          :key="s.ID"
+          @click="selectService(s)"
+        >
+          <text>{{ s.name }}</text>
+          <text class="svc-price" v-if="selectedServiceId === s.ID && !selectedSpecId">¥{{ servicePrice.toFixed(2) }}</text>
         </view>
       </view>
 
-      <!-- 洗浴项目 -->
-      <view class="sub-section" v-if="panel.selectedPet">
-        <text class="sub-title">洗浴项目</text>
-        <view class="service-picker" v-if="serviceList.length > 0">
+      <!-- 规格选择 -->
+      <view v-if="selectedServiceId && specList.length > 0" class="spec-section">
+        <text class="spec-title">选择规格</text>
+        <view class="spec-picker">
           <view
-            class="service-opt"
-            :class="{ active: panel.serviceId === s.ID }"
-            v-for="s in serviceList"
-            :key="s.ID"
-            @click="selectService(s)"
+            v-for="spec in specList" :key="spec.ID"
+            :class="['spec-opt', selectedSpecId === spec.ID && !useCustomPrice ? 'active' : '']"
+            @click="selectSpec(spec)"
           >
-            <text>{{ s.name }}</text>
-            <text class="svc-price" v-if="panel.serviceId === s.ID && !panel.selectedSpecId">¥{{ panel.servicePrice.toFixed(2) }}</text>
+            <text class="spec-name">{{ spec.name }}</text>
+            <text class="spec-meta">¥{{ spec.price }} <text v-if="spec.duration" class="spec-dur">· {{ spec.duration }}分钟</text></text>
+          </view>
+          <view :class="['spec-opt custom', useCustomPrice ? 'active' : '']" @click="enableCustomPrice">
+            <text class="spec-name">自定义</text>
+            <text class="spec-meta">手动输入</text>
           </view>
         </view>
-
-        <!-- 规格选择 -->
-        <view v-if="panel.serviceId && panel.specList.length > 0" class="spec-section">
-          <text class="spec-title">选择规格</text>
-          <view class="spec-picker">
-            <view
-              v-for="spec in panel.specList" :key="spec.ID"
-              :class="['spec-opt', panel.selectedSpecId === spec.ID && !panel.useCustomPrice ? 'active' : '']"
-              @click="selectSpec(spec)"
-            >
-              <text class="spec-name">{{ spec.name }}</text>
-              <text class="spec-meta">¥{{ spec.price }} <text v-if="spec.duration" class="spec-dur">· {{ spec.duration }}分钟</text></text>
-            </view>
-            <view :class="['spec-opt custom', panel.useCustomPrice ? 'active' : '']" @click="enableCustomPrice">
-              <text class="spec-name">自定义</text>
-              <text class="spec-meta">手动输入</text>
-            </view>
-          </view>
-          <view v-if="panel.useCustomPrice" class="custom-price-row">
-            <text class="custom-price-label">输入金额</text>
-            <input
-              :value="panel.customPrice"
-              type="digit"
-              placeholder="0.00"
-              class="custom-price-input"
-              @input="(e: any) => { panel.customPrice = e.detail.value; panel.servicePrice = parseFloat(e.detail.value) || 0 }"
-            />
-            <text class="custom-price-hint">适用于美团团购等特殊价格</text>
-          </view>
-        </view>
-
-        <!-- 无规格时自定义价格 -->
-        <view v-if="panel.serviceId && panel.specList.length === 0" class="spec-section">
-          <view class="custom-price-toggle" @click="panel.useCustomPrice = !panel.useCustomPrice">
-            <text>{{ panel.useCustomPrice ? '使用基础价格 ¥' + getPanelBasePrice() : '自定义金额（美团团购等）' }}</text>
-          </view>
-          <view v-if="panel.useCustomPrice" class="custom-price-row">
-            <text class="custom-price-label">输入金额</text>
-            <input
-              :value="panel.customPrice"
-              type="digit"
-              placeholder="0.00"
-              class="custom-price-input"
-              @input="(e: any) => { panel.customPrice = e.detail.value; panel.servicePrice = parseFloat(e.detail.value) || 0 }"
-            />
-          </view>
+        <view v-if="useCustomPrice" class="custom-price-row">
+          <text class="custom-price-label">输入金额</text>
+          <input v-model="customPriceInput" type="digit" placeholder="0.00" class="custom-price-input" @input="onCustomPriceInput" />
+          <text class="custom-price-hint">适用于美团团购等特殊价格</text>
         </view>
       </view>
 
-      <!-- 附加费用 -->
-      <view class="sub-section" v-if="panel.selectedPet">
-        <view class="section-title-row">
-          <text class="sub-title" style="margin-bottom:0">附加费用</text>
-          <view class="addon-add-btn" @click="onAddAddon">
-            <text class="addon-add-icon">+</text>
-          </view>
+      <view v-if="selectedServiceId && specList.length === 0" class="spec-section">
+        <view class="custom-price-toggle" @click="useCustomPrice = !useCustomPrice">
+          <text>{{ useCustomPrice ? '使用基础价格 ¥' + getBasePrice() : '自定义金额（美团团购等）' }}</text>
         </view>
-        <view class="addon-grid">
-          <view
-            class="addon-item"
-            :class="{ 'addon-item--deleting': longPressId === a.id }"
-            v-for="a in panel.addons"
-            :key="a.id"
-            @longpress="onLongPress(a.id)"
-          >
-            <view
-              v-if="longPressId === a.id"
-              class="addon-delete-badge"
-              @click.stop="onDeleteAddon(a)"
-            >
-              <text class="addon-delete-icon">−</text>
-            </view>
-            <text class="addon-label">{{ a.name }}</text>
-            <input
-              :value="a.amount"
-              type="digit"
-              placeholder="0"
-              class="addon-input"
-              :disabled="longPressId === a.id"
-              @input="(e: any) => { a.amount = e.detail.value }"
-            />
-          </view>
-        </view>
-        <view v-if="longPressId !== null" class="addon-cancel-hint" @click="longPressId = null">
-          <text class="addon-cancel-text">点击此处取消删除模式</text>
-        </view>
-      </view>
-
-      <!-- 添加下一只 / 确认修改 -->
-      <view v-if="panel.selectedPet && panel.serviceId" class="panel-confirm-row">
-        <view v-if="editingIndex >= 0">
-          <button class="btn-confirm-add" @click="confirmAddPetOrder">确认修改</button>
-        </view>
-        <view v-else>
-          <button class="btn-add-next-inline" @click="addNextPet">+ 添加下一只猫咪</button>
+        <view v-if="useCustomPrice" class="custom-price-row">
+          <text class="custom-price-label">输入金额</text>
+          <input v-model="customPriceInput" type="digit" placeholder="0.00" class="custom-price-input" @input="onCustomPriceInput" />
         </view>
       </view>
     </view>
 
-    <!-- 区块3：合计 + 洗护师 + 提交（面板有猫且选了服务就显示） -->
-    <view v-if="allPetOrders.length > 0" class="section summary">
-      <view class="summary-row" v-for="(po, idx) in allPetOrders" :key="idx">
-        <text>{{ po.pet.name }}</text>
-        <text>¥{{ getPetOrderTotal(po).toFixed(2) }}</text>
+    <!-- 附加费用 -->
+    <view class="section" v-if="selectedPet">
+      <view class="section-title-row">
+        <text class="section-title" style="margin-bottom:0">附加费用</text>
+        <view class="addon-add-btn" @click="onAddAddon">
+          <text class="addon-add-icon">+</text>
+        </view>
+      </view>
+      <view class="addon-grid">
+        <view
+          class="addon-item"
+          :class="{ 'addon-item--deleting': longPressId === a.id }"
+          v-for="a in addonInputs"
+          :key="a.id"
+          @longpress="onLongPress(a.id)"
+        >
+          <view v-if="longPressId === a.id" class="addon-delete-badge" @click.stop="onDeleteAddon(a)">
+            <text class="addon-delete-icon">−</text>
+          </view>
+          <text class="addon-label">{{ a.name }}</text>
+          <input v-model="a.amount" type="digit" placeholder="0" class="addon-input" :disabled="longPressId === a.id" />
+        </view>
+      </view>
+      <view v-if="longPressId !== null" class="addon-cancel-hint" @click="longPressId = null">
+        <text class="addon-cancel-text">点击此处取消删除模式</text>
+      </view>
+    </view>
+
+    <!-- 合计 -->
+    <view class="section summary" v-if="selectedPet && selectedServiceId">
+      <view class="summary-row">
+        <text>基础价格</text>
+        <text>¥{{ servicePrice.toFixed(2) }}</text>
+      </view>
+      <view class="summary-row" v-if="addonTotal > 0">
+        <text>附加费合计</text>
+        <text>¥{{ addonTotal.toFixed(2) }}</text>
+      </view>
+      <view class="summary-row">
+        <text>合计</text>
+        <text class="bold">¥{{ totalAmount.toFixed(2) }}</text>
+      </view>
+      <view class="summary-row" v-if="discountRate < 1">
+        <text>会员折扣 ({{ (discountRate * 10).toFixed(1) }}折)</text>
+        <text class="discount">-¥{{ discountAmount.toFixed(2) }}</text>
       </view>
       <view class="summary-row total">
-        <text>合计</text>
-        <text class="pay-amount">¥{{ grandTotal.toFixed(2) }}</text>
+        <text>实付</text>
+        <text class="pay-amount">¥{{ payAmount.toFixed(2) }}</text>
       </view>
     </view>
 
-    <view v-if="allPetOrders.length > 0" class="section">
+    <!-- 洗护师 + 备注 -->
+    <view class="section" v-if="selectedPet">
       <view class="form-row">
         <text class="label">洗护师 <text v-if="!selectedStaff" class="required">*必选</text></text>
         <picker :range="staffNames" :value="selectedStaffIdx" @change="(e: any) => selectedStaffIdx = Number(e.detail.value)">
@@ -230,22 +170,16 @@
       </view>
     </view>
 
-    <button
-      v-if="allPetOrders.length > 0"
-      class="btn-submit"
-      @click="onSubmit"
-      :loading="submitting"
-    >确认开单{{ allPetOrders.length > 1 ? '（' + allPetOrders.length + '只猫）' : '' }}</button>
-
+    <button v-if="selectedPet && selectedServiceId" class="btn-submit" @click="onSubmit" :loading="submitting">确认开单</button>
   </view>
   </SideLayout>
 </template>
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getPetList } from '@/api/pet'
-import { createOrder, payOrder } from '@/api/order'
+import { createOrder } from '@/api/order'
 import { getAddonList, createAddon, deleteAddon, priceLookup } from '@/api/addon'
 import { getServiceList, getPriceRules } from '@/api/service'
 import { getStaffList } from '@/api/staff'
@@ -253,32 +187,23 @@ import { getCustomerCard } from '@/api/member-card'
 import { safeBack } from '@/utils/navigate'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
 
-// ---- 类型 ----
-interface AddonInput {
-  id: number
-  name: string
-  amount: string
-}
-
-interface PetOrder {
-  pet: any
-  serviceId: number
-  servicePrice: number
-  specId: number
-  specList: any[]
-  useCustomPrice: boolean
-  customPrice: string
-  addons: AddonInput[]
-}
-
-// ---- 全局数据 ----
+const petKeyword = ref('')
+const petList = ref<any[]>([])
+const selectedPet = ref<any>(null)
 const serviceList = ref<any[]>([])
+const selectedServiceId = ref(0)
+const servicePrice = ref(0)
+const specList = ref<any[]>([])
+const selectedSpecId = ref(0)
 const staffList = ref<any[]>([])
-const addonTemplate = ref<AddonInput[]>([])  // 全局 addon 模板（名称+id），不含金额
-
 const selectedStaffIdx = ref(0)
+const addonInputs = ref<{ id: number; name: string; amount: string }[]>([])
+const longPressId = ref<number | null>(null)
 const remark = ref('')
 const submitting = ref(false)
+const useCustomPrice = ref(false)
+const customPriceInput = ref('')
+const memberBalance = ref(0)
 
 const staffNames = computed(() => ['未选择', ...staffList.value.map(s => s.name)])
 const selectedStaff = computed(() => {
@@ -286,358 +211,81 @@ const selectedStaff = computed(() => {
   return staffList.value[selectedStaffIdx.value - 1]
 })
 
-// ---- 多猫列表 ----
-const petOrders = ref<PetOrder[]>([])
+const addonTotal = computed(() =>
+  addonInputs.value.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
+)
+const totalAmount = computed(() => servicePrice.value + addonTotal.value)
 
-// ---- 面板状态 ----
-const showAddPanel = ref(true)
-const editingIndex = ref(-1)  // -1 = 新增，>=0 = 编辑第 idx 只
+const discountRate = computed(() => {
+  if (!selectedPet.value?.customer?.discount_rate) return 1
+  const r = selectedPet.value.customer.discount_rate
+  return r > 0 && r < 1 ? r : 1
+})
+const payAmount = computed(() => Math.round(totalAmount.value * discountRate.value * 100) / 100)
+const discountAmount = computed(() => totalAmount.value - payAmount.value)
 
-// 当前编辑面板的状态
-const panel = reactive({
-  selectedPet: null as any,
-  serviceId: 0,
-  servicePrice: 0,
-  specList: [] as any[],
-  selectedSpecId: 0,
-  useCustomPrice: false,
-  customPrice: '',
-  addons: [] as AddonInput[],
+onMounted(async () => {
+  try {
+    const sRes = await getServiceList({ page_size: 50 } as any)
+    if (sRes.data?.list) serviceList.value = sRes.data.list
+  } catch {}
+  try {
+    const stRes = await getStaffList({ page_size: 50 } as any)
+    if (stRes.data?.list) staffList.value = stRes.data.list.filter((s: any) => s.role === 'staff')
+  } catch {}
+  await loadAddons()
 })
 
-// ---- 搜索猫咪 ----
-const petKeyword = ref('')
-const petList = ref<any[]>([])
-let searchTimer: any = null
-
-function searchPets() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(async () => {
-    if (!petKeyword.value) { petList.value = []; return }
-    const res = await getPetList({ page: 1, page_size: 20, keyword: petKeyword.value } as any)
-    petList.value = (res.data as any)?.list || []
-  }, 300)
-}
-
-async function selectPet(p: any) {
-  panel.selectedPet = p
-  petList.value = []
-  petKeyword.value = ''
-  // 如果已选了服务，重新 lookup 价格
-  if (panel.serviceId > 0 && p.fur_level) {
-    await lookupPrice(panel.serviceId, p.fur_level)
-  }
-}
-
-function clearPanelPet() {
-  panel.selectedPet = null
-  panel.serviceId = 0
-  panel.servicePrice = 0
-  panel.specList = []
-  panel.selectedSpecId = 0
-  panel.useCustomPrice = false
-  panel.customPrice = ''
-}
-
-// ---- 服务/规格选择 ----
-async function selectService(s: any) {
-  panel.serviceId = s.ID
-  panel.selectedSpecId = 0
-  panel.servicePrice = s.base_price
-  panel.useCustomPrice = false
-  panel.customPrice = ''
-  try {
-    const res = await getPriceRules(s.ID)
-    const rules = res.data || []
-    panel.specList = rules.map((r: any) => ({
-      ...r,
-      name: r.name || r.fur_level || r.pet_size || '规格',
-    }))
-    // 如果猫有毛量信息，自动 lookup 价格
-    if (panel.selectedPet?.fur_level) {
-      await lookupPrice(s.ID, panel.selectedPet.fur_level)
-    }
-  } catch {
-    panel.specList = []
-  }
-}
-
-function selectSpec(spec: any) {
-  panel.selectedSpecId = spec.ID
-  panel.servicePrice = spec.price
-  panel.useCustomPrice = false
-  panel.customPrice = ''
-}
-
-function enableCustomPrice() {
-  panel.useCustomPrice = true
-  panel.selectedSpecId = 0
-  if (panel.customPrice) {
-    panel.servicePrice = parseFloat(panel.customPrice) || 0
-  }
-}
-
-function getPanelBasePrice(): string {
-  const svc = serviceList.value.find(s => s.ID === panel.serviceId)
-  return svc ? svc.base_price.toFixed(2) : '0'
-}
-
-async function lookupPrice(serviceId: number, furLevel: string) {
-  try {
-    const res = await priceLookup(serviceId, furLevel)
-    panel.servicePrice = res.data.price
-  } catch {
-    const svc = serviceList.value.find(s => s.ID === serviceId)
-    panel.servicePrice = svc?.base_price || 0
-  }
-}
-
-// ---- 附加费 ----
-const longPressId = ref<number | null>(null)
-
-function onLongPress(id: number) {
-  longPressId.value = id
-  try { uni.vibrateShort({}) } catch (_) {}
-}
-
-function onAddAddon() {
-  uni.showModal({
-    title: '添加附加费类型',
-    editable: true,
-    placeholderText: '请输入费用名称，如：开结费',
-    success: async (res) => {
-      if (!res.confirm || !res.content?.trim()) return
-      const name = res.content.trim()
-      try {
-        uni.showLoading({ title: '添加中...' })
-        await createAddon({ name, default_price: 0, is_variable: true })
-        await loadAddons()
-        uni.hideLoading()
-        uni.showToast({ title: `已添加「${name}」`, icon: 'success' })
-      } catch (e) {
-        uni.hideLoading()
-        uni.showToast({ title: '添加失败，请重试', icon: 'none' })
-      }
-    },
-  })
-}
-
-function onDeleteAddon(a: AddonInput) {
-  uni.showModal({
-    title: '删除附加费类型',
-    content: `确定要删除「${a.name}」吗？\n这将从全局费用列表中移除。`,
-    confirmColor: '#EF4444',
-    success: async (res) => {
-      if (!res.confirm) {
-        longPressId.value = null
-        return
-      }
-      if (a.id < 0) {
-        panel.addons = panel.addons.filter(item => item.id !== a.id)
-        longPressId.value = null
-        return
-      }
-      try {
-        uni.showLoading({ title: '删除中...' })
-        await deleteAddon(a.id)
-        await loadAddons()
-        uni.hideLoading()
-        uni.showToast({ title: `已删除「${a.name}」`, icon: 'success' })
-      } catch (e) {
-        uni.hideLoading()
-        uni.showToast({ title: '删除失败，请重试', icon: 'none' })
-      } finally {
-        longPressId.value = null
-      }
-    },
-  })
-}
-
-// 加载全局附加费模板（只有名称，金额清空）
 async function loadAddons() {
   try {
     const aRes = await getAddonList()
     if (Array.isArray(aRes.data)) {
-      addonTemplate.value = aRes.data.map(a => ({ id: a.ID, name: a.name, amount: '' }))
+      const amountMap = new Map(addonInputs.value.map(a => [a.id, a.amount]))
+      addonInputs.value = aRes.data.map(a => ({
+        id: a.ID, name: a.name, amount: amountMap.get(a.ID) || ''
+      }))
     }
-  } catch (e) {
-    addonTemplate.value = [
-      { id: -1, name: '超重费', amount: '' },
-      { id: -2, name: '去油费', amount: '' },
-      { id: -3, name: '药浴', amount: '' },
-      { id: -4, name: '刷牙', amount: '' },
-      { id: -5, name: '开结', amount: '' },
-      { id: -6, name: '攻击费', amount: '' },
-    ]
+  } catch {
+    if (addonInputs.value.length === 0) {
+      addonInputs.value = [
+        { id: -1, name: '超重费', amount: '' },
+        { id: -2, name: '去油费', amount: '' },
+        { id: -3, name: '药浴', amount: '' },
+        { id: -4, name: '刷牙', amount: '' },
+        { id: -5, name: '开结', amount: '' },
+        { id: -6, name: '攻击费', amount: '' },
+      ]
+    }
   }
-  // 同步更新面板的 addons（保留已填金额）
-  syncPanelAddons()
 }
 
-// 将最新模板同步到面板（保留已有金额）
-function syncPanelAddons() {
-  const amountMap = new Map(panel.addons.map(a => [a.id, a.amount]))
-  panel.addons = addonTemplate.value.map(a => ({
-    id: a.id,
-    name: a.name,
-    amount: amountMap.get(a.id) || '',
-  }))
-}
-
-// 初始化面板 addons（从模板复制，金额全清）
-function initPanelAddons() {
-  panel.addons = addonTemplate.value.map(a => ({ id: a.id, name: a.name, amount: '' }))
-}
-
-// ---- 面板操作 ----
-function openAddPanel() {
-  editingIndex.value = -1
-  panel.selectedPet = null
-  panel.serviceId = 0
-  panel.servicePrice = 0
-  panel.specList = []
-  panel.selectedSpecId = 0
-  panel.useCustomPrice = false
-  panel.customPrice = ''
-  initPanelAddons()
-  petKeyword.value = ''
-  petList.value = []
-  showAddPanel.value = true
-}
-
-function editPetOrder(idx: number) {
-  const po = petOrders.value[idx]
-  editingIndex.value = idx
-  panel.selectedPet = po.pet
-  panel.serviceId = po.serviceId
-  panel.servicePrice = po.servicePrice
-  panel.specList = po.specList
-  panel.selectedSpecId = po.specId
-  panel.useCustomPrice = po.useCustomPrice
-  panel.customPrice = po.customPrice
-  // 深拷贝 addons
-  panel.addons = po.addons.map(a => ({ ...a }))
-  petKeyword.value = ''
-  petList.value = []
-  showAddPanel.value = true
-}
-
-function confirmAddPetOrder() {
-  if (!panel.selectedPet) {
-    uni.showToast({ title: '请选择猫咪', icon: 'none' }); return
-  }
-  if (!panel.serviceId) {
-    uni.showToast({ title: '请选择洗浴项目', icon: 'none' }); return
-  }
-
-  const po: PetOrder = {
-    pet: panel.selectedPet,
-    serviceId: panel.serviceId,
-    servicePrice: panel.servicePrice,
-    specId: panel.selectedSpecId,
-    specList: [...panel.specList],
-    useCustomPrice: panel.useCustomPrice,
-    customPrice: panel.customPrice,
-    addons: panel.addons.map(a => ({ ...a })),
-  }
-
-  if (editingIndex.value >= 0) {
-    petOrders.value[editingIndex.value] = po
-    uni.showToast({ title: '已更新', icon: 'success' })
-  } else {
-    petOrders.value.push(po)
-    uni.showToast({ title: '已添加', icon: 'success' })
-  }
-
-  // 收起面板
-  showAddPanel.value = false
-  editingIndex.value = -1
-}
-
-function removePetOrder(idx: number) {
+function onAddAddon() {
   uni.showModal({
-    title: '确认删除',
-    content: `移除「${petOrders.value[idx].pet.name}」的开单信息？`,
-    confirmColor: '#EF4444',
-    success: (res) => {
-      if (!res.confirm) return
-      petOrders.value.splice(idx, 1)
-      if (petOrders.value.length === 0) {
-        showAddPanel.value = true
+    title: '添加附加费类型', editable: true, placeholderText: '输入名称',
+    success: async (res) => {
+      if (res.confirm && res.content?.trim()) {
+        try {
+          await createAddon({ name: res.content.trim(), default_price: 0, is_variable: true } as any)
+          await loadAddons()
+        } catch { addonInputs.value.push({ id: Date.now(), name: res.content.trim(), amount: '' }) }
       }
-    },
+    }
   })
 }
 
-// ---- 价格计算 ----
-const panelTotalPrice = computed(() => {
-  const base = panel.useCustomPrice ? (parseFloat(panel.customPrice) || 0) : panel.servicePrice
-  const addons = panel.addons.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
-  return base + addons
-})
+function onLongPress(id: number) { longPressId.value = id }
 
-function getPetOrderTotal(po: PetOrder): number {
-  const base = po.useCustomPrice ? (parseFloat(po.customPrice) || 0) : po.servicePrice
-  const addons = po.addons.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
-  return base + addons
-}
-
-// 当前面板如果有有效数据，也算一只猫（用于合计和提交）
-function currentPanelAsPetOrder(): PetOrder | null {
-  if (!panel.selectedPet || !panel.serviceId) return null
-  if (editingIndex.value >= 0) return null // 编辑模式不重复计算
-  return {
-    pet: panel.selectedPet,
-    serviceId: panel.serviceId,
-    servicePrice: panel.servicePrice,
-    specId: panel.selectedSpecId,
-    specList: panel.specList,
-    useCustomPrice: panel.useCustomPrice,
-    customPrice: panel.customPrice,
-    addons: panel.addons,
-  }
-}
-
-const allPetOrders = computed<PetOrder[]>(() => {
-  const list = [...petOrders.value]
-  const current = currentPanelAsPetOrder()
-  if (current) list.push(current)
-  return list
-})
-
-const grandTotal = computed(() =>
-  allPetOrders.value.reduce((s, po) => s + getPetOrderTotal(po), 0)
-)
-
-// 添加下一只：把当前面板保存到列表，清空面板
-function addNextPet() {
-  const current = currentPanelAsPetOrder()
-  if (current) {
-    petOrders.value.push(current)
-  }
-  resetPanel()
-  showAddPanel.value = true
-}
-
-const commission = computed(() => {
-  if (!selectedStaff.value) return 0
-  return Math.round(grandTotal.value * selectedStaff.value.commission_rate) / 100
-})
-
-// ---- 辅助函数 ----
-function getServiceName(serviceId: number): string {
-  return serviceList.value.find(s => s.ID === serviceId)?.name || ''
-}
-
-function getSpecName(po: PetOrder): string {
-  if (po.useCustomPrice) return '自定义价格'
-  if (!po.specId) return ''
-  const spec = po.specList.find(s => s.ID === po.specId)
-  return spec?.name || ''
-}
-
-function getActiveAddons(po: PetOrder) {
-  return po.addons.filter(a => parseFloat(a.amount) > 0)
+function onDeleteAddon(a: { id: number; name: string }) {
+  uni.showModal({
+    title: '删除附加费', content: `删除「${a.name}」？`, confirmColor: '#EF4444',
+    success: async (res) => {
+      if (res.confirm) {
+        if (a.id > 0) { try { await deleteAddon(a.id); await loadAddons() } catch {} }
+        else { addonInputs.value = addonInputs.value.filter(i => i.id !== a.id) }
+      }
+      longPressId.value = null
+    }
+  })
 }
 
 function calcAge(birthDate: string): string {
@@ -652,92 +300,126 @@ function calcAge(birthDate: string): string {
   return rem > 0 ? `${years}岁${rem}个月` : `${years}岁`
 }
 
-// ---- 提交 ----
-async function onSubmit() {
-  const orders = allPetOrders.value
-  if (orders.length === 0) {
-    uni.showToast({ title: '请至少添加一只猫咪并选择服务', icon: 'none' }); return
-  }
-  if (!selectedStaff.value) {
-    uni.showToast({ title: '请选择洗护师', icon: 'none' }); return
-  }
+let searchTimer: any = null
+function searchPets() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    if (!petKeyword.value) { petList.value = []; return }
+    const res = await getPetList({ page: 1, page_size: 20, keyword: petKeyword.value } as any)
+    petList.value = (res.data as any)?.list || []
+  }, 300)
+}
 
-  submitting.value = true
-  try {
-    for (const po of orders) {
-      await createOrder({
-        pet_id: po.pet.ID,
-        customer_id: po.pet.customer_id || undefined,
-        service_id: po.serviceId,
-        staff_id: selectedStaff.value?.ID || undefined,
-        addons: po.addons
-          .filter(a => parseFloat(a.amount) > 0)
-          .map(a => ({ name: a.name, amount: parseFloat(a.amount) })),
-        remark: remark.value,
-      } as any)
-    }
-    uni.showToast({ title: '开单成功', icon: 'success' })
-    setTimeout(() => uni.redirectTo({ url: '/pages/order/list' }), 600)
-  } catch (e: any) {
-    uni.showToast({ title: e.message || '开单失败', icon: 'none' })
-  } finally {
-    submitting.value = false
+async function selectPet(p: any) {
+  selectedPet.value = p
+  petList.value = []
+  petKeyword.value = ''
+  if (selectedServiceId.value > 0 && p.fur_level) {
+    lookupPrice(selectedServiceId.value, p.fur_level)
+  }
+  memberBalance.value = 0
+  if (p.customer_id) {
+    try {
+      const cardRes = await getCustomerCard(p.customer_id)
+      if (cardRes.data && cardRes.data.balance > 0) memberBalance.value = cardRes.data.balance
+    } catch {}
   }
 }
 
-// ---- 初始化 ----
-onMounted(async () => {
-  try {
-    const sRes = await getServiceList({ page_size: 50 } as any)
-    if (sRes.data?.list) serviceList.value = sRes.data.list
-  } catch (e) { /* ignore */ }
+function clearPet() {
+  selectedPet.value = null
+  servicePrice.value = 0
+  selectedServiceId.value = 0
+  selectedSpecId.value = 0
+  specList.value = []
+  memberBalance.value = 0
+  useCustomPrice.value = false
+  customPriceInput.value = ''
+}
 
+async function selectService(s: any) {
+  selectedServiceId.value = s.ID
+  selectedSpecId.value = 0
+  servicePrice.value = s.base_price
+  useCustomPrice.value = false
+  customPriceInput.value = ''
   try {
-    const stRes = await getStaffList({ page_size: 50 } as any)
-    if (stRes.data?.list) staffList.value = stRes.data.list.filter((s: any) => s.role === 'staff')
-  } catch (e) { /* ignore */ }
+    const res = await getPriceRules(s.ID)
+    const rules = res.data || []
+    specList.value = rules.map((r: any) => ({ ...r, name: r.name || r.fur_level || r.pet_size || '规格' }))
+  } catch { specList.value = [] }
+}
 
-  await loadAddons()
-})
+function selectSpec(spec: any) {
+  selectedSpecId.value = spec.ID
+  servicePrice.value = spec.price
+  useCustomPrice.value = false
+  customPriceInput.value = ''
+}
+
+function enableCustomPrice() {
+  useCustomPrice.value = true
+  selectedSpecId.value = 0
+  if (customPriceInput.value) servicePrice.value = parseFloat(customPriceInput.value) || 0
+}
+
+function onCustomPriceInput() { servicePrice.value = parseFloat(customPriceInput.value) || 0 }
+
+function getBasePrice(): string {
+  const svc = serviceList.value.find(s => s.ID === selectedServiceId.value)
+  return svc ? svc.base_price.toFixed(2) : '0'
+}
+
+async function lookupPrice(serviceId: number, furLevel: string) {
+  try {
+    const res = await priceLookup(serviceId, furLevel)
+    servicePrice.value = res.data.price
+  } catch {
+    const svc = serviceList.value.find(s => s.ID === serviceId)
+    servicePrice.value = svc?.base_price || 0
+  }
+}
+
+async function onSubmit() {
+  if (!selectedPet.value) { uni.showToast({ title: '请选择猫咪', icon: 'none' }); return }
+  if (!selectedServiceId.value) { uni.showToast({ title: '请选择洗浴项目', icon: 'none' }); return }
+  if (!selectedStaff.value) { uni.showToast({ title: '请选择洗护师', icon: 'none' }); return }
+
+  submitting.value = true
+  try {
+    const addons = addonInputs.value
+      .filter(a => parseFloat(a.amount) > 0)
+      .map(a => ({ name: a.name, amount: parseFloat(a.amount) }))
+
+    const orderRes = await createOrder({
+      pet_id: selectedPet.value.ID,
+      customer_id: selectedPet.value.customer_id || undefined,
+      service_id: selectedServiceId.value,
+      staff_id: selectedStaff.value?.ID || undefined,
+      addons,
+      remark: remark.value,
+    } as any)
+
+    uni.showToast({ title: '开单成功', icon: 'success' })
+    const orderId = orderRes.data?.ID
+    setTimeout(() => uni.redirectTo({ url: `/pages/order/detail?id=${orderId}` }), 500)
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '开单失败', icon: 'none' })
+  } finally { submitting.value = false }
+}
 </script>
 
 <style scoped>
 .page { padding: 24rpx; }
 .section { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }
 .section-title { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 16rpx; }
-.sub-section { margin-bottom: 24rpx; }
-.sub-section:last-child { margin-bottom: 0; }
-.sub-title { font-size: 26rpx; font-weight: 600; color: #374151; display: block; margin-bottom: 12rpx; }
-
-/* 已添加猫咪卡片 */
-.pet-order-card {
-  border: 2rpx solid #E5E7EB;
-  border-radius: 12rpx;
-  padding: 16rpx 20rpx;
-  margin-bottom: 12rpx;
-}
-.pet-order-card:last-child { margin-bottom: 0; }
-.poc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8rpx; }
-.poc-title-row { display: flex; align-items: center; gap: 4rpx; }
-.poc-pet-name { font-size: 30rpx; font-weight: 700; color: #1F2937; }
-.poc-svc-name { font-size: 26rpx; color: #6B7280; }
-.poc-actions { display: flex; align-items: center; gap: 16rpx; }
-.poc-edit-btn { font-size: 24rpx; color: #4F46E5; padding: 4rpx 12rpx; }
-.poc-del-btn { font-size: 24rpx; color: #9CA3AF; padding: 4rpx 12rpx; }
-.poc-price-row { display: flex; align-items: center; gap: 12rpx; margin-bottom: 6rpx; }
-.poc-spec { font-size: 24rpx; color: #6B7280; background: #F3F4F6; padding: 2rpx 12rpx; border-radius: 20rpx; }
-.poc-price { font-size: 28rpx; font-weight: 600; color: #4F46E5; }
-.poc-addons { display: flex; flex-wrap: wrap; gap: 8rpx; }
-.poc-addon-item { font-size: 22rpx; color: #6B7280; background: #F9FAFB; padding: 4rpx 12rpx; border-radius: 8rpx; }
-
-/* 搜索/猫咪选择 */
+.section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
 .search-bar { margin-bottom: 12rpx; }
-.search-input { background: #F3F4F6; border-radius: 12rpx; padding: 16rpx 24rpx; font-size: 28rpx; width: 100%; box-sizing: border-box; }
+.search-input { background: #F3F4F6; border-radius: 12rpx; padding: 16rpx 24rpx; font-size: 28rpx; }
 .option-list { display: flex; flex-direction: column; gap: 8rpx; max-height: 400rpx; overflow-y: auto; }
-.pet-card {
-  background: #fff; border-radius: 12rpx; padding: 20rpx 24rpx;
-  border: 2rpx solid #E5E7EB; margin-bottom: 8rpx;
-}
+.pet-name { font-size: 28rpx; color: #1F2937; font-weight: 500; }
+.pet-info { font-size: 24rpx; color: #6B7280; margin-left: 16rpx; }
+.pet-card { background: #fff; border-radius: 12rpx; padding: 20rpx 24rpx; border: 2rpx solid #E5E7EB; margin-bottom: 8rpx; }
 .pet-card:active { border-color: #4F46E5; background: #FAFAFF; }
 .pet-card-row1 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8rpx; }
 .pet-card-name { font-size: 32rpx; font-weight: 700; color: #1F2937; }
@@ -758,8 +440,6 @@ onMounted(async () => {
 .pet-alert { display: flex; align-items: flex-start; gap: 8rpx; padding: 12rpx; background: #FEF3C7; border-radius: 8rpx; margin-bottom: 8rpx; }
 .alert-icon { font-size: 24rpx; font-weight: bold; color: #D97706; width: 32rpx; }
 .alert-text { font-size: 24rpx; color: #92400E; flex: 1; }
-
-/* 服务/规格 */
 .service-picker { display: flex; flex-wrap: wrap; gap: 12rpx; }
 .service-opt { padding: 16rpx 24rpx; border-radius: 12rpx; background: #F3F4F6; font-size: 26rpx; color: #374151; display: flex; flex-direction: column; align-items: center; min-width: 160rpx; }
 .service-opt.active { background: #4F46E5; color: #fff; }
@@ -767,180 +447,44 @@ onMounted(async () => {
 .spec-section { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
 .spec-title { font-size: 26rpx; color: #6B7280; display: block; margin-bottom: 12rpx; }
 .spec-picker { display: flex; flex-wrap: wrap; gap: 12rpx; }
-.spec-opt {
-  padding: 16rpx 24rpx; border-radius: 12rpx;
-  background: #F9FAFB; border: 2rpx solid #E5E7EB;
-  display: flex; flex-direction: column; align-items: center;
-  min-width: 160rpx;
-}
+.spec-opt { padding: 16rpx 24rpx; border-radius: 12rpx; background: #F9FAFB; border: 2rpx solid #E5E7EB; display: flex; flex-direction: column; align-items: center; min-width: 160rpx; }
 .spec-opt.active { background: #EEF2FF; border-color: #4F46E5; }
+.spec-opt.custom { border-style: dashed; }
+.spec-opt.custom.active { border-style: solid; }
 .spec-name { font-size: 26rpx; color: #374151; font-weight: 500; }
 .spec-opt.active .spec-name { color: #4F46E5; }
 .spec-meta { font-size: 24rpx; color: #4F46E5; font-weight: 600; margin-top: 4rpx; }
 .spec-dur { font-size: 22rpx; color: #9CA3AF; font-weight: 400; }
-.spec-opt.custom { border-style: dashed; }
-.spec-opt.custom.active { border-style: solid; }
 .custom-price-row { display: flex; align-items: center; gap: 12rpx; margin-top: 16rpx; flex-wrap: wrap; }
 .custom-price-label { font-size: 26rpx; color: #374151; font-weight: 500; }
 .custom-price-input { width: 200rpx; font-size: 32rpx; font-weight: 600; color: #4F46E5; height: 60rpx; background: #F9FAFB; border: 2rpx solid #C7D2FE; border-radius: 10rpx; padding: 0 16rpx; text-align: center; }
 .custom-price-hint { font-size: 22rpx; color: #9CA3AF; }
 .custom-price-toggle { text-align: center; padding: 14rpx; font-size: 26rpx; color: #4F46E5; background: #EEF2FF; border-radius: 10rpx; border: 1rpx dashed #C7D2FE; }
-
-/* 附加费 */
-.section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16rpx;
-}
-.addon-add-btn {
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #6366F1, #4F46E5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4rpx 12rpx rgba(79, 70, 229, 0.35);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.addon-add-btn:active {
-  transform: scale(0.88);
-  box-shadow: 0 2rpx 6rpx rgba(79, 70, 229, 0.2);
-}
-.addon-add-icon {
-  font-size: 36rpx;
-  color: #fff;
-  font-weight: 300;
-  line-height: 1;
-  margin-top: -2rpx;
-}
 .addon-grid { display: flex; flex-wrap: wrap; gap: 16rpx; }
-.addon-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  width: calc(50% - 8rpx);
-  background: #F9FAFB;
-  border-radius: 12rpx;
-  padding: 12rpx 16rpx;
-  border: 2rpx solid transparent;
-  transition: background 0.2s, border-color 0.2s, transform 0.2s;
-}
-.addon-item--deleting {
-  background: #FEE2E2;
-  border-color: #FCA5A5;
-  animation: addonShake 0.4s ease;
-}
-@keyframes addonShake {
-  0%   { transform: translateX(0); }
-  20%  { transform: translateX(-6rpx) rotate(-1deg); }
-  40%  { transform: translateX(6rpx) rotate(1deg); }
-  60%  { transform: translateX(-4rpx) rotate(-0.5deg); }
-  80%  { transform: translateX(4rpx) rotate(0.5deg); }
-  100% { transform: translateX(0); }
-}
-.addon-delete-badge {
-  position: absolute;
-  top: -14rpx;
-  left: -14rpx;
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 999rpx;
-  background: #EF4444;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2rpx 8rpx rgba(239, 68, 68, 0.45);
-  z-index: 10;
-  transition: transform 0.1s;
-}
-.addon-delete-badge:active { transform: scale(0.85); }
-.addon-delete-icon {
-  font-size: 32rpx;
-  color: #fff;
-  font-weight: 700;
-  line-height: 1;
-  margin-top: -2rpx;
-}
-.addon-label { font-size: 24rpx; color: #374151; width: 100rpx; flex-shrink: 0; }
-.addon-item--deleting .addon-label { color: #B91C1C; font-weight: 600; }
-.addon-input { background: #fff; border-radius: 8rpx; padding: 10rpx 12rpx; font-size: 26rpx; flex: 1; text-align: right; border: 1rpx solid #E5E7EB; }
-.addon-item--deleting .addon-input { background: #FEF2F2; border-color: #FCA5A5; color: #B91C1C; }
-.addon-cancel-hint {
-  margin-top: 16rpx;
-  padding: 16rpx;
-  background: #FEE2E2;
-  border-radius: 10rpx;
-  text-align: center;
-  border: 1rpx dashed #FCA5A5;
-}
-.addon-cancel-text { font-size: 24rpx; color: #DC2626; }
-
-/* 面板确认行 */
-.panel-confirm-row {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  margin-top: 24rpx;
-  padding-top: 20rpx;
-  border-top: 1rpx solid #F3F4F6;
-}
-.btn-add-next-inline {
-  background: #EEF2FF; color: #4F46E5; border: 2rpx dashed #C7D2FE;
-  border-radius: 12rpx; font-size: 28rpx; padding: 16rpx 0; text-align: center; width: 100%;
-}
-.btn-confirm-add {
-  flex: 1;
-  background: #4F46E5;
-  color: #fff;
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  height: 80rpx;
-  line-height: 80rpx;
-  padding: 0;
-}
-.panel-price-hint {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #4F46E5;
-  min-width: 120rpx;
-  text-align: right;
-}
-
-/* 添加下一只 */
-.add-next-section { padding: 0; }
-.btn-add-next {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12rpx;
-  padding: 28rpx;
-  border: 2rpx dashed #C7D2FE;
-  border-radius: 16rpx;
-  background: #F5F3FF;
-}
-.btn-add-next:active { background: #EDE9FE; }
-.add-next-icon { font-size: 36rpx; color: #4F46E5; font-weight: 300; }
-.add-next-text { font-size: 28rpx; color: #4F46E5; font-weight: 500; }
-
-/* 合计 */
+.addon-item { display: flex; align-items: center; gap: 8rpx; width: calc(50% - 8rpx); position: relative; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 12rpx; }
+.addon-item--deleting { background: #FFF1F2; border-color: #FECDD3; animation: addonShake 0.3s ease-in-out; }
+@keyframes addonShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4rpx)} 75%{transform:translateX(4rpx)} }
+.addon-delete-badge { position: absolute; top: -12rpx; left: -12rpx; width: 40rpx; height: 40rpx; border-radius: 50%; background: #EF4444; display: flex; align-items: center; justify-content: center; z-index: 2; }
+.addon-delete-icon { color: #fff; font-size: 28rpx; font-weight: 700; }
+.addon-label { font-size: 24rpx; color: #374151; width: 100rpx; }
+.addon-input { background: #fff; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; flex: 1; text-align: right; border: 1rpx solid #E5E7EB; }
+.addon-add-btn { width: 48rpx; height: 48rpx; border-radius: 50%; background: linear-gradient(135deg, #6366F1, #4F46E5); display: flex; align-items: center; justify-content: center; }
+.addon-add-icon { color: #fff; font-size: 32rpx; font-weight: 600; }
+.addon-cancel-hint { margin-top: 12rpx; padding: 12rpx; border: 1rpx dashed #FECDD3; border-radius: 8rpx; text-align: center; }
+.addon-cancel-text { font-size: 24rpx; color: #EF4444; }
 .summary { }
 .summary-row { display: flex; justify-content: space-between; padding: 8rpx 0; font-size: 26rpx; color: #374151; }
 .summary-row.total { border-top: 1rpx solid #E5E7EB; padding-top: 16rpx; margin-top: 8rpx; }
+.bold { font-weight: 600; }
+.discount { color: #059669; }
 .pay-amount { font-size: 36rpx; font-weight: bold; color: #4F46E5; }
-
-/* 洗护师/备注 */
 .form-row { display: flex; align-items: center; gap: 16rpx; padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; }
 .form-row:last-child { border-bottom: none; }
 .label { font-size: 28rpx; color: #374151; width: 140rpx; }
-.picker { font-size: 28rpx; color: #1F2937; flex: 1; }
-.input { font-size: 28rpx; color: #1F2937; flex: 1; }
 .required { color: #EF4444; font-size: 22rpx; font-weight: 600; }
+.picker { font-size: 28rpx; color: #1F2937; flex: 1; }
 .picker-warn { color: #EF4444; }
+.input { font-size: 28rpx; color: #1F2937; flex: 1; }
 .staff-commission { font-size: 24rpx; color: #6B7280; padding: 8rpx 0; }
-
-/* 提交按钮 */
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 </style>

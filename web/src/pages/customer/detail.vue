@@ -97,9 +97,21 @@
         <text class="link" @click="goAddPet">+ 添加</text>
       </view>
       <view v-if="pets.length === 0" class="empty-sm">暂无宠物</view>
-      <view class="pet-card" v-for="pet in pets" :key="pet.ID">
-        <text class="pet-name">{{ pet.name }}</text>
-        <text class="pet-info">{{ pet.species }} {{ pet.breed }} {{ pet.weight ? pet.weight + 'kg' : '' }}</text>
+      <view class="pet-card" v-for="pet in pets" :key="pet.ID" @click="goEditPet(pet.ID)">
+        <view class="pet-main">
+          <view class="pet-top">
+            <text class="pet-name">{{ pet.name }}</text>
+            <text class="pet-detail">{{ pet.breed || '未知品种' }} · {{ pet.gender === 1 ? '♂弟弟' : pet.gender === 2 ? '♀妹妹' : '' }}<text v-if="pet.birth_date"> · {{ calcAge(pet.birth_date) }}</text></text>
+            <text class="pet-weight" v-if="pet.weight">{{ pet.weight }}kg</text>
+          </view>
+          <view class="pet-tags" v-if="pet.fur_level || pet.neutered || pet.personality || (pet.aggression && pet.aggression !== '无')">
+            <text class="pet-tag" v-if="pet.fur_level">{{ pet.fur_level }}</text>
+            <text class="pet-tag" v-if="pet.neutered">已绝育</text>
+            <text class="pet-tag" v-if="pet.personality" :style="{ background: getPersonalityBg(pet.personality), color: getPersonalityColor(pet.personality) }">{{ pet.personality }}</text>
+            <text class="pet-tag" v-if="pet.aggression && pet.aggression !== '无'" style="background:#FEE2E2;color:#EF4444;">攻击性:{{ pet.aggression }}</text>
+          </view>
+        </view>
+        <text class="pet-arrow">›</text>
       </view>
     </view>
 
@@ -174,6 +186,19 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerPets } from '@/api/customer'
 import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
+import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
+
+function calcAge(birthDate: string): string {
+  if (!birthDate) return ''
+  const birth = new Date(birthDate)
+  const now = new Date()
+  const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+  if (months < 1) return '不到1个月'
+  if (months < 12) return `${months}个月`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}岁${rem}个月` : `${years}岁`
+}
 
 const id = ref(0)
 const customer = ref<Customer | null>(null)
@@ -288,6 +313,7 @@ async function doAdjust() {
 
 function goEdit() { uni.navigateTo({ url: `/pages/customer/edit?id=${id.value}` }) }
 function goAddPet() { uni.navigateTo({ url: `/pages/pet/edit?owner_phone=${customer.value?.phone || ''}` }) }
+function goEditPet(petId: number) { uni.navigateTo({ url: `/pages/pet/edit?id=${petId}` }) }
 </script>
 
 <style scoped>
@@ -308,10 +334,16 @@ function goAddPet() { uni.navigateTo({ url: `/pages/pet/edit?owner_phone=${custo
 .tag-list { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 12rpx; }
 .tag { font-size: 22rpx; padding: 6rpx 16rpx; background: #EEF2FF; color: #4F46E5; border-radius: 16rpx; }
 .empty-sm { font-size: 26rpx; color: #9CA3AF; text-align: center; padding: 24rpx; }
-.pet-card { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.pet-card { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; display: flex; align-items: center; }
 .pet-card:last-child { border-bottom: none; }
+.pet-main { flex: 1; }
+.pet-top { display: flex; align-items: baseline; gap: 8rpx; }
 .pet-name { font-size: 28rpx; font-weight: 600; color: #1F2937; }
-.pet-info { font-size: 24rpx; color: #6B7280; margin-left: 16rpx; }
+.pet-detail { font-size: 22rpx; color: #6B7280; flex: 1; }
+.pet-weight { font-size: 24rpx; color: #4F46E5; font-weight: 600; }
+.pet-tags { display: flex; gap: 8rpx; flex-wrap: wrap; margin-top: 8rpx; }
+.pet-tag { font-size: 20rpx; padding: 2rpx 10rpx; background: #EEF2FF; color: #4F46E5; border-radius: 10rpx; }
+.pet-arrow { font-size: 32rpx; color: #C0C4CC; margin-left: 8rpx; }
 
 /* Member card */
 .member-card-info { margin-bottom: 20rpx; }

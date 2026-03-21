@@ -21,8 +21,12 @@
               <text class="info-value">¥{{ tpl.min_recharge }}</text>
             </view>
             <view class="card-info-row">
-              <text class="info-label">折扣</text>
+              <text class="info-label">服务折扣</text>
               <text class="info-value discount">{{ (tpl.discount_rate * 10).toFixed(1) }}折</text>
+            </view>
+            <view class="card-info-row">
+              <text class="info-label">商品折扣</text>
+              <text class="info-value discount">{{ tpl.product_discount_rate && tpl.product_discount_rate < 1 ? (tpl.product_discount_rate * 10).toFixed(1) + '折' : '无折扣' }}</text>
             </view>
             <view class="card-info-row">
               <text class="info-label">有效期</text>

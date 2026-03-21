@@ -207,7 +207,8 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 		CardName:      tpl.Name,
 		Balance:       req.RechargeAmount,
 		TotalRecharge: req.RechargeAmount,
-		DiscountRate:  tpl.DiscountRate,
+		DiscountRate:        tpl.DiscountRate,
+		ProductDiscountRate: tpl.ProductDiscountRate,
 		ExpireAt:      expireAt,
 		Status:        1,
 	}

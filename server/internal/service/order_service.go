@@ -8,6 +8,7 @@ import (
 	"github.com/neinei960/cat/server/internal/repository"
 	"github.com/neinei960/cat/server/pkg/database"
 	"github.com/neinei960/cat/server/pkg/utils"
+	"gorm.io/gorm"
 )
 
 type OrderService struct {
@@ -135,7 +136,20 @@ func (s *OrderService) MarkPaid(id uint, payMethod, transactionID string) error 
 	order.TransactionID = transactionID
 	order.Status = 1 // completed
 
-	return s.orderRepo.Update(order)
+	if err := s.orderRepo.Update(order); err != nil {
+		return err
+	}
+
+	// 更新客户最近到店时间和到店次数
+	if order.CustomerID != nil {
+		database.DB.Model(&model.Customer{}).Where("id = ?", *order.CustomerID).
+			Updates(map[string]interface{}{
+				"last_visit_at": now,
+				"visit_count":   gorm.Expr("visit_count + 1"),
+			})
+	}
+
+	return nil
 }
 
 // Refund processes a refund

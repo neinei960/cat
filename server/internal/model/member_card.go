@@ -15,7 +15,8 @@ type MemberCard struct {
 	Balance        float64    `json:"balance" gorm:"type:decimal(10,2);default:0"`
 	TotalRecharge  float64    `json:"total_recharge" gorm:"type:decimal(10,2);default:0"`
 	TotalSpent     float64    `json:"total_spent" gorm:"type:decimal(10,2);default:0"`
-	DiscountRate   float64    `json:"discount_rate" gorm:"type:decimal(3,2);not null;default:1"`
+	DiscountRate        float64    `json:"discount_rate" gorm:"type:decimal(3,2);not null;default:1"`
+	ProductDiscountRate float64    `json:"product_discount_rate" gorm:"type:decimal(3,2);not null;default:1"`
 	ExpireAt       *time.Time `json:"expire_at" gorm:"comment:过期时间null=永久"`
 	Status         int        `json:"status" gorm:"default:1;comment:0冻结 1正常"`
 
