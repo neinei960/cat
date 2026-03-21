@@ -70,8 +70,12 @@
             <input v-model="modalForm.min_recharge" type="digit" placeholder="1000" class="input" />
           </view>
           <view class="form-item">
-            <text class="label">折扣比例 * (如0.8=八折)</text>
+            <text class="label">服务折扣 * (如0.8=八折)</text>
             <input v-model="modalForm.discount_rate" type="digit" placeholder="0.9" class="input" />
+          </view>
+          <view class="form-item">
+            <text class="label">商品折扣 (如0.9=九折，1=无折扣)</text>
+            <input v-model="modalForm.product_discount_rate" type="digit" placeholder="1" class="input" />
           </view>
           <view class="form-item">
             <text class="label">有效天数 (0=永久)</text>
@@ -132,7 +136,7 @@ const showAdd = ref(false)
 const showEdit = ref(false)
 const editId = ref(0)
 
-const modalForm = ref({ name: '', min_recharge: '', discount_rate: '', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' })
+const modalForm = ref({ name: '', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' })
 
 const colorPresets = [
   { name: '紫', value: 'linear-gradient(135deg, #4F46E5, #7C3AED)' },
@@ -164,6 +168,7 @@ function editTpl(tpl: MemberCardTemplate) {
     name: tpl.name,
     min_recharge: String(tpl.min_recharge),
     discount_rate: String(tpl.discount_rate),
+    product_discount_rate: String(tpl.product_discount_rate || 1),
     valid_days: String(tpl.valid_days),
     color: tpl.color || 'linear-gradient(135deg, #4F46E5, #7C3AED)',
   }
@@ -224,7 +229,7 @@ async function saveDiscounts() {
 function closeModal() {
   showAdd.value = false
   showEdit.value = false
-  modalForm.value = { name: '', min_recharge: '', discount_rate: '', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }
+  modalForm.value = { name: '', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }
 }
 
 async function onSubmit() {
@@ -236,6 +241,7 @@ async function onSubmit() {
     name: f.name,
     min_recharge: parseFloat(f.min_recharge),
     discount_rate: parseFloat(f.discount_rate),
+    product_discount_rate: parseFloat(f.product_discount_rate) || 1,
     valid_days: parseInt(f.valid_days) || 0,
     color: f.color,
   }
