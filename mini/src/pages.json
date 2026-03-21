@@ -1,0 +1,34 @@
+{
+  "pages": [
+    { "path": "pages/index/index", "style": { "navigationBarTitleText": "首页" } },
+    { "path": "pages/booking/service/index", "style": { "navigationBarTitleText": "选择服务" } },
+    { "path": "pages/booking/staff/index", "style": { "navigationBarTitleText": "选择技师" } },
+    { "path": "pages/booking/time/index", "style": { "navigationBarTitleText": "选择时间" } },
+    { "path": "pages/booking/confirm/index", "style": { "navigationBarTitleText": "确认预约" } },
+    { "path": "pages/booking/result/index", "style": { "navigationBarTitleText": "预约结果" } },
+    { "path": "pages/appointment/list/index", "style": { "navigationBarTitleText": "我的预约" } },
+    { "path": "pages/appointment/detail/index", "style": { "navigationBarTitleText": "预约详情" } },
+    { "path": "pages/pet/list/index", "style": { "navigationBarTitleText": "我的宠物" } },
+    { "path": "pages/pet/edit/index", "style": { "navigationBarTitleText": "编辑宠物" } },
+    { "path": "pages/order/list/index", "style": { "navigationBarTitleText": "我的订单" } },
+    { "path": "pages/order/detail/index", "style": { "navigationBarTitleText": "订单详情" } },
+    { "path": "pages/profile/index/index", "style": { "navigationBarTitleText": "我的" } },
+    { "path": "pages/profile/info/index", "style": { "navigationBarTitleText": "个人信息" } }
+  ],
+  "tabBar": {
+    "color": "#999",
+    "selectedColor": "#4F46E5",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/appointment/list/index", "text": "预约" },
+      { "pagePath": "pages/pet/list/index", "text": "宠物" },
+      { "pagePath": "pages/profile/index/index", "text": "我的" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "宠物洗护",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F5F6FA"
+  }
+}

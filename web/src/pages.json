@@ -1,0 +1,167 @@
+{
+	"pages": [
+		{
+			"path": "pages/login/index",
+			"style": {
+				"navigationBarTitleText": "登录",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "工作台"
+			}
+		},
+		{
+			"path": "pages/appointment/calendar",
+			"style": {
+				"navigationBarTitleText": "预约日历"
+			}
+		},
+		{
+			"path": "pages/appointment/list",
+			"style": {
+				"navigationBarTitleText": "预约列表"
+			}
+		},
+		{
+			"path": "pages/appointment/create",
+			"style": {
+				"navigationBarTitleText": "新建预约"
+			}
+		},
+		{
+			"path": "pages/appointment/detail",
+			"style": {
+				"navigationBarTitleText": "预约详情"
+			}
+		},
+		{
+			"path": "pages/staff/list",
+			"style": {
+				"navigationBarTitleText": "员工管理"
+			}
+		},
+		{
+			"path": "pages/staff/edit",
+			"style": {
+				"navigationBarTitleText": "编辑员工"
+			}
+		},
+		{
+			"path": "pages/service/list",
+			"style": {
+				"navigationBarTitleText": "服务管理"
+			}
+		},
+		{
+			"path": "pages/service/edit",
+			"style": {
+				"navigationBarTitleText": "编辑服务"
+			}
+		},
+		{
+			"path": "pages/service/category",
+			"style": {
+				"navigationBarTitleText": "服务分类管理"
+			}
+		},
+		{
+			"path": "pages/customer/list",
+			"style": {
+				"navigationBarTitleText": "客户管理"
+			}
+		},
+		{
+			"path": "pages/customer/detail",
+			"style": {
+				"navigationBarTitleText": "客户详情"
+			}
+		},
+		{
+			"path": "pages/customer/edit",
+			"style": {
+				"navigationBarTitleText": "编辑客户"
+			}
+		},
+		{
+			"path": "pages/customer/trash",
+			"style": {
+				"navigationBarTitleText": "回收站"
+			}
+		},
+		{
+			"path": "pages/product/list",
+			"style": {
+				"navigationBarTitleText": "商品管理"
+			}
+		},
+		{
+			"path": "pages/product/edit",
+			"style": {
+				"navigationBarTitleText": "编辑商品"
+			}
+		},
+		{
+			"path": "pages/product/category",
+			"style": {
+				"navigationBarTitleText": "商品分类管理"
+			}
+		},
+		{
+			"path": "pages/pet/list",
+			"style": {
+				"navigationBarTitleText": "宠物管理"
+			}
+		},
+		{
+			"path": "pages/pet/edit",
+			"style": {
+				"navigationBarTitleText": "编辑宠物"
+			}
+		},
+		{
+			"path": "pages/order/list",
+			"style": {
+				"navigationBarTitleText": "订单管理"
+			}
+		},
+		{
+			"path": "pages/order/detail",
+			"style": {
+				"navigationBarTitleText": "订单详情"
+			}
+		},
+		{
+			"path": "pages/order/create",
+			"style": {
+				"navigationBarTitleText": "开单收银"
+			}
+		},
+		{
+			"path": "pages/dashboard/index",
+			"style": {
+				"navigationBarTitleText": "数据看板"
+			}
+		},
+		{
+			"path": "pages/setting/member-card",
+			"style": {
+				"navigationBarTitleText": "会员卡管理"
+			}
+		},
+		{
+			"path": "pages/shop/settings",
+			"style": {
+				"navigationBarTitleText": "店铺设置"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "宠物洗护管理",
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F5F6FA"
+	}
+}

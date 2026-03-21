@@ -1,0 +1,1307 @@
+<template>
+  <view class="page">
+    <!-- Header -->
+    <view class="page-header">
+      <text class="page-title">🐱 新建预约</text>
+      <text class="page-subtitle">为毛孩子安排一次舒适的洗护体验</text>
+    </view>
+
+    <!-- Step indicator -->
+    <view class="steps-wrapper">
+      <view class="steps">
+        <view v-for="(s, i) in [{n:1, icon:'👤', label:'客户'}, {n:2, icon:'✂️', label:'服务'}, {n:3, icon:'📅', label:'时间'}, {n:4, icon:'✅', label:'确认'}]" :key="s.n"
+          :class="['step-item', step >= s.n ? 'active' : '', step === s.n ? 'current' : '']">
+          <view class="step-circle">
+            <text v-if="step > s.n" class="step-check">✓</text>
+            <text v-else class="step-icon">{{ s.icon }}</text>
+          </view>
+          <text class="step-label">{{ s.label }}</text>
+          <view v-if="i < 3" :class="['step-line', step > s.n ? 'line-active' : '']"></view>
+        </view>
+      </view>
+    </view>
+
+    <!-- Step 1: Customer & Pet -->
+    <view v-if="step === 1" class="step-content">
+      <!-- Tab: 熟客 / 新客 -->
+      <view class="tab-bar">
+        <view :class="['tab', customerMode === 'regular' ? 'tab-active' : '']" @click="customerMode = 'regular'">
+          <text class="tab-icon">💛</text>
+          <text>熟客</text>
+        </view>
+        <view :class="['tab', customerMode === 'new' ? 'tab-active' : '']" @click="customerMode = 'new'">
+          <text class="tab-icon">🌟</text>
+          <text>新客</text>
+        </view>
+      </view>
+
+      <!-- 熟客 Tab -->
+      <view v-if="customerMode === 'regular'">
+        <view class="card">
+          <view class="section-title">
+            <text class="section-icon">👤</text>
+            <text>选择客户</text>
+          </view>
+          <view class="search-bar">
+            <text class="search-icon">🔍</text>
+            <input v-model="customerKeyword" placeholder="输入姓名或手机号搜索" class="search-input" @confirm="searchCustomers" />
+          </view>
+          <view class="option-list">
+            <view
+              v-for="c in customerList" :key="c.ID"
+              :class="['option', form.customer_id === c.ID ? 'selected' : '']"
+              @click="selectCustomer(c)"
+            >
+              <text class="option-icon">{{ form.customer_id === c.ID ? '💜' : '🤍' }}</text>
+              <text>{{ c.nickname || c.phone }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view v-if="form.customer_id" class="card">
+          <view class="section-title">
+            <text class="section-icon">🐾</text>
+            <text>选择宠物</text>
+          </view>
+          <view class="option-list">
+            <view
+              v-for="p in petList" :key="p.ID"
+              :class="['option', form.pet_id === p.ID ? 'selected' : '']"
+              @click="form.pet_id = p.ID"
+            >
+              <text class="option-icon">{{ form.pet_id === p.ID ? '🐱' : '🐾' }}</text>
+              <text>{{ p.name }} ({{ p.species }} {{ p.breed }})</text>
+            </view>
+          </view>
+        </view>
+
+        <button class="btn-primary" @click="nextStep" :disabled="!form.customer_id || !form.pet_id">
+          下一步 →
+        </button>
+      </view>
+
+      <!-- 新客 Tab -->
+      <view v-if="customerMode === 'new'">
+        <view class="card">
+          <view class="section-title">
+            <text class="section-icon">📝</text>
+            <text>客户信息（选填）</text>
+          </view>
+          <view class="form-row">
+            <text class="form-label">👤 姓名</text>
+            <input v-model="newCustomer.nickname" placeholder="客户姓名" class="form-input-direct" />
+          </view>
+          <view class="form-row">
+            <text class="form-label">📱 手机号</text>
+            <input v-model="newCustomer.phone" placeholder="手机号码" class="form-input-direct" type="number" />
+          </view>
+        </view>
+
+        <view class="card">
+          <view class="section-title">
+            <text class="section-icon">📋</text>
+            <text>粘贴宝贝信息</text>
+          </view>
+          <view class="textarea-wrapper">
+            <textarea v-model="templateText" placeholder="将宝贝洗护小调查的内容粘贴到这里，系统会自动解析..." class="template-textarea" />
+          </view>
+          <button class="btn-secondary" @click="parseTemplate">
+            ✨ 智能解析
+          </button>
+        </view>
+
+        <!-- 解析结果预览 -->
+        <view v-if="showParsed" class="card card-highlight">
+          <view class="section-title">
+            <text class="section-icon">🎉</text>
+            <text>解析结果（点击可编辑）</text>
+          </view>
+          <view class="parsed-grid">
+            <view class="parsed-item" v-if="parsed.name" @click="editField('name', '大名')">
+              <text class="parsed-label">🐱 大名</text>
+              <text class="parsed-value">{{ parsed.name }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.breed" @click="editField('breed', '品种')">
+              <text class="parsed-label">🏷️ 品种</text>
+              <text class="parsed-value">{{ parsed.breed }}</text>
+            </view>
+            <view class="parsed-item" @click="editField('gender', '性别')">
+              <text class="parsed-label">⚧ 性别</text>
+              <text class="parsed-value">{{ ['未知','公','母'][parsed.gender] }}</text>
+            </view>
+            <view class="parsed-item">
+              <text class="parsed-label">💉 绝育</text>
+              <text class="parsed-value">{{ parsed.neutered ? '是' : '否' }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.age" @click="editField('age', '年龄')">
+              <text class="parsed-label">🎂 年龄</text>
+              <text class="parsed-value">{{ parsed.age }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.furMatted" @click="editField('furMatted', '毛发打结')">
+              <text class="parsed-label">🧶 打结</text>
+              <text class="parsed-value">{{ parsed.furMatted }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.lastBathTime" @click="editField('lastBathTime', '上次洗澡')">
+              <text class="parsed-label">🛁 上次洗澡</text>
+              <text class="parsed-value">{{ parsed.lastBathTime }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.vaccination" @click="editField('vaccination', '疫苗')">
+              <text class="parsed-label">💉 疫苗</text>
+              <text class="parsed-value">{{ parsed.vaccination }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.healthHistory" @click="editField('healthHistory', '疾病史')">
+              <text class="parsed-label">🏥 疾病史</text>
+              <text class="parsed-value">{{ parsed.healthHistory }}</text>
+            </view>
+            <view class="parsed-item" v-if="parsed.personality" @click="editField('personality', '性格')">
+              <text class="parsed-label">😸 性格</text>
+              <text class="parsed-value">{{ parsed.personality }}</text>
+            </view>
+            <view class="parsed-item full-width" v-if="parsed.reactions" @click="editField('reactions', '特殊反应')">
+              <text class="parsed-label">⚡ 特殊反应</text>
+              <text class="parsed-value">{{ parsed.reactions }}</text>
+            </view>
+            <view class="parsed-item full-width" v-if="parsed.source">
+              <text class="parsed-label">📍 来源</text>
+              <text class="parsed-value">{{ parsed.source }}</text>
+            </view>
+          </view>
+        </view>
+
+        <button class="btn-primary" @click="submitNewCustomer" :disabled="!canSubmitNew" :loading="newSubmitting">
+          下一步 →
+        </button>
+      </view>
+    </view>
+
+    <!-- Step 2: Services -->
+    <view v-if="step === 2" class="step-content">
+      <view class="card">
+        <view class="section-title">
+          <text class="section-icon">✂️</text>
+          <text>选择服务（可多选）</text>
+        </view>
+        <view class="option-list">
+          <view
+            v-for="s in serviceList" :key="s.ID"
+            :class="['option service-option', form.service_ids.includes(s.ID) ? 'selected' : '']"
+            @click="toggleService(s.ID)"
+          >
+            <view class="svc-row">
+              <view class="svc-left">
+                <text class="svc-check">{{ form.service_ids.includes(s.ID) ? '☑️' : '⬜' }}</text>
+                <text class="svc-name">{{ s.name }}</text>
+              </view>
+              <view class="svc-right">
+                <text class="svc-price">¥{{ s.base_price }}</text>
+                <text class="svc-duration">{{ s.duration }}分钟</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="summary-card" v-if="form.service_ids.length">
+        <view class="summary-row">
+          <text class="summary-label">💰 合计费用</text>
+          <text class="summary-amount">¥{{ totalAmount }}</text>
+        </view>
+        <view class="summary-row">
+          <text class="summary-label">⏱️ 预计时长</text>
+          <text class="summary-duration">{{ totalDuration }}分钟</text>
+        </view>
+      </view>
+
+      <view class="btn-row">
+        <button class="btn-ghost" @click="step = 1">← 上一步</button>
+        <button class="btn-primary" @click="nextStep" :disabled="form.service_ids.length === 0">下一步 →</button>
+      </view>
+    </view>
+
+    <!-- Step 3: Date & Time -->
+    <view v-if="step === 3" class="step-content">
+      <view class="card">
+        <view class="section-title">
+          <text class="section-icon">📅</text>
+          <text>选择日期</text>
+        </view>
+        <picker mode="date" :value="form.date" @change="onDateChange">
+          <view class="date-picker">
+            <text class="date-icon">📆</text>
+            <text :class="form.date ? 'date-text' : 'date-placeholder'">{{ form.date || '点击选择日期' }}</text>
+            <text class="date-arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view v-if="slotsLoading" class="loading-card">
+        <text class="loading-text">⏳ 查询可用时段...</text>
+      </view>
+      <view v-else-if="staffSlots.length === 0 && form.date" class="empty-card">
+        <text class="empty-icon">😿</text>
+        <text class="empty-text">该日期暂无可用时段</text>
+      </view>
+
+      <view v-for="ss in staffSlots" :key="ss.staff.ID" class="card">
+        <view class="staff-name">
+          <text class="staff-icon">💇</text>
+          <text>{{ ss.staff.name }}</text>
+        </view>
+        <view class="slots-grid">
+          <view
+            v-for="slot in ss.slots" :key="slot.start_time"
+            :class="['slot', form.staff_id === ss.staff.ID && form.start_time === slot.start_time ? 'selected' : '']"
+            @click="selectSlot(ss.staff.ID, slot.start_time)"
+          >
+            {{ slot.start_time }}
+          </view>
+        </view>
+      </view>
+
+      <view class="btn-row">
+        <button class="btn-ghost" @click="step = 2">← 上一步</button>
+        <button class="btn-primary" @click="nextStep" :disabled="!form.date || !form.start_time">下一步 →</button>
+      </view>
+    </view>
+
+    <!-- Step 4: Confirm -->
+    <view v-if="step === 4" class="step-content">
+      <view class="card confirm-card">
+        <view class="confirm-header">
+          <text class="confirm-title">📋 预约详情</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">👤 客户</text>
+          <text class="value">{{ selectedCustomer?.nickname || newCustomer.nickname || '散客' }}</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">🐱 宠物</text>
+          <text class="value">{{ selectedPet?.name || parsed.name }}</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">✂️ 服务</text>
+          <text class="value">{{ selectedServiceNames }}</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">📅 日期</text>
+          <text class="value">{{ form.date }}</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">⏰ 时间</text>
+          <text class="value">{{ form.start_time }}</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">💇 技师</text>
+          <text class="value">{{ selectedStaffName }}</text>
+        </view>
+        <view class="confirm-row confirm-row-amount">
+          <text class="label">💰 金额</text>
+          <text class="amount">¥{{ totalAmount }}</text>
+        </view>
+      </view>
+
+      <view class="card">
+        <view class="form-row" style="margin-bottom: 0;">
+          <text class="form-label">📝 备注</text>
+          <view class="input-wrapper">
+            <textarea v-model="form.notes" placeholder="有什么需要特别注意的吗？" class="textarea" />
+          </view>
+        </view>
+      </view>
+
+      <view class="btn-row">
+        <button class="btn-ghost" @click="step = 3">← 上一步</button>
+        <button class="btn-submit" @click="onSubmit" :loading="submitting">🎉 确认预约</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, nextTick } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import { getCustomerList, getCustomerPets, createCustomer } from '@/api/customer'
+import { createPet } from '@/api/pet'
+import { getServiceList } from '@/api/service'
+import { getAvailableSlots, createAppointment } from '@/api/appointment'
+import { safeBack } from '@/utils/navigate'
+
+const step = ref(1)
+const submitting = ref(false)
+const slotsLoading = ref(false)
+const customerMode = ref<'regular' | 'new'>('regular')
+
+const form = ref({
+  customer_id: 0, pet_id: 0, staff_id: 0,
+  date: '', start_time: '', service_ids: [] as number[], notes: '',
+})
+
+const customerKeyword = ref('')
+const customerList = ref<Customer[]>([])
+const petList = ref<Pet[]>([])
+const serviceList = ref<ServiceItem[]>([])
+const staffSlots = ref<any[]>([])
+
+// New customer fields
+const newCustomer = ref({ nickname: '', phone: '' })
+const templateText = ref('')
+const newSubmitting = ref(false)
+
+interface ParsedPetInfo {
+  name: string
+  age: string
+  breed: string
+  gender: number
+  neutered: boolean
+  furMatted: string
+  lastBathTime: string
+  vaccination: string
+  healthHistory: string
+  personality: string
+  reactions: string
+  source: string  // 来源，如"树街の猫"
+}
+
+const showParsed = ref(false)
+const parseKey = ref(0)
+const parsed = reactive<ParsedPetInfo>({
+  name: '', age: '', breed: '', gender: 0, neutered: false,
+  furMatted: '', lastBathTime: '', vaccination: '',
+  healthHistory: '', personality: '', reactions: '', source: '',
+})
+
+const canSubmitNew = computed(() => {
+  // 有手机号、有姓名、或有解析出猫咪名，任一即可
+  return newCustomer.value.phone.trim() !== '' || newCustomer.value.nickname.trim() !== '' || (showParsed.value && parsed.name.trim() !== '')
+})
+
+const selectedCustomer = computed(() => customerList.value.find(c => c.ID === form.value.customer_id))
+const selectedPet = computed(() => petList.value.find(p => p.ID === form.value.pet_id))
+const selectedServiceNames = computed(() =>
+  form.value.service_ids.map(id => serviceList.value.find(s => s.ID === id)?.name).filter(Boolean).join(' + ')
+)
+const selectedStaffName = computed(() => {
+  for (const ss of staffSlots.value) {
+    if (ss.staff.ID === form.value.staff_id) return ss.staff.name
+  }
+  return '待分配'
+})
+
+const totalAmount = computed(() =>
+  form.value.service_ids.reduce((sum, id) => {
+    const s = serviceList.value.find(sv => sv.ID === id)
+    return sum + (s?.base_price || 0)
+  }, 0)
+)
+const totalDuration = computed(() =>
+  form.value.service_ids.reduce((sum, id) => {
+    const s = serviceList.value.find(sv => sv.ID === id)
+    return sum + (s?.duration || 0)
+  }, 0)
+)
+
+onLoad(async (query) => {
+  if (query?.date) form.value.date = query.date
+  if (query?.staff_id) form.value.staff_id = parseInt(query.staff_id)
+  if (query?.time) form.value.start_time = query.time
+
+  const [cRes, sRes] = await Promise.all([
+    getCustomerList({ page: 1, page_size: 100 }),
+    getServiceList({ page: 1, page_size: 100 }),
+  ])
+  customerList.value = cRes.data.list || []
+  serviceList.value = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+})
+
+async function searchCustomers() {
+  const res = await getCustomerList({ page: 1, page_size: 50, keyword: customerKeyword.value || undefined })
+  customerList.value = res.data.list || []
+}
+
+async function selectCustomer(c: Customer) {
+  form.value.customer_id = c.ID
+  form.value.pet_id = 0
+  const res = await getCustomerPets(c.ID)
+  petList.value = res.data || []
+}
+
+function toggleService(id: number) {
+  const idx = form.value.service_ids.indexOf(id)
+  if (idx >= 0) form.value.service_ids.splice(idx, 1)
+  else form.value.service_ids.push(id)
+}
+
+async function onDateChange(e: any) {
+  form.value.date = e.detail.value
+  form.value.start_time = ''
+  form.value.staff_id = 0
+  if (form.value.service_ids.length > 0) {
+    await loadSlots()
+  }
+}
+
+async function loadSlots() {
+  slotsLoading.value = true
+  try {
+    // Use first selected service for slot calculation
+    const res = await getAvailableSlots(form.value.date, form.value.service_ids[0])
+    staffSlots.value = res.data || []
+  } finally { slotsLoading.value = false }
+}
+
+function selectSlot(staffId: number, startTime: string) {
+  form.value.staff_id = staffId
+  form.value.start_time = startTime
+}
+
+async function nextStep() {
+  if (step.value === 2 && form.value.date) {
+    await loadSlots()
+  }
+  step.value++
+}
+
+// --- Template parsing ---
+
+function parsePetTemplate(text: string): ParsedPetInfo {
+  const result: ParsedPetInfo = {
+    name: '', age: '', breed: '', gender: 0, neutered: false,
+    furMatted: '', lastBathTime: '', vaccination: '',
+    healthHistory: '', personality: '', reactions: '', source: '',
+  }
+
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean)
+
+  // Extract source from first line (e.g. "树街の猫|宝贝洗护小调查" → "树街の猫")
+  if (lines.length > 0 && lines[0].includes('|')) {
+    result.source = lines[0].split('|')[0].trim()
+  }
+  const sectionHeaders = ['基本信息', '健康情况', '性格小秘密']
+
+  for (const line of lines) {
+    if (sectionHeaders.includes(line)) continue
+
+    // Split by ：or :
+    const match = line.match(/^(.+?)[：:](.+)$/)
+    if (!match) continue
+
+    const key = match[1].trim()
+    const val = match[2].trim()
+
+    if (key.includes('大名') || key === '名字' || key === '姓名') {
+      result.name = val
+    } else if (key.includes('年龄')) {
+      result.age = val
+    } else if (key.includes('品种')) {
+      result.breed = val
+    } else if (key.includes('性别')) {
+      if (val.includes('公')) result.gender = 1
+      else if (val.includes('母')) result.gender = 2
+      else result.gender = 0
+    } else if (key.includes('绝育')) {
+      result.neutered = val.includes('是') || val === '已绝育'
+    } else if (key.includes('打结') || key.includes('毛发')) {
+      result.furMatted = val
+    } else if (key.includes('洗澡')) {
+      result.lastBathTime = val
+    } else if (key.includes('疫苗')) {
+      result.vaccination = val
+    } else if (key.includes('疾病') || key.includes('健康')) {
+      result.healthHistory = val
+    } else if (key.includes('i猫') || key.includes('e猫') || key.includes('性格')) {
+      result.personality = val
+    } else if (key.includes('反应') || key.includes('对水')) {
+      result.reactions = val
+    }
+  }
+
+  return result
+}
+
+function parseTemplate() {
+  if (!templateText.value.trim()) {
+    uni.showToast({ title: '请先粘贴模版内容', icon: 'none' })
+    return
+  }
+  const result = parsePetTemplate(templateText.value)
+  // Hide, assign new values, bump key to force DOM recreation
+  showParsed.value = false
+  Object.assign(parsed, result)
+  parseKey.value++
+  nextTick(() => {
+    showParsed.value = true
+  })
+  if (!result.name) {
+    uni.showToast({ title: '未识别到猫咪名字，请手动填写', icon: 'none' })
+  }
+}
+
+function ageToBirthDate(age: string): string | undefined {
+  if (!age) return undefined
+  const now = new Date()
+  const monthMatch = age.match(/(\d+)\s*个?月/)
+  const yearMatch = age.match(/(\d+)\s*岁/)
+  if (monthMatch) {
+    now.setMonth(now.getMonth() - parseInt(monthMatch[1]))
+  } else if (yearMatch) {
+    now.setFullYear(now.getFullYear() - parseInt(yearMatch[1]))
+  } else {
+    return undefined
+  }
+  return now.toISOString().split('T')[0]
+}
+
+function editField(field: string, label: string) {
+  const current = (parsed as any)[field] || ''
+  uni.showModal({
+    title: `修改${label}`,
+    editable: true,
+    placeholderText: `请输入${label}`,
+    content: String(current),
+    success: (res) => {
+      if (res.confirm && res.content !== undefined) {
+        (parsed as any)[field] = res.content
+      }
+    }
+  })
+}
+
+function buildCareNotes(p: ParsedPetInfo): string {
+  const parts: string[] = []
+  if (p.furMatted) parts.push(`毛发打结：${p.furMatted}`)
+  if (p.lastBathTime) parts.push(`上次洗澡：${p.lastBathTime}`)
+  if (p.vaccination) parts.push(`疫苗：${p.vaccination}`)
+  if (p.healthHistory) parts.push(`疾病史：${p.healthHistory}`)
+  return parts.join('\n')
+}
+
+async function submitNewCustomer() {
+  const phone = newCustomer.value.phone.trim()
+  const nickname = newCustomer.value.nickname.trim()
+  const hasPetInfo = showParsed.value && parsed.name.trim() !== ''
+
+  if (!phone && !nickname && !hasPetInfo) {
+    uni.showToast({ title: '请至少填写手机号或姓名', icon: 'none' })
+    return
+  }
+
+  newSubmitting.value = true
+  try {
+    let customerId = 0
+
+    // Step 1: Find or create customer
+    if (phone) {
+      const searchRes = await getCustomerList({ page: 1, page_size: 1, keyword: phone })
+      const existing = (searchRes.data.list || []).find((c: Customer) => c.phone === phone)
+      if (existing) {
+        customerId = existing.ID
+        uni.showToast({ title: '该客户已存在，已自动关联', icon: 'none' })
+      } else {
+        const cRes = await createCustomer({ phone, nickname: nickname || phone })
+        customerId = cRes.data.ID
+      }
+    } else {
+      const cRes = await createCustomer({ nickname: nickname || `散客-${parsed.name || '未命名'}` })
+      customerId = cRes.data.ID
+    }
+
+    form.value.customer_id = customerId
+
+    // Step 2: Create pet (only if we have pet info from parsing)
+    if (hasPetInfo) {
+      const petData: Partial<Pet> = {
+        customer_id: customerId,
+        name: parsed.name,
+        species: '猫',
+        breed: parsed.breed || '',
+        gender: parsed.gender,
+        neutered: parsed.neutered,
+        personality: parsed.personality || '',
+        behavior_notes: parsed.reactions || '',
+        care_notes: buildCareNotes(parsed),
+      }
+
+      const birthDate = ageToBirthDate(parsed.age)
+      if (birthDate) {
+        petData.birth_date = birthDate
+      }
+
+      const petRes = await createPet(petData)
+      form.value.pet_id = petRes.data.ID
+    }
+
+    // Auto-fill appointment notes with key info for the groomer
+    const notesParts: string[] = []
+    if (parsed.source) notesParts.push(`来源：${parsed.source}`)
+    if (parsed.furMatted && parsed.furMatted !== '否' && parsed.furMatted !== '无') notesParts.push(`毛发打结：${parsed.furMatted}`)
+    if (parsed.lastBathTime) notesParts.push(`上次洗澡：${parsed.lastBathTime}`)
+    if (parsed.reactions) notesParts.push(`注意：${parsed.reactions}`)
+    if (parsed.personality) notesParts.push(`性格：${parsed.personality}`)
+    if (notesParts.length) form.value.notes = notesParts.join('\n')
+
+    step.value = 2
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '创建失败', icon: 'none' })
+  } finally {
+    newSubmitting.value = false
+  }
+}
+
+async function onSubmit() {
+  submitting.value = true
+  try {
+    await createAppointment({
+      customer_id: form.value.customer_id,
+      pet_id: form.value.pet_id,
+      staff_id: form.value.staff_id || undefined,
+      date: form.value.date,
+      start_time: form.value.start_time,
+      service_ids: form.value.service_ids,
+      source: 2,
+      notes: form.value.notes,
+    })
+    uni.showToast({ title: '预约成功', icon: 'success' })
+    setTimeout(() => safeBack(), 500)
+  } finally { submitting.value = false }
+}
+</script>
+
+<style scoped>
+/* ========== Page Base ========== */
+.page {
+  padding: 24rpx 28rpx 48rpx;
+  background: linear-gradient(180deg, #EEF2FF 0%, #F9FAFB 40%, #F3F4F6 100%);
+  min-height: 100vh;
+}
+
+/* ========== Header ========== */
+.page-header {
+  text-align: center;
+  padding: 20rpx 0 8rpx;
+  margin-bottom: 16rpx;
+}
+.page-title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #1E1B4B;
+  display: block;
+  letter-spacing: 2rpx;
+}
+.page-subtitle {
+  font-size: 24rpx;
+  color: #6B7280;
+  display: block;
+  margin-top: 8rpx;
+}
+
+/* ========== Step Indicator ========== */
+.steps-wrapper {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 28rpx 20rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 4rpx 20rpx rgba(79, 70, 229, 0.08);
+}
+.steps {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+}
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+}
+.step-circle {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #F3F4F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10rpx;
+  transition: all 0.3s;
+  border: 3rpx solid #E5E7EB;
+}
+.step-item.active .step-circle {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+}
+.step-item.current .step-circle {
+  background: #4F46E5;
+  border-color: #4F46E5;
+  box-shadow: 0 4rpx 16rpx rgba(79, 70, 229, 0.35);
+}
+.step-icon {
+  font-size: 28rpx;
+}
+.step-item.current .step-icon {
+  font-size: 26rpx;
+}
+.step-check {
+  font-size: 28rpx;
+  color: #4F46E5;
+  font-weight: 700;
+}
+.step-label {
+  font-size: 22rpx;
+  color: #9CA3AF;
+  font-weight: 500;
+}
+.step-item.active .step-label {
+  color: #6366F1;
+}
+.step-item.current .step-label {
+  color: #4F46E5;
+  font-weight: 700;
+}
+.step-line {
+  position: absolute;
+  top: 32rpx;
+  left: calc(50% + 36rpx);
+  width: calc(100% - 72rpx);
+  height: 4rpx;
+  background: #E5E7EB;
+  border-radius: 2rpx;
+}
+.step-line.line-active {
+  background: linear-gradient(90deg, #4F46E5, #818CF8);
+}
+
+/* ========== Content Area ========== */
+.step-content {
+  min-height: 400rpx;
+}
+
+/* ========== Card ========== */
+.card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+  border: 2rpx solid rgba(229, 231, 235, 0.6);
+}
+.card-highlight {
+  border-color: #C7D2FE;
+  background: linear-gradient(135deg, #fff 0%, #F5F3FF 100%);
+  box-shadow: 0 4rpx 24rpx rgba(79, 70, 229, 0.1);
+}
+
+/* ========== Tab Bar ========== */
+.tab-bar {
+  display: flex;
+  margin-bottom: 24rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 8rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+  border: 2rpx solid rgba(229, 231, 235, 0.6);
+}
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 20rpx 0;
+  font-size: 30rpx;
+  color: #9CA3AF;
+  border-radius: 16rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+.tab-active {
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4rpx 16rpx rgba(79, 70, 229, 0.3);
+}
+.tab-icon {
+  font-size: 28rpx;
+}
+
+/* ========== Section Title ========== */
+.section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1E1B4B;
+  margin-bottom: 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.section-icon {
+  font-size: 28rpx;
+}
+
+/* ========== Search Bar ========== */
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: #F9FAFB;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  padding: 4rpx 20rpx;
+  margin-bottom: 20rpx;
+  transition: all 0.2s;
+}
+.search-icon {
+  font-size: 28rpx;
+  margin-right: 12rpx;
+}
+.search-input {
+  flex: 1;
+  font-size: 28rpx;
+  padding: 18rpx 0;
+  background: transparent;
+  color: #374151;
+}
+
+/* ========== Option List ========== */
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.option {
+  background: #F9FAFB;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  font-size: 28rpx;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  transition: all 0.2s;
+}
+.option:active {
+  transform: scale(0.98);
+}
+.option.selected {
+  border-color: #4F46E5;
+  background: linear-gradient(135deg, #EEF2FF, #F5F3FF);
+  color: #4338CA;
+  box-shadow: 0 2rpx 12rpx rgba(79, 70, 229, 0.12);
+}
+.option-icon {
+  font-size: 28rpx;
+}
+
+/* ========== Service Options ========== */
+.service-option {
+  padding: 20rpx 24rpx;
+}
+.svc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.svc-left {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.svc-check {
+  font-size: 28rpx;
+}
+.svc-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #1F2937;
+}
+.service-option.selected .svc-name {
+  color: #4338CA;
+}
+.svc-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.svc-price {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #4F46E5;
+}
+.svc-duration {
+  font-size: 22rpx;
+  color: #9CA3AF;
+  margin-top: 4rpx;
+}
+
+/* ========== Summary Card ========== */
+.summary-card {
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin-bottom: 8rpx;
+  box-shadow: 0 6rpx 24rpx rgba(79, 70, 229, 0.3);
+}
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 0;
+}
+.summary-label {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.85);
+}
+.summary-amount {
+  font-size: 36rpx;
+  font-weight: 800;
+  color: #fff;
+}
+.summary-duration {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ========== Date Picker ========== */
+.date-picker {
+  display: flex;
+  align-items: center;
+  background: #F9FAFB;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  padding: 22rpx 24rpx;
+  font-size: 28rpx;
+  transition: all 0.2s;
+}
+.date-icon {
+  font-size: 30rpx;
+  margin-right: 14rpx;
+}
+.date-text {
+  flex: 1;
+  color: #1F2937;
+  font-weight: 600;
+}
+.date-placeholder {
+  flex: 1;
+  color: #9CA3AF;
+}
+.date-arrow {
+  font-size: 36rpx;
+  color: #C7D2FE;
+  font-weight: 300;
+}
+
+/* ========== Loading & Empty ========== */
+.loading-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 48rpx;
+  text-align: center;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #6B7280;
+}
+.empty-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 64rpx 48rpx;
+  text-align: center;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+}
+.empty-icon {
+  font-size: 56rpx;
+}
+.empty-text {
+  font-size: 28rpx;
+  color: #9CA3AF;
+}
+
+/* ========== Staff & Slots ========== */
+.staff-name {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1E1B4B;
+  margin-bottom: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.staff-icon {
+  font-size: 28rpx;
+}
+.slots-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.slot {
+  padding: 18rpx 28rpx;
+  background: #F9FAFB;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  color: #374151;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.slot:active {
+  transform: scale(0.95);
+}
+.slot.selected {
+  border-color: #4F46E5;
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4rpx 16rpx rgba(79, 70, 229, 0.3);
+}
+
+/* ========== Confirm ========== */
+.confirm-card {
+  border: none;
+  overflow: hidden;
+}
+.confirm-header {
+  margin: -28rpx -28rpx 24rpx -28rpx;
+  padding: 24rpx 28rpx;
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+}
+.confirm-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 2rpx solid #F3F4F6;
+  font-size: 28rpx;
+}
+.confirm-row:last-child {
+  border-bottom: none;
+}
+.confirm-row .label {
+  color: #6B7280;
+  font-size: 26rpx;
+}
+.confirm-row .value {
+  color: #1F2937;
+  font-weight: 600;
+  text-align: right;
+  max-width: 60%;
+}
+.confirm-row-amount {
+  margin-top: 8rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx dashed #E5E7EB;
+}
+.amount {
+  font-size: 36rpx;
+  color: #4F46E5;
+  font-weight: 800;
+}
+
+/* ========== Forms ========== */
+.form-row {
+  margin-bottom: 20rpx;
+}
+.form-row-half {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+}
+.half {
+  flex: 1;
+}
+.form-label {
+  font-size: 24rpx;
+  color: #6B7280;
+  margin-bottom: 10rpx;
+  display: block;
+  font-weight: 500;
+}
+.form-input-direct {
+  background: #FFFFFF;
+  border: 2rpx solid #C7D2FE;
+  border-radius: 14rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  width: 100%;
+  box-sizing: border-box;
+  color: #1F2937;
+  height: 80rpx;
+  line-height: 80rpx;
+}
+.input-wrapper {
+  background: #F9FAFB;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 14rpx;
+  transition: all 0.2s;
+}
+.form-input {
+  background: transparent;
+  border: none;
+  padding: 20rpx 24rpx;
+  font-size: 28rpx;
+  width: 100%;
+  box-sizing: border-box;
+  color: #1F2937;
+  min-height: 60rpx;
+}
+.picker-value {
+  color: #374151;
+  font-weight: 500;
+}
+
+/* ========== Textarea ========== */
+.textarea-wrapper {
+  background: #F9FAFB;
+  border: 2rpx dashed #C7D2FE;
+  border-radius: 16rpx;
+  overflow: hidden;
+  margin-bottom: 4rpx;
+}
+.template-textarea {
+  background: transparent;
+  border: none;
+  padding: 24rpx;
+  font-size: 26rpx;
+  width: 100%;
+  height: 280rpx;
+  box-sizing: border-box;
+  color: #374151;
+  line-height: 1.6;
+}
+.textarea-sm {
+  height: 120rpx;
+}
+
+/* Parsed results grid */
+.parsed-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.parsed-item {
+  width: calc(50% - 8rpx);
+  background: #fff;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  padding: 16rpx 20rpx;
+  box-sizing: border-box;
+}
+.parsed-item.full-width {
+  width: 100%;
+}
+.parsed-label {
+  font-size: 22rpx;
+  color: #9CA3AF;
+  display: block;
+  margin-bottom: 4rpx;
+}
+.parsed-value {
+  font-size: 28rpx;
+  color: #1F2937;
+  font-weight: 500;
+  display: block;
+  word-break: break-all;
+}
+.textarea {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 20rpx 24rpx;
+  font-size: 28rpx;
+  width: 100%;
+  height: 140rpx;
+  color: #374151;
+  box-sizing: border-box;
+}
+
+/* ========== Buttons ========== */
+.btn-row {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 36rpx;
+  padding-bottom: 20rpx;
+}
+
+.btn-primary {
+  flex: 1;
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  color: #fff;
+  border: none;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  padding: 24rpx 0;
+  letter-spacing: 2rpx;
+  box-shadow: 0 6rpx 20rpx rgba(79, 70, 229, 0.3);
+  margin-top: 28rpx;
+}
+.btn-primary:active {
+  transform: scale(0.98);
+  box-shadow: 0 2rpx 10rpx rgba(79, 70, 229, 0.3);
+}
+.btn-primary[disabled] {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.btn-secondary {
+  background: #EEF2FF;
+  color: #4F46E5;
+  border: 2rpx solid #C7D2FE;
+  border-radius: 14rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  padding: 20rpx 0;
+  margin-top: 16rpx;
+  letter-spacing: 2rpx;
+}
+.btn-secondary:active {
+  background: #E0E7FF;
+}
+
+.btn-ghost {
+  flex: 0.6;
+  background: #fff;
+  color: #6B7280;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  padding: 24rpx 0;
+}
+.btn-ghost:active {
+  background: #F9FAFB;
+}
+
+.btn-submit {
+  flex: 1;
+  background: linear-gradient(135deg, #059669, #10B981);
+  color: #fff;
+  border: none;
+  border-radius: 16rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+  padding: 24rpx 0;
+  letter-spacing: 4rpx;
+  box-shadow: 0 6rpx 20rpx rgba(5, 150, 105, 0.3);
+}
+.btn-submit:active {
+  transform: scale(0.98);
+}
+</style>
