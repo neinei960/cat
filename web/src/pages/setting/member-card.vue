@@ -3,7 +3,7 @@
     <view class="page">
       <view class="header">
         <text class="title">会员卡管理</text>
-        <view class="btn-add" @click="showAdd = true">+ 新增模板</view>
+        <view class="btn-add" @click="onAdd">+ 新增模板</view>
       </view>
 
       <view v-if="loading" class="loading">加载中...</view>
@@ -25,10 +25,6 @@
               <text class="info-value discount">{{ (tpl.discount_rate * 10).toFixed(1) }}折</text>
             </view>
             <view class="card-info-row">
-              <text class="info-label">商品折扣</text>
-              <text class="info-value discount">{{ tpl.product_discount_rate && tpl.product_discount_rate < 1 ? (tpl.product_discount_rate * 10).toFixed(1) + '折' : '无折扣' }}</text>
-            </view>
-            <view class="card-info-row">
               <text class="info-label">有效期</text>
               <text class="info-value">{{ tpl.valid_days > 0 ? tpl.valid_days + '天' : '永久' }}</text>
             </view>
@@ -40,18 +36,19 @@
             </view>
           </view>
           <!-- Per-category discounts -->
-          <view class="card-discounts" v-if="tpl.discounts && tpl.discounts.length > 0">
-            <view class="discount-row" v-for="d in tpl.discounts" :key="d.ID">
+          <view class="card-discounts">
+            <view class="discount-row" v-if="tpl.product_discount_rate && tpl.product_discount_rate < 1">
+              <text class="discount-cat">商品折扣</text>
+              <text class="discount-val">{{ (tpl.product_discount_rate * 10).toFixed(1) }}折</text>
+            </view>
+            <view class="discount-row" v-for="d in (tpl.discounts || [])" :key="d.ID">
               <text class="discount-cat">{{ d.category_name }}</text>
               <text class="discount-val">{{ (d.discount_rate * 10).toFixed(1) }}折</text>
             </view>
-          </view>
-          <view class="card-discounts" v-else>
-            <text class="no-discount">统一折扣，未设分类折扣</text>
+            <text class="no-discount" v-if="(!tpl.discounts || tpl.discounts.length === 0) && !(tpl.product_discount_rate && tpl.product_discount_rate < 1)">统一折扣，未设分类折扣</text>
           </view>
           <view class="card-actions">
             <text class="action-btn" @click="editTpl(tpl)">编辑</text>
-            <text class="action-btn" @click="editDiscounts(tpl)">设置折扣</text>
             <text class="action-btn danger" @click="deleteTpl(tpl)">删除</text>
           </view>
         </view>
@@ -74,10 +71,6 @@
             <input v-model="modalForm.discount_rate" type="digit" placeholder="0.9" class="input" />
           </view>
           <view class="form-item">
-            <text class="label">商品折扣 (如0.9=九折，1=无折扣)</text>
-            <input v-model="modalForm.product_discount_rate" type="digit" placeholder="1" class="input" />
-          </view>
-          <view class="form-item">
             <text class="label">有效天数 (0=永久)</text>
             <input v-model="modalForm.valid_days" type="number" placeholder="0" class="input" />
           </view>
@@ -94,28 +87,29 @@
               </view>
             </view>
           </view>
+          <!-- 折扣设置（内嵌） -->
+          <view class="discount-section">
+            <text class="discount-section-title">折扣设置</text>
+            <text class="discount-hint">留空或1表示不打折</text>
+            <view class="discount-form">
+              <text class="discount-form-cat">商品统一折扣</text>
+              <view class="discount-input-wrap">
+                <input v-model="modalForm.product_discount_rate" type="digit" placeholder="如0.9" class="input discount-input" />
+                <text class="discount-unit">{{ modalForm.product_discount_rate && parseFloat(modalForm.product_discount_rate) < 1 ? (parseFloat(modalForm.product_discount_rate) * 10).toFixed(1) + '折' : '无折扣' }}</text>
+              </view>
+            </view>
+            <view class="discount-form" v-for="d in discountForm" :key="d.category_id">
+              <text class="discount-form-cat">{{ d.category_name }}</text>
+              <view class="discount-input-wrap">
+                <input v-model="d.discount_rate" type="digit" placeholder="如0.8" class="input discount-input" />
+                <text class="discount-unit">{{ d.discount_rate && parseFloat(d.discount_rate) < 1 ? (parseFloat(d.discount_rate) * 10).toFixed(1) + '折' : '无折扣' }}</text>
+              </view>
+            </view>
+            <view v-if="discountForm.length === 0" class="empty-sm">暂无服务分类，商品折扣已可设置</view>
+          </view>
           <view class="modal-btns">
             <view class="modal-btn cancel" @click="closeModal">取消</view>
             <view class="modal-btn confirm" @click="onSubmit">确定</view>
-          </view>
-        </view>
-      </view>
-      <!-- Discount edit modal -->
-      <view class="modal-mask" v-if="showDiscountModal" @click="showDiscountModal = false">
-        <view class="modal-body" @click.stop>
-          <text class="modal-title">设置分类折扣 - {{ discountTplName }}</text>
-          <text class="discount-hint">为每个一级分类设置不同折扣（留空或1表示不打折）</text>
-          <view class="discount-form" v-for="(d, idx) in discountForm" :key="d.category_id">
-            <text class="discount-form-cat">{{ d.category_name }}</text>
-            <view class="discount-input-wrap">
-              <input v-model="d.discount_rate" type="digit" placeholder="如0.8" class="input discount-input" />
-              <text class="discount-unit">{{ d.discount_rate && parseFloat(d.discount_rate) < 1 ? (parseFloat(d.discount_rate) * 10).toFixed(1) + '折' : '无折扣' }}</text>
-            </view>
-          </view>
-          <view v-if="discountForm.length === 0" class="empty-sm">请先在"服务管理"中创建一级分类</view>
-          <view class="modal-btns">
-            <view class="modal-btn cancel" @click="showDiscountModal = false">取消</view>
-            <view class="modal-btn confirm" @click="saveDiscounts">保存</view>
           </view>
         </view>
       </view>
@@ -162,7 +156,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
-function editTpl(tpl: MemberCardTemplate) {
+async function editTpl(tpl: MemberCardTemplate) {
   editId.value = tpl.ID
   modalForm.value = {
     name: tpl.name,
@@ -172,64 +166,39 @@ function editTpl(tpl: MemberCardTemplate) {
     valid_days: String(tpl.valid_days),
     color: tpl.color || 'linear-gradient(135deg, #4F46E5, #7C3AED)',
   }
+  await loadDiscountForm(tpl)
   showEdit.value = true
 }
 
-// Discount editing
-const showDiscountModal = ref(false)
-const discountTplId = ref(0)
-const discountTplName = ref('')
-const discountForm = ref<{ category_id: number; category_name: string; discount_rate: string }[]>([])
-const serviceCategories = ref<ServiceCategory[]>([])
-
-async function editDiscounts(tpl: MemberCardTemplate) {
-  discountTplId.value = tpl.ID
-  discountTplName.value = tpl.name
-
-  // Load service categories if not loaded
+async function loadDiscountForm(tpl?: MemberCardTemplate) {
   if (serviceCategories.value.length === 0) {
     try {
       const res = await getCategoryTree()
       serviceCategories.value = res.data || []
     } catch {}
   }
-
-  // Build form: one row per 1st-level category, pre-fill existing discounts
   discountForm.value = serviceCategories.value.map(cat => {
-    const existing = (tpl.discounts || []).find(d => d.category_id === cat.ID)
+    const existing = tpl?.discounts?.find(d => d.category_id === cat.ID)
     return {
       category_id: cat.ID,
       category_name: cat.name,
       discount_rate: existing ? String(existing.discount_rate) : '',
     }
   })
-
-  showDiscountModal.value = true
 }
 
-async function saveDiscounts() {
-  const discounts = discountForm.value
-    .filter(d => d.discount_rate && parseFloat(d.discount_rate) > 0 && parseFloat(d.discount_rate) < 1)
-    .map(d => ({
-      category_id: d.category_id,
-      category_name: d.category_name,
-      discount_rate: parseFloat(d.discount_rate),
-    }))
-
-  try {
-    await setTemplateDiscounts(discountTplId.value, discounts)
-    uni.showToast({ title: '保存成功', icon: 'success' })
-    showDiscountModal.value = false
-    await loadData()
-  } catch (e: any) {
-    uni.showToast({ title: e.message || '保存失败', icon: 'none' })
-  }
-}
+const discountForm = ref<{ category_id: number; category_name: string; discount_rate: string }[]>([])
+const serviceCategories = ref<ServiceCategory[]>([])
 
 function closeModal() {
   showAdd.value = false
   showEdit.value = false
   modalForm.value = { name: '', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }
+}
+
+async function onAdd() {
+  await loadDiscountForm()
+  showAdd.value = true
 }
 
 async function onSubmit() {
@@ -246,10 +215,23 @@ async function onSubmit() {
     color: f.color,
   }
   try {
+    let tplId = editId.value
     if (showEdit.value) {
-      await updateCardTemplate(editId.value, data)
+      await updateCardTemplate(tplId, data)
     } else {
-      await createCardTemplate(data)
+      const res = await createCardTemplate(data)
+      tplId = res.data?.ID
+    }
+    // 保存分类折扣
+    if (tplId) {
+      const discounts = discountForm.value
+        .filter(d => d.discount_rate && parseFloat(d.discount_rate) > 0 && parseFloat(d.discount_rate) < 1)
+        .map(d => ({
+          category_id: d.category_id,
+          category_name: d.category_name,
+          discount_rate: parseFloat(d.discount_rate),
+        }))
+      await setTemplateDiscounts(tplId, discounts)
     }
     uni.showToast({ title: '保存成功', icon: 'success' })
     closeModal()
@@ -301,8 +283,8 @@ function deleteTpl(tpl: MemberCardTemplate) {
 .action-btn.danger { color: #EF4444; }
 
 /* Modal */
-.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; }
-.modal-body { background: #fff; border-radius: 20rpx; padding: 40rpx; width: 600rpx; }
+.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; overflow: hidden; }
+.modal-body { background: #fff; border-radius: 20rpx; padding: 40rpx; width: 600rpx; max-height: 80vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .modal-title { font-size: 32rpx; font-weight: 700; color: #1F2937; display: block; text-align: center; margin-bottom: 24rpx; }
 .form-item { margin-bottom: 20rpx; }
 .label { font-size: 26rpx; color: #374151; display: block; margin-bottom: 8rpx; }
@@ -323,8 +305,10 @@ function deleteTpl(tpl: MemberCardTemplate) {
 .discount-val { color: #4F46E5; font-weight: 600; }
 .no-discount { font-size: 22rpx; color: #9CA3AF; }
 
-/* Discount modal */
-.discount-hint { font-size: 22rpx; color: #9CA3AF; display: block; margin-bottom: 16rpx; text-align: center; }
+/* Discount section in modal */
+.discount-section { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #E5E7EB; }
+.discount-section-title { font-size: 28rpx; font-weight: 600; color: #374151; display: block; margin-bottom: 8rpx; }
+.discount-hint { font-size: 22rpx; color: #9CA3AF; display: block; margin-bottom: 16rpx; }
 .discount-form { display: flex; align-items: center; gap: 16rpx; margin-bottom: 12rpx; }
 .discount-form-cat { font-size: 28rpx; color: #374151; font-weight: 500; width: 160rpx; }
 .discount-input-wrap { display: flex; align-items: center; gap: 8rpx; flex: 1; }

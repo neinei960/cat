@@ -100,6 +100,22 @@ func (h *DashboardHandler) CategoryStats(c *gin.Context) {
 	response.Success(c, data)
 }
 
+func (h *DashboardHandler) MemberStats(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if startDate == "" || endDate == "" {
+		response.Error(c, http.StatusBadRequest, "请提供start_date和end_date")
+		return
+	}
+	data, err := h.dashService.GetMemberStats(shopID, startDate, endDate)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, data)
+}
+
 func (h *DashboardHandler) Aggregate(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	date := c.Query("date")

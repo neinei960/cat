@@ -1,12 +1,22 @@
 <template>
   <SideLayout>
   <view class="page">
+
+    <!-- 顶部标题区 -->
     <view class="header">
-      <text class="title">宠物管理</text>
-      <view class="btn-add" @click="goAdd">+ 新增</view>
+      <view class="header-left">
+        <text class="title">宠物档案</text>
+        <text class="subtitle">猫咪洗护健康记录 · 共 {{ total }} 只</text>
+      </view>
+      <view class="btn-add" @click="goAdd">
+        <text class="btn-add-icon">+</text>
+        <text class="btn-add-text">新增档案</text>
+      </view>
     </view>
 
+    <!-- 搜索栏 -->
     <view class="search-bar">
+      <text class="search-icon">🔍</text>
       <input
         v-model="keyword"
         placeholder="搜索猫咪名 / 主人昵称 / 手机号"
@@ -18,48 +28,123 @@
       <view v-if="keyword" class="search-clear" @click="clearSearch">✕</view>
     </view>
 
-    <view v-if="loading" class="loading">加载中...</view>
-    <view v-else-if="groupedList.length === 0" class="empty">暂无宠物</view>
+    <!-- 加载中 -->
+    <view v-if="loading" class="loading">
+      <text class="loading-icon">🐾</text>
+      <text class="loading-text">正在加载猫咪档案...</text>
+    </view>
 
+    <!-- 空状态 -->
+    <view v-else-if="groupedList.length === 0" class="empty">
+      <text class="empty-icon">🐱</text>
+      <text class="empty-title">还没有宠物档案</text>
+      <text class="empty-desc">{{ keyword ? '没有找到匹配的猫咪' : '点击右上角新增第一只猫咪吧' }}</text>
+    </view>
+
+    <!-- 分组列表 -->
     <view v-else class="list">
       <view v-for="group in groupedList" :key="group.key" class="owner-group">
-        <view class="group-header" v-if="group.ownerName">
-          <view class="group-left">
-            <text class="group-label group-label-link" @click.stop="goCustomer(group.key)">👤 {{ group.ownerName }}</text>
-            <view class="owner-info" v-if="group.customer">
-              <text class="owner-tag" v-if="group.customer.member_card">{{ group.customer.member_card.card_name }}</text>
-              <text class="owner-tag owner-tag-balance" v-if="group.customer.member_balance">余额¥{{ group.customer.member_balance }}</text>
-              <text class="owner-tag owner-tag-visit" v-if="group.customer.last_visit_at">上次:{{ formatDate(group.customer.last_visit_at) }}</text>
+
+        <!-- 主人分组头部 -->
+        <view class="group-header" v-if="group.ownerName" @click.stop="goCustomer(group.key)">
+          <view class="group-accent"></view>
+          <view class="group-avatar">
+            <text class="group-avatar-text">{{ group.ownerName.charAt(0) }}</text>
+          </view>
+          <view class="group-info">
+            <view class="group-name-row">
+              <text class="group-name">{{ group.ownerName }}</text>
+              <text class="group-count-badge">{{ group.pets.length }} 只</text>
+            </view>
+            <view class="owner-tags" v-if="group.customer">
+              <text class="owner-tag owner-tag-card" v-if="group.customer.member_card">
+                🎫 {{ group.customer.member_card.card_name }}
+              </text>
+              <text class="owner-tag owner-tag-balance" v-if="group.customer.member_balance">
+                💰 余额 ¥{{ group.customer.member_balance }}
+              </text>
+              <text class="owner-tag owner-tag-visit" v-if="group.customer.last_visit_at">
+                🕐 上次 {{ formatDate(group.customer.last_visit_at) }}
+              </text>
             </view>
           </view>
-          <text class="group-count">{{ group.pets.length }}只</text>
+          <text class="group-arrow">›</text>
         </view>
-        <view class="group-header" v-else>
-          <text class="group-label" style="color: #9CA3AF;">暂无主人</text>
+
+        <!-- 无主人分组头 -->
+        <view class="group-header group-header-none" v-else>
+          <view class="group-accent group-accent-none"></view>
+          <text class="group-name-none">暂无主人信息</text>
         </view>
-        <view class="card" v-for="pet in group.pets" :key="pet.ID" @click="goEdit(pet.ID)">
-          <view class="card-top">
-            <view class="avatar">{{ pet.species === '犬' ? '🐕' : '🐱' }}</view>
-            <view class="info">
-              <text class="name">{{ pet.name }}</text>
-              <text class="breed">{{ pet.breed || '未知品种' }} · {{ pet.gender === 1 ? '♂弟弟' : pet.gender === 2 ? '♀妹妹' : '未知' }}<text v-if="pet.birth_date"> · {{ calcAge(pet.birth_date) }}</text></text>
+
+        <!-- 猫咪卡片 -->
+        <view
+          class="card"
+          v-for="pet in group.pets"
+          :key="pet.ID"
+          @click="goEdit(pet.ID)"
+        >
+          <!-- 左侧 Avatar 区域 -->
+          <view class="card-avatar-col">
+            <img v-if="getPetAvatarUrl(pet.avatar)" :src="getPetAvatarUrl(pet.avatar)" class="avatar-image" />
+            <view v-else class="avatar-circle" :class="pet.species === '犬' ? 'avatar-dog' : 'avatar-cat'">
+              <text class="avatar-emoji">{{ pet.species === '犬' ? '🐕' : '🐱' }}</text>
             </view>
-            <text class="weight" v-if="pet.weight">{{ pet.weight }}kg</text>
+            <text class="avatar-weight" v-if="pet.weight">{{ pet.weight }}kg</text>
           </view>
-          <view class="card-meta">
-            <view class="tags">
-              <text class="tag" v-if="pet.fur_level">{{ pet.fur_level }}</text>
-              <text class="tag" v-if="pet.neutered">已绝育</text>
-              <text class="tag" v-if="pet.personality" :style="{ background: getPersonalityBg(pet.personality), color: getPersonalityColor(pet.personality) }">{{ pet.personality }}</text>
-              <text class="tag" v-if="pet.aggression && pet.aggression !== '无'" :style="{ background: '#FEE2E2', color: '#EF4444' }">攻击性:{{ pet.aggression }}</text>
+
+          <!-- 右侧信息区域 -->
+          <view class="card-body">
+            <!-- 名字行 -->
+            <view class="card-name-row">
+              <text class="pet-name">{{ pet.name }}</text>
+              <text class="pet-gender" :class="pet.gender === 1 ? 'gender-male' : pet.gender === 2 ? 'gender-female' : ''">
+                {{ pet.gender === 1 ? '♂' : pet.gender === 2 ? '♀' : '' }}
+              </text>
+            </view>
+
+            <!-- 品种与年龄 -->
+            <text class="pet-breed">
+              {{ pet.breed || '未知品种' }}<text v-if="pet.birth_date"> · {{ calcAge(pet.birth_date) }}</text>
+            </text>
+
+            <!-- 标签行 -->
+            <view class="tag-row" v-if="pet.fur_level || pet.neutered || pet.personality || (pet.aggression && pet.aggression !== '无')">
+              <text class="tag tag-fur" v-if="pet.fur_level">{{ pet.fur_level }}</text>
+              <text class="tag tag-neutered" v-if="pet.neutered">已绝育</text>
+              <text
+                class="tag tag-personality"
+                v-if="pet.personality"
+                :style="{ background: getPersonalityBg(pet.personality), color: getPersonalityColor(pet.personality) }"
+              >{{ pet.personality }}</text>
+              <text
+                class="tag tag-aggression"
+                v-if="pet.aggression && pet.aggression !== '无'"
+              >⚡ {{ pet.aggression }}</text>
+            </view>
+
+            <!-- 注意事项 -->
+            <view class="care-notes" v-if="pet.care_notes">
+              <view class="care-notes-bar"></view>
+              <text class="care-notes-text">{{ pet.care_notes }}</text>
             </view>
           </view>
-          <view class="alerts" v-if="pet.care_notes">
-            <text class="alert-text">⚠ {{ pet.care_notes }}</text>
-          </view>
         </view>
+
+      </view>
+
+      <!-- 加载更多 -->
+      <view v-if="loadingMore" class="load-more">
+        <text class="loading-text">加载中...</text>
+      </view>
+      <view v-else-if="hasMore" class="load-more" @click="loadMore">
+        <text class="load-more-text">上滑加载更多</text>
+      </view>
+      <view v-else class="load-more">
+        <text class="load-more-done">已加载全部 {{ total }} 只宠物</text>
       </view>
     </view>
+
   </view>
   </SideLayout>
 </template>
@@ -67,7 +152,7 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref, computed, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onReachBottom } from '@dcloudio/uni-app'
 import { getPetList } from '@/api/pet'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
 
@@ -83,6 +168,13 @@ function calcAge(birthDate: string): string {
   return rem > 0 ? `${years}岁${rem}个月` : `${years}岁`
 }
 
+function getPetAvatarUrl(avatar?: string): string {
+  if (!avatar) return ''
+  if (avatar.startsWith('http')) return avatar
+  if (typeof window === 'undefined') return avatar
+  return `${window.location.origin}${avatar}`
+}
+
 interface OwnerGroup {
   key: string
   ownerName: string
@@ -90,8 +182,13 @@ interface OwnerGroup {
   pets: Pet[]
 }
 
+const PAGE_SIZE = 50
 const list = ref<Pet[]>([])
+const total = ref(0)
+const currentPage = ref(1)
 const loading = ref(true)
+const loadingMore = ref(false)
+const hasMore = ref(true)
 const keyword = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -122,12 +219,30 @@ const groupedList = computed<OwnerGroup[]>(() => {
 
 async function loadData() {
   loading.value = true
+  currentPage.value = 1
   try {
-    const params: any = { page: 1, page_size: 200 }
+    const params: any = { page: 1, page_size: PAGE_SIZE }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getPetList(params)
     list.value = res.data.list || []
+    total.value = res.data.total || list.value.length
+    hasMore.value = list.value.length < total.value
   } finally { loading.value = false }
+}
+
+async function loadMore() {
+  if (loadingMore.value || !hasMore.value) return
+  loadingMore.value = true
+  try {
+    currentPage.value++
+    const params: any = { page: currentPage.value, page_size: PAGE_SIZE }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    const res = await getPetList(params)
+    const newItems = res.data.list || []
+    list.value = [...list.value, ...newItems]
+    total.value = res.data.total || list.value.length
+    hasMore.value = list.value.length < total.value
+  } finally { loadingMore.value = false }
 }
 
 function onSearch() { loadData() }
@@ -154,37 +269,496 @@ function formatDate(dateStr: string): string {
 
 onMounted(loadData)
 onShow(loadData)
+onReachBottom(loadMore)
 </script>
 
 <style scoped>
-.page { padding: 24rpx; }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20rpx; }
-.title { font-size: 36rpx; font-weight: bold; color: #1F2937; }
-.btn-add { font-size: 28rpx; color: #fff; background: #4F46E5; padding: 12rpx 24rpx; border-radius: 12rpx; }
-.search-bar { position: relative; margin-bottom: 20rpx; }
-.search-input { background: #fff; border-radius: 12rpx; padding: 16rpx 60rpx 16rpx 24rpx; font-size: 26rpx; color: #1F2937; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.search-clear { position: absolute; right: 20rpx; top: 50%; transform: translateY(-50%); font-size: 28rpx; color: #9CA3AF; padding: 8rpx; }
-.loading, .empty { text-align: center; padding: 100rpx 0; color: #9CA3AF; font-size: 28rpx; }
-.owner-group { margin-bottom: 8rpx; }
-.group-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16rpx 8rpx 8rpx; }
-.group-left { flex: 1; }
-.group-label { font-size: 24rpx; font-weight: 600; color: #6B7280; }
-.group-label-link { color: #4F46E5; text-decoration: underline; }
-.owner-info { display: flex; gap: 8rpx; flex-wrap: wrap; margin-top: 6rpx; margin-left: 4rpx; }
-.owner-tag { font-size: 20rpx; padding: 2rpx 10rpx; border-radius: 8rpx; background: #EEF2FF; color: #4F46E5; }
-.owner-tag-balance { background: #FEF3C7; color: #92400E; }
-.owner-tag-visit { background: #F3F4F6; color: #6B7280; }
-.group-count { font-size: 22rpx; color: #9CA3AF; margin-top: 4rpx; }
-.card { background: #fff; border-radius: 16rpx; padding: 20rpx 24rpx; margin-bottom: 12rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.card-top { display: flex; align-items: center; }
-.avatar { font-size: 44rpx; width: 64rpx; text-align: center; }
-.info { flex: 1; margin-left: 12rpx; }
-.name { font-size: 30rpx; font-weight: 600; color: #1F2937; display: block; }
-.breed { font-size: 24rpx; color: #6B7280; display: block; margin-top: 2rpx; }
-.weight { font-size: 26rpx; color: #4F46E5; font-weight: 600; }
-.card-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 12rpx; }
-.tags { display: flex; gap: 8rpx; flex-wrap: wrap; }
-.tag { font-size: 22rpx; padding: 4rpx 12rpx; background: #EEF2FF; color: #4F46E5; border-radius: 12rpx; }
-.alerts { margin-top: 10rpx; padding: 10rpx; background: #FEF3C7; border-radius: 8rpx; }
-.alert-text { font-size: 24rpx; color: #92400E; }
+/* =====================
+   页面基础
+   ===================== */
+.page {
+  padding: 32rpx 32rpx 48rpx;
+  background: #FDFBF7;
+  min-height: 100vh;
+}
+
+/* =====================
+   顶部标题
+   ===================== */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28rpx;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #4A3F2F;
+  line-height: 1.2;
+  letter-spacing: -0.5rpx;
+}
+
+.subtitle {
+  font-size: 22rpx;
+  color: #B8A88A;
+  margin-top: 4rpx;
+}
+
+.btn-add {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  background: linear-gradient(135deg, #D4B06A, #C4A35A);
+  padding: 16rpx 28rpx;
+  border-radius: 999rpx;
+  box-shadow: 0 4rpx 16rpx rgba(196, 163, 90, 0.35);
+  transition: opacity 0.2s, transform 0.15s;
+}
+
+.btn-add:active {
+  opacity: 0.85;
+  transform: scale(0.96);
+}
+
+.btn-add-icon {
+  font-size: 32rpx;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1;
+  margin-top: -2rpx;
+}
+
+.btn-add-text {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #fff;
+}
+
+/* =====================
+   搜索栏
+   ===================== */
+.search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #FAF5E8;
+  border-radius: 20rpx;
+  padding: 0 24rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 2rpx 10rpx rgba(196, 163, 90, 0.08);
+  border: 1.5rpx solid #E8D9B5;
+}
+
+.search-icon {
+  font-size: 28rpx;
+  margin-right: 12rpx;
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  height: 80rpx;
+  font-size: 26rpx;
+  color: #4A3F2F;
+  background: transparent;
+}
+
+.search-clear {
+  font-size: 24rpx;
+  color: #B8A88A;
+  padding: 8rpx;
+  flex-shrink: 0;
+}
+
+/* =====================
+   加载 / 空状态
+   ===================== */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 0;
+  gap: 16rpx;
+}
+
+.loading-icon {
+  font-size: 60rpx;
+  animation: bounce 1s infinite alternate;
+}
+
+.loading-text {
+  font-size: 26rpx;
+  color: #B8A88A;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-12rpx); }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 0;
+  gap: 16rpx;
+}
+
+.empty-icon {
+  font-size: 80rpx;
+}
+
+.empty-title {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #4A3F2F;
+}
+
+.empty-desc {
+  font-size: 24rpx;
+  color: #B8A88A;
+  text-align: center;
+}
+
+/* =====================
+   主人分组
+   ===================== */
+.owner-group {
+  margin-bottom: 32rpx;
+}
+
+/* 分组头部 — 有主人 */
+.group-header {
+  display: flex;
+  align-items: center;
+  background: #FAF5E8;
+  border-radius: 20rpx 20rpx 0 0;
+  padding: 20rpx 24rpx 20rpx 0;
+  margin-bottom: 3rpx;
+  box-shadow: 0 2rpx 8rpx rgba(196, 163, 90, 0.08);
+  transition: background 0.15s;
+  overflow: hidden;
+  border: 1.5rpx solid #E8D9B5;
+  border-bottom: none;
+}
+
+.group-header:active {
+  background: #F5EDD8;
+}
+
+.group-accent {
+  width: 8rpx;
+  height: 60rpx;
+  background: linear-gradient(180deg, #D4B06A, #C4A35A);
+  border-radius: 0 4rpx 4rpx 0;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+}
+
+.group-accent-none {
+  background: #DED0AA;
+}
+
+.group-avatar {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FEF3C7, #E8D9B5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 18rpx;
+}
+
+.group-avatar-text {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #C4A35A;
+}
+
+.group-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.group-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #4A3F2F;
+}
+
+.group-count-badge {
+  font-size: 20rpx;
+  font-weight: 500;
+  color: #C4A35A;
+  background: #FEF3C7;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid #E8D9B5;
+}
+
+.owner-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.owner-tag {
+  font-size: 20rpx;
+  padding: 3rpx 12rpx;
+  border-radius: 999rpx;
+  font-weight: 400;
+}
+
+.owner-tag-card {
+  background: #FEF3C7;
+  color: #8A7A62;
+  border: 1rpx solid #E8D9B5;
+}
+
+.owner-tag-balance {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.owner-tag-visit {
+  background: #F5EDD8;
+  color: #8A7A62;
+}
+
+.group-arrow {
+  font-size: 40rpx;
+  color: #DED0AA;
+  font-weight: 300;
+  margin-left: 8rpx;
+  flex-shrink: 0;
+}
+
+/* 无主人分组头 */
+.group-header-none {
+  border-radius: 20rpx 20rpx 0 0;
+}
+
+.group-name-none {
+  font-size: 24rpx;
+  color: #B8A88A;
+  font-weight: 400;
+}
+
+/* =====================
+   猫咪卡片
+   ===================== */
+.card {
+  background: #fff;
+  padding: 24rpx 24rpx;
+  margin-bottom: 3rpx;
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
+  border-left: 1.5rpx solid #E8D9B5;
+  border-right: 1.5rpx solid #E8D9B5;
+  box-shadow: 0 1rpx 4rpx rgba(196, 163, 90, 0.06);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.card:last-child {
+  border-radius: 0 0 20rpx 20rpx;
+  margin-bottom: 0;
+  border-bottom: 1.5rpx solid #E8D9B5;
+  box-shadow: 0 4rpx 16rpx rgba(196, 163, 90, 0.1);
+}
+
+.card:only-child {
+  border-radius: 0 0 20rpx 20rpx;
+}
+
+.card:active {
+  background: #FDFBF7;
+  transform: scale(0.99);
+}
+
+/* 左侧 Avatar 列 */
+.card-avatar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+
+.avatar-circle {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-image {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #F5F5F5;
+  border: 1.5rpx solid #E8D9B5;
+  box-shadow: 0 4rpx 12rpx rgba(196, 163, 90, 0.16);
+}
+
+.avatar-cat {
+  background: linear-gradient(135deg, #FDE68A, #FCD34D);
+}
+
+.avatar-dog {
+  background: linear-gradient(135deg, #BBF7D0, #6EE7B7);
+}
+
+.avatar-emoji {
+  font-size: 48rpx;
+}
+
+.avatar-weight {
+  font-size: 20rpx;
+  color: #8A7A62;
+  background: #FAF5E8;
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1rpx solid #E8D9B5;
+}
+
+/* 右侧信息列 */
+.card-body {
+  flex: 1;
+  min-width: 0;
+  padding-top: 4rpx;
+}
+
+.card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-bottom: 6rpx;
+}
+
+.pet-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #4A3F2F;
+  letter-spacing: -0.3rpx;
+}
+
+.pet-gender {
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.gender-male {
+  color: #3B82F6;
+}
+
+.gender-female {
+  color: #EC4899;
+}
+
+.pet-breed {
+  font-size: 24rpx;
+  color: #8A7A62;
+  display: block;
+  margin-bottom: 14rpx;
+}
+
+/* 标签行 */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-bottom: 14rpx;
+}
+
+.tag {
+  font-size: 21rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  font-weight: 400;
+}
+
+.tag-fur {
+  background: #FAF5E8;
+  color: #8A7A62;
+  border: 1rpx solid #DED0AA;
+}
+
+.tag-neutered {
+  background: #EFF6FF;
+  color: #3B7DD8;
+  border: 1rpx solid #BFDBFE;
+}
+
+.tag-personality {
+  /* color/bg 由 inline style 注入 */
+}
+
+.tag-aggression {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
+/* 注意事项 */
+.care-notes {
+  display: flex;
+  align-items: flex-start;
+  gap: 10rpx;
+  background: #FFFBEB;
+  border-radius: 12rpx;
+  padding: 12rpx 16rpx;
+  margin-top: 4rpx;
+  border: 1rpx solid #F0E2B0;
+}
+
+.care-notes-bar {
+  width: 6rpx;
+  min-height: 32rpx;
+  align-self: stretch;
+  background: linear-gradient(180deg, #D4B06A, #C4A35A);
+  border-radius: 999rpx;
+  flex-shrink: 0;
+}
+
+.care-notes-text {
+  font-size: 24rpx;
+  color: #8A6A30;
+  line-height: 1.6;
+  flex: 1;
+}
+
+.load-more {
+  text-align: center;
+  padding: 32rpx 0 48rpx;
+}
+
+.load-more-text {
+  font-size: 24rpx;
+  color: #B8A88A;
+}
+
+.load-more-done {
+  font-size: 22rpx;
+  color: #CCC0A0;
+}
 </style>

@@ -2,8 +2,8 @@
   <view class="page">
     <!-- Header -->
     <view class="page-header">
-      <text class="page-title">🐱 新建预约</text>
-      <text class="page-subtitle">为毛孩子安排一次舒适的洗护体验</text>
+      <text class="page-title">{{ isEditMode ? '🛠️ 修改预约' : '🐱 新建预约' }}</text>
+      <text class="page-subtitle">{{ isEditMode ? '调整当前预约的客户、服务和时间安排' : '为毛孩子安排一次舒适的洗护体验' }}</text>
     </view>
 
     <!-- Step indicator -->
@@ -24,7 +24,7 @@
     <!-- Step 1: Customer & Pet -->
     <view v-if="step === 1" class="step-content">
       <!-- Tab: 熟客 / 新客 -->
-      <view class="tab-bar">
+      <view v-if="!isEditMode" class="tab-bar">
         <view :class="['tab', customerMode === 'regular' ? 'tab-active' : '']" @click="customerMode = 'regular'">
           <text class="tab-icon">💛</text>
           <text>熟客</text>
@@ -42,11 +42,47 @@
             <text class="section-icon">👤</text>
             <text>选择客户</text>
           </view>
-          <view class="search-bar">
-            <text class="search-icon">🔍</text>
-            <input v-model="customerKeyword" placeholder="输入姓名或手机号搜索" class="search-input" @confirm="searchCustomers" />
+          <view class="search-wrap">
+            <view class="search-bar">
+              <text class="search-icon">🔍</text>
+              <input
+                v-model="customerKeyword"
+                placeholder="输入客户名 / 手机号 / 猫咪名搜索"
+                class="search-input"
+                @input="onCustomerKeywordInput"
+                @confirm="searchCustomers"
+              />
+            </view>
+            <view v-if="showCustomerSuggestions" class="search-suggestions">
+              <view
+                v-for="item in customerSuggestions"
+                :key="item.key"
+                class="suggestion-item"
+                @click="selectCustomerSuggestion(item)"
+              >
+                <view class="suggestion-main">
+                  <text class="suggestion-title">{{ item.title }}</text>
+                  <text v-if="item.subtitle" class="suggestion-subtitle">{{ item.subtitle }}</text>
+                  <view v-if="item.petMeta" class="suggestion-pet-meta">
+                    <text class="suggestion-pet-line">{{ item.petMeta }}</text>
+                    <view v-if="item.petTags.length > 0" class="suggestion-tag-row">
+                      <text
+                        v-for="tag in item.petTags"
+                        :key="`${item.key}-${tag.text}`"
+                        :class="['suggestion-tag', tag.className]"
+                        :style="tag.style"
+                      >{{ tag.text }}</text>
+                    </view>
+                  </view>
+                </view>
+                <text class="suggestion-arrow">›</text>
+              </view>
+            </view>
+            <view v-else-if="showCustomerSearchEmpty" class="search-empty">
+              没有匹配的客户或猫咪
+            </view>
           </view>
-          <view class="option-list">
+          <view v-if="!customerKeyword.trim()" class="option-list">
             <view
               v-for="c in customerList" :key="c.ID"
               :class="['option', form.customer_id === c.ID ? 'selected' : '']"
@@ -61,21 +97,21 @@
         <view v-if="form.customer_id" class="card">
           <view class="section-title">
             <text class="section-icon">🐾</text>
-            <text>选择宠物</text>
+            <text>选择宠物（可多选）</text>
           </view>
           <view class="option-list">
             <view
               v-for="p in petList" :key="p.ID"
-              :class="['option', form.pet_id === p.ID ? 'selected' : '']"
-              @click="form.pet_id = p.ID"
+              :class="['option', isPetSelected(p.ID) ? 'selected' : '']"
+              @click="togglePetSelection(p.ID)"
             >
-              <text class="option-icon">{{ form.pet_id === p.ID ? '🐱' : '🐾' }}</text>
+              <text class="option-icon">{{ isPetSelected(p.ID) ? '🐱' : '🐾' }}</text>
               <text>{{ p.name }} ({{ p.species }} {{ p.breed }})</text>
             </view>
           </view>
         </view>
 
-        <button class="btn-primary" @click="nextStep" :disabled="!form.customer_id || !form.pet_id">
+        <button class="btn-primary" @click="nextStep" :disabled="!form.customer_id || form.pets.length === 0">
           下一步 →
         </button>
       </view>
@@ -176,20 +212,20 @@
 
     <!-- Step 2: Services -->
     <view v-if="step === 2" class="step-content">
-      <view class="card">
+      <view class="card" v-for="item in selectedPetConfigs" :key="item.pet.ID">
         <view class="section-title">
           <text class="section-icon">✂️</text>
-          <text>选择服务（可多选）</text>
+          <text>{{ item.pet.name }} · 选择服务</text>
         </view>
         <view class="option-list">
           <view
             v-for="s in serviceList" :key="s.ID"
-            :class="['option service-option', form.service_ids.includes(s.ID) ? 'selected' : '']"
-            @click="toggleService(s.ID)"
+            :class="['option service-option', item.selection.service_ids.includes(s.ID) ? 'selected' : '']"
+            @click="toggleService(item.pet.ID, s.ID)"
           >
             <view class="svc-row">
               <view class="svc-left">
-                <text class="svc-check">{{ form.service_ids.includes(s.ID) ? '☑️' : '⬜' }}</text>
+                <text class="svc-check">{{ item.selection.service_ids.includes(s.ID) ? '☑️' : '⬜' }}</text>
                 <text class="svc-name">{{ s.name }}</text>
               </view>
               <view class="svc-right">
@@ -201,7 +237,7 @@
         </view>
       </view>
 
-      <view class="summary-card" v-if="form.service_ids.length">
+      <view class="summary-card" v-if="form.pets.length > 0">
         <view class="summary-row">
           <text class="summary-label">💰 合计费用</text>
           <text class="summary-amount">¥{{ totalAmount }}</text>
@@ -214,7 +250,7 @@
 
       <view class="btn-row">
         <button class="btn-ghost" @click="step = 1">← 上一步</button>
-        <button class="btn-primary" @click="nextStep" :disabled="form.service_ids.length === 0">下一步 →</button>
+        <button class="btn-primary" @click="nextStep" :disabled="!canProceedServices">下一步 →</button>
       </view>
     </view>
 
@@ -234,12 +270,31 @@
         </picker>
       </view>
 
+      <view class="card occupancy-card">
+        <view class="section-title">
+          <text class="section-icon">🕒</text>
+          <text>预约占位</text>
+        </view>
+        <view class="occupancy-row">
+          <text class="occupancy-label">服务预计时长</text>
+          <text class="occupancy-value">{{ totalDuration }}分钟</text>
+        </view>
+        <view class="occupancy-row" v-if="occupiedDuration > 0">
+          <text class="occupancy-label">当前预约占位</text>
+          <text class="occupancy-value">{{ occupiedDuration }}分钟</text>
+        </view>
+        <text class="occupancy-tip">开始和结束时间由工作人员手动选择，日历占位以该时段为准。</text>
+        <text v-if="occupiedDuration > 0 && occupiedDuration !== totalDuration" class="occupancy-warning">
+          当前占位与服务预计时长不一致，提交后将按手动选择的时段覆盖日历。
+        </text>
+      </view>
+
       <view v-if="slotsLoading" class="loading-card">
-        <text class="loading-text">⏳ 查询可用时段...</text>
+        <text class="loading-text">⏳ 查询可用起始时间...</text>
       </view>
       <view v-else-if="staffSlots.length === 0 && form.date" class="empty-card">
         <text class="empty-icon">😿</text>
-        <text class="empty-text">该日期暂无可用时段</text>
+        <text class="empty-text">该日期暂无可用起始时间</text>
       </view>
 
       <view v-for="ss in staffSlots" :key="ss.staff.ID" class="card">
@@ -247,20 +302,36 @@
           <text class="staff-icon">💇</text>
           <text>{{ ss.staff.name }}</text>
         </view>
+        <text class="time-section-label">开始时间</text>
         <view class="slots-grid">
           <view
             v-for="slot in ss.slots" :key="slot.start_time"
             :class="['slot', form.staff_id === ss.staff.ID && form.start_time === slot.start_time ? 'selected' : '']"
-            @click="selectSlot(ss.staff.ID, slot.start_time)"
+            @click="selectStartSlot(ss.staff.ID, slot.start_time)"
           >
             {{ slot.start_time }}
           </view>
+        </view>
+
+        <view v-if="form.staff_id === ss.staff.ID && form.start_time" class="end-time-panel">
+          <text class="time-section-label">结束时间</text>
+          <view class="slots-grid" v-if="getEndTimeOptions(ss.staff.ID).length > 0">
+            <view
+              v-for="endTime in getEndTimeOptions(ss.staff.ID)"
+              :key="endTime"
+              :class="['slot', form.end_time === endTime ? 'selected' : '']"
+              @click="selectEndTime(endTime)"
+            >
+              {{ endTime }}
+            </view>
+          </view>
+          <text v-else class="end-time-empty">当前开始时间之后没有连续可用区间，请重新选择开始时间。</text>
         </view>
       </view>
 
       <view class="btn-row">
         <button class="btn-ghost" @click="step = 2">← 上一步</button>
-        <button class="btn-primary" @click="nextStep" :disabled="!form.date || !form.start_time">下一步 →</button>
+        <button class="btn-primary" @click="nextStep" :disabled="!form.date || !hasSelectedSlot">下一步 →</button>
       </view>
     </view>
 
@@ -272,15 +343,11 @@
         </view>
         <view class="confirm-row">
           <text class="label">👤 客户</text>
-          <text class="value">{{ selectedCustomer?.nickname || newCustomer.nickname || '散客' }}</text>
+          <text class="value">{{ selectedCustomer?.nickname || selectedCustomer?.phone || newCustomer.nickname || newCustomer.phone || '散客' }}</text>
         </view>
         <view class="confirm-row">
           <text class="label">🐱 宠物</text>
-          <text class="value">{{ selectedPet?.name || parsed.name }}</text>
-        </view>
-        <view class="confirm-row">
-          <text class="label">✂️ 服务</text>
-          <text class="value">{{ selectedServiceNames }}</text>
+          <text class="value">{{ confirmPetNames || parsed.name }}</text>
         </view>
         <view class="confirm-row">
           <text class="label">📅 日期</text>
@@ -288,15 +355,31 @@
         </view>
         <view class="confirm-row">
           <text class="label">⏰ 时间</text>
-          <text class="value">{{ form.start_time }}</text>
+          <text class="value">{{ form.start_time }} - {{ form.end_time }}</text>
         </view>
         <view class="confirm-row">
           <text class="label">💇 技师</text>
           <text class="value">{{ selectedStaffName }}</text>
         </view>
+        <view class="confirm-row">
+          <text class="label">⏱️ 服务预计</text>
+          <text class="value">{{ totalDuration }}分钟</text>
+        </view>
+        <view class="confirm-row">
+          <text class="label">🕒 占位时长</text>
+          <text class="value">{{ occupiedDuration }}分钟</text>
+        </view>
         <view class="confirm-row confirm-row-amount">
           <text class="label">💰 金额</text>
           <text class="amount">¥{{ totalAmount }}</text>
+        </view>
+      </view>
+
+      <view class="card" v-if="confirmPetSummaries.length > 0">
+        <text class="card-title">宠物与服务</text>
+        <view class="confirm-pet-block" v-for="item in confirmPetSummaries" :key="item.pet_id">
+          <text class="confirm-pet-name">{{ item.name }}<text v-if="item.breed"> · {{ item.breed }}</text></text>
+          <text class="confirm-pet-services">{{ item.services.join(' + ') }}</text>
         </view>
       </view>
 
@@ -311,7 +394,7 @@
 
       <view class="btn-row">
         <button class="btn-ghost" @click="step = 3">← 上一步</button>
-        <button class="btn-submit" @click="onSubmit" :loading="submitting">🎉 确认预约</button>
+        <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ isEditMode ? '💾 保存修改' : '🎉 确认预约' }}</button>
       </view>
     </view>
   </view>
@@ -323,17 +406,74 @@ import { onLoad } from '@dcloudio/uni-app'
 import { getCustomerList, getCustomerPets, createCustomer } from '@/api/customer'
 import { createPet } from '@/api/pet'
 import { getServiceList } from '@/api/service'
-import { getAvailableSlots, createAppointment } from '@/api/appointment'
+import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
 import { safeBack } from '@/utils/navigate'
+import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+
+interface CustomerSuggestion {
+  key: string
+  customer: Customer
+  pet?: Pet
+  title: string
+  subtitle: string
+  petMeta?: string
+  petTags: Array<{ text: string; className: string; style?: string }>
+}
+
+function calcAge(birthDate?: string): string {
+  if (!birthDate) return ''
+  const birth = new Date(birthDate)
+  if (Number.isNaN(birth.getTime())) return ''
+  const now = new Date()
+  const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+  if (months < 1) return '不到1个月'
+  if (months < 12) return `${months}个月`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}岁${rem}个月` : `${years}岁`
+}
+
+function getSuggestionPetMeta(pet: Pet): string {
+  const parts: string[] = []
+  if (pet.gender === 1) parts.push('弟弟')
+  if (pet.gender === 2) parts.push('妹妹')
+  const age = calcAge(pet.birth_date)
+  if (age) parts.push(age)
+  return parts.join(' · ')
+}
+
+function getSuggestionPetTags(pet: Pet) {
+  const tags: Array<{ text: string; className: string; style?: string }> = []
+  if (pet.fur_level) tags.push({ text: pet.fur_level, className: 'tag-fur' })
+  if (pet.neutered) tags.push({ text: '已绝育', className: 'tag-neutered' })
+  if (pet.personality) {
+    tags.push({
+      text: pet.personality,
+      className: 'tag-personality',
+      style: `background:${getPersonalityBg(pet.personality)};color:${getPersonalityColor(pet.personality)};`,
+    })
+  }
+  if (pet.aggression && pet.aggression !== '无') {
+    tags.push({ text: `⚡ ${pet.aggression}`, className: 'tag-aggression' })
+  }
+  return tags
+}
+
+interface AppointmentPetFormItem {
+  pet_id: number
+  service_ids: number[]
+}
 
 const step = ref(1)
 const submitting = ref(false)
 const slotsLoading = ref(false)
 const customerMode = ref<'regular' | 'new'>('regular')
+const editAppointmentId = ref(0)
+const editingAppointment = ref<any>(null)
 
 const form = ref({
-  customer_id: 0, pet_id: 0, staff_id: 0,
-  date: '', start_time: '', service_ids: [] as number[], notes: '',
+  customer_id: 0, staff_id: 0,
+  date: '', start_time: '', end_time: '', pets: [] as AppointmentPetFormItem[], notes: '',
 })
 
 const customerKeyword = ref('')
@@ -341,6 +481,9 @@ const customerList = ref<Customer[]>([])
 const petList = ref<Pet[]>([])
 const serviceList = ref<ServiceItem[]>([])
 const staffSlots = ref<any[]>([])
+const searchingCustomers = ref(false)
+const customerSuggestionOpen = ref(false)
+let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
 
 // New customer fields
 const newCustomer = ref({ nickname: '', phone: '' })
@@ -370,16 +513,71 @@ const parsed = reactive<ParsedPetInfo>({
   healthHistory: '', personality: '', reactions: '', source: '',
 })
 
-const canSubmitNew = computed(() => {
-  // 有手机号、有姓名、或有解析出猫咪名，任一即可
-  return newCustomer.value.phone.trim() !== '' || newCustomer.value.nickname.trim() !== '' || (showParsed.value && parsed.name.trim() !== '')
-})
+const canSubmitNew = computed(() => showParsed.value && parsed.name.trim() !== '')
+const isEditMode = computed(() => editAppointmentId.value > 0)
 
 const selectedCustomer = computed(() => customerList.value.find(c => c.ID === form.value.customer_id))
-const selectedPet = computed(() => petList.value.find(p => p.ID === form.value.pet_id))
-const selectedServiceNames = computed(() =>
-  form.value.service_ids.map(id => serviceList.value.find(s => s.ID === id)?.name).filter(Boolean).join(' + ')
+const showCustomerSuggestions = computed(() =>
+  customerSuggestionOpen.value &&
+  customerMode.value === 'regular' &&
+  customerKeyword.value.trim() !== '' &&
+  customerSuggestions.value.length > 0
 )
+const showCustomerSearchEmpty = computed(() =>
+  customerSuggestionOpen.value &&
+  customerKeyword.value.trim() !== '' &&
+  !searchingCustomers.value &&
+  customerSuggestions.value.length === 0
+)
+const customerSuggestions = computed<CustomerSuggestion[]>(() => {
+  const keyword = customerKeyword.value.trim().toLowerCase()
+  if (!keyword) return []
+
+  return customerList.value.flatMap((customer) => {
+    const pets = Array.isArray(customer.pets) ? customer.pets : []
+    const matchedPets = pets.filter((pet) => (pet.name || '').toLowerCase().includes(keyword))
+
+      if (matchedPets.length > 0) {
+        return matchedPets.map((pet) => ({
+          key: `pet-${customer.ID}-${pet.ID}`,
+          customer,
+          pet,
+          title: `${pet.name} · ${customer.nickname || customer.phone || `客户#${customer.ID}`}`,
+          subtitle: [customer.phone, pet.breed].filter(Boolean).join(' · '),
+          petMeta: getSuggestionPetMeta(pet),
+          petTags: getSuggestionPetTags(pet),
+        }))
+      }
+
+      return [{
+        key: `customer-${customer.ID}`,
+        customer,
+        title: customer.nickname || customer.phone || `客户#${customer.ID}`,
+        subtitle: [customer.phone, pets.slice(0, 3).map((pet) => pet.name).join(' / ')].filter(Boolean).join(' · '),
+        petTags: [],
+      }]
+  }).slice(0, 20)
+})
+const selectedPetConfigs = computed(() =>
+  form.value.pets
+    .map(selection => {
+      const pet = petList.value.find(item => item.ID === selection.pet_id)
+      if (!pet) return null
+      return { pet, selection }
+    })
+    .filter(Boolean) as { pet: Pet; selection: AppointmentPetFormItem }[]
+)
+const confirmPetSummaries = computed(() =>
+  selectedPetConfigs.value.map(({ pet, selection }) => ({
+    pet_id: pet.ID,
+    name: pet.name,
+    breed: pet.breed,
+    services: selection.service_ids
+      .map(id => serviceList.value.find(s => s.ID === id)?.name)
+      .filter(Boolean) as string[],
+  }))
+)
+const confirmPetNames = computed(() => confirmPetSummaries.value.map(item => item.name).join('、'))
 const selectedStaffName = computed(() => {
   for (const ss of staffSlots.value) {
     if (ss.staff.ID === form.value.staff_id) return ss.staff.name
@@ -388,19 +586,44 @@ const selectedStaffName = computed(() => {
 })
 
 const totalAmount = computed(() =>
-  form.value.service_ids.reduce((sum, id) => {
-    const s = serviceList.value.find(sv => sv.ID === id)
-    return sum + (s?.base_price || 0)
-  }, 0)
+  form.value.pets.reduce((sum, petItem) => (
+    sum + petItem.service_ids.reduce((petSum, id) => {
+      const s = serviceList.value.find(sv => sv.ID === id)
+      return petSum + (s?.base_price || 0)
+    }, 0)
+  ), 0)
 )
 const totalDuration = computed(() =>
-  form.value.service_ids.reduce((sum, id) => {
-    const s = serviceList.value.find(sv => sv.ID === id)
-    return sum + (s?.duration || 0)
-  }, 0)
+  form.value.pets.reduce((sum, petItem) => (
+    sum + petItem.service_ids.reduce((petSum, id) => {
+      const s = serviceList.value.find(sv => sv.ID === id)
+      return petSum + (s?.duration || 0)
+    }, 0)
+  ), 0)
 )
+const selectedServiceIds = computed(() => {
+  const ids = new Set<number>()
+  form.value.pets.forEach((petItem) => {
+    petItem.service_ids.forEach((id) => ids.add(id))
+  })
+  return Array.from(ids)
+})
+const canProceedServices = computed(() =>
+  form.value.pets.length > 0 && form.value.pets.every(petItem => petItem.service_ids.length > 0)
+)
+const hasSelectedSlot = computed(() =>
+  !!form.value.staff_id && !!form.value.start_time && !!form.value.end_time
+)
+const occupiedDuration = computed(() => {
+  if (!form.value.start_time || !form.value.end_time) return 0
+  return Math.max(parseTime(form.value.end_time) - parseTime(form.value.start_time), 0)
+})
 
 onLoad(async (query) => {
+  if (query?.id) {
+    editAppointmentId.value = parseInt(query.id)
+    customerMode.value = 'regular'
+  }
   if (query?.date) form.value.date = query.date
   if (query?.staff_id) form.value.staff_id = parseInt(query.staff_id)
   if (query?.time) form.value.start_time = query.time
@@ -411,52 +634,321 @@ onLoad(async (query) => {
   ])
   customerList.value = cRes.data.list || []
   serviceList.value = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+
+  if (editAppointmentId.value) {
+    await loadAppointmentForEdit(editAppointmentId.value)
+  }
 })
 
-async function searchCustomers() {
-  const res = await getCustomerList({ page: 1, page_size: 50, keyword: customerKeyword.value || undefined })
-  customerList.value = res.data.list || []
+function upsertCustomerOption(customer?: Customer | null) {
+  if (!customer?.ID) return
+  const idx = customerList.value.findIndex(item => item.ID === customer.ID)
+  if (idx >= 0) {
+    customerList.value[idx] = { ...customerList.value[idx], ...customer }
+  } else {
+    customerList.value.unshift(customer)
+  }
 }
 
-async function selectCustomer(c: Customer) {
+function normalizeAppointmentPets(appointment: any): AppointmentPetFormItem[] {
+  if (Array.isArray(appointment?.pets) && appointment.pets.length > 0) {
+    return appointment.pets.map((petItem: any) => ({
+      pet_id: petItem.pet_id || petItem.pet?.ID,
+      service_ids: (petItem.services || [])
+        .map((serviceItem: any) => serviceItem.service_id || serviceItem.ServiceID)
+        .filter(Boolean),
+    })).filter((petItem: AppointmentPetFormItem) => petItem.pet_id > 0)
+  }
+
+  if (appointment?.pet?.ID) {
+    return [{
+      pet_id: appointment.pet.ID,
+      service_ids: (appointment.services || [])
+        .map((serviceItem: any) => serviceItem.service_id || serviceItem.ServiceID)
+        .filter(Boolean),
+    }]
+  }
+
+  return []
+}
+
+async function loadAppointmentForEdit(id: number) {
+  const res = await getAppointment(id)
+  const appointment = res.data
+  editingAppointment.value = appointment
+  upsertCustomerOption(appointment.customer as Customer)
+
+  const customerId = appointment.customer_id || appointment.customer?.ID || 0
+  if (customerId) {
+    const customer = (appointment.customer || customerList.value.find(item => item.ID === customerId) || { ID: customerId }) as Customer
+    await selectCustomer(customer)
+  }
+
+  form.value = {
+    customer_id: customerId,
+    staff_id: appointment.staff_id || appointment.staff?.ID || 0,
+    date: appointment.date || '',
+    start_time: appointment.start_time || '',
+    end_time: appointment.end_time || '',
+    pets: normalizeAppointmentPets(appointment),
+    notes: appointment.notes || '',
+  }
+  customerKeyword.value = appointment.customer?.nickname || appointment.customer?.phone || ''
+
+  if (form.value.date && selectedServiceIds.value.length > 0) {
+    await loadSlots()
+  }
+}
+
+async function searchCustomers() {
+  const keyword = customerKeyword.value.trim()
+  searchingCustomers.value = true
+  try {
+    const res = await getCustomerList({ page: 1, page_size: keyword ? 50 : 100, keyword: keyword || undefined })
+    customerList.value = res.data.list || []
+  } finally {
+    searchingCustomers.value = false
+  }
+}
+
+function onCustomerKeywordInput() {
+  customerSuggestionOpen.value = true
+  if (customerSearchTimer) clearTimeout(customerSearchTimer)
+  customerSearchTimer = setTimeout(() => {
+    searchCustomers()
+  }, 250)
+}
+
+async function selectCustomer(c: Customer, preferredPetId = 0) {
   form.value.customer_id = c.ID
-  form.value.pet_id = 0
+  form.value.pets = []
   const res = await getCustomerPets(c.ID)
   petList.value = res.data || []
+  if (preferredPetId) {
+    ensurePetSelected(preferredPetId)
+  }
 }
 
-function toggleService(id: number) {
-  const idx = form.value.service_ids.indexOf(id)
-  if (idx >= 0) form.value.service_ids.splice(idx, 1)
-  else form.value.service_ids.push(id)
+async function selectCustomerSuggestion(item: CustomerSuggestion) {
+  customerSuggestionOpen.value = false
+  customerKeyword.value = item.pet?.name || item.customer.nickname || item.customer.phone || ''
+  await selectCustomer(item.customer, item.pet?.ID || 0)
+}
+
+function isPetSelected(petId: number) {
+  return form.value.pets.some(item => item.pet_id === petId)
+}
+
+function getPetSelection(petId: number) {
+  return form.value.pets.find(item => item.pet_id === petId)
+}
+
+function ensurePetSelected(petId: number) {
+  if (!isPetSelected(petId)) {
+    form.value.pets.push({ pet_id: petId, service_ids: [] })
+  }
+}
+
+function togglePetSelection(petId: number) {
+  const idx = form.value.pets.findIndex(item => item.pet_id === petId)
+  if (idx >= 0) {
+    form.value.pets.splice(idx, 1)
+  } else {
+    form.value.pets.push({ pet_id: petId, service_ids: [] })
+  }
+}
+
+function toggleService(petId: number, serviceId: number) {
+  const selection = getPetSelection(petId)
+  if (!selection) return
+  const idx = selection.service_ids.indexOf(serviceId)
+  if (idx >= 0) selection.service_ids.splice(idx, 1)
+  else selection.service_ids.push(serviceId)
 }
 
 async function onDateChange(e: any) {
   form.value.date = e.detail.value
   form.value.start_time = ''
+  form.value.end_time = ''
   form.value.staff_id = 0
-  if (form.value.service_ids.length > 0) {
+  if (totalDuration.value > 0) {
     await loadSlots()
   }
 }
 
 async function loadSlots() {
+  if (selectedServiceIds.value.length === 0 || totalDuration.value <= 0) {
+    staffSlots.value = []
+    form.value.staff_id = 0
+    form.value.start_time = ''
+    form.value.end_time = ''
+    return
+  }
   slotsLoading.value = true
   try {
-    // Use first selected service for slot calculation
-    const res = await getAvailableSlots(form.value.date, form.value.service_ids[0])
-    staffSlots.value = res.data || []
+    const res = await getAvailableSlots(form.value.date, {
+      service_ids: selectedServiceIds.value,
+      duration: 30,
+      exclude_id: editAppointmentId.value || undefined,
+    })
+    staffSlots.value = sortStaffSlots(res.data || [])
+    mergeCurrentEditSlotIntoStaffSlots()
+    if (!isCurrentSlotAvailable()) {
+      form.value.staff_id = 0
+      form.value.start_time = ''
+      form.value.end_time = ''
+    } else if (!isCurrentEndTimeValid()) {
+      form.value.end_time = ''
+    }
   } finally { slotsLoading.value = false }
 }
 
-function selectSlot(staffId: number, startTime: string) {
+function buildManualSlotRange(startTime: string, endTime: string) {
+  const slots: { start_time: string; end_time: string }[] = []
+  let currentMinute = parseTime(startTime)
+  const endMinute = parseTime(endTime)
+  while (currentMinute < endMinute) {
+    const nextMinute = currentMinute + 30
+    slots.push({
+      start_time: minutesToTime(currentMinute),
+      end_time: minutesToTime(nextMinute),
+    })
+    currentMinute = nextMinute
+  }
+  return slots
+}
+
+function mergeCurrentEditSlotIntoStaffSlots() {
+  if (!isEditMode.value || !editingAppointment.value) return
+  const originalStaffId = editingAppointment.value.staff_id || editingAppointment.value.staff?.ID || 0
+  if (
+    !originalStaffId ||
+    form.value.date !== editingAppointment.value.date ||
+    form.value.staff_id !== originalStaffId ||
+    !form.value.start_time ||
+    !form.value.end_time
+  ) {
+    return
+  }
+
+  const manualSlots = buildManualSlotRange(form.value.start_time, form.value.end_time)
+  if (manualSlots.length === 0) return
+
+  let staffSlot = staffSlots.value.find(item => item.staff?.ID === originalStaffId)
+  if (!staffSlot) {
+    staffSlot = {
+      staff: editingAppointment.value.staff || { ID: originalStaffId, name: `技师#${originalStaffId}` },
+      slots: [],
+    }
+    staffSlots.value = [...staffSlots.value, staffSlot]
+  }
+
+  const slotMap = new Map<string, { start_time: string; end_time: string }>()
+  ;(staffSlot.slots || []).forEach((slot: { start_time: string; end_time: string }) => {
+    slotMap.set(slot.start_time, slot)
+  })
+  manualSlots.forEach((slot) => {
+    slotMap.set(slot.start_time, slot)
+  })
+
+  staffSlot.slots = Array.from(slotMap.values()).sort((a, b) => parseTime(a.start_time) - parseTime(b.start_time))
+  staffSlots.value = sortStaffSlots(staffSlots.value)
+}
+
+function isCurrentSlotAvailable() {
+  if (!form.value.staff_id || !form.value.start_time) {
+    return false
+  }
+  return staffSlots.value.some((staffSlot) =>
+    staffSlot.staff?.ID === form.value.staff_id &&
+    Array.isArray(staffSlot.slots) &&
+    staffSlot.slots.some((slot: { start_time: string }) => slot.start_time === form.value.start_time)
+  )
+}
+
+function isCurrentEndTimeValid() {
+  if (!form.value.staff_id || !form.value.start_time || !form.value.end_time) {
+    return false
+  }
+  return getEndTimeOptions(form.value.staff_id).includes(form.value.end_time)
+}
+
+function getEndTimeOptions(staffId: number) {
+  if (!form.value.start_time || form.value.staff_id !== staffId) {
+    return []
+  }
+  const staffSlot = staffSlots.value.find(item => item.staff?.ID === staffId)
+  const slotSet = new Set<string>((staffSlot?.slots || []).map((slot: { start_time: string }) => slot.start_time))
+  const options: string[] = []
+  let currentMinute = parseTime(form.value.start_time)
+
+  while (slotSet.has(minutesToTime(currentMinute))) {
+    currentMinute += 30
+    options.push(minutesToTime(currentMinute))
+  }
+
+  return options
+}
+
+function selectStartSlot(staffId: number, startTime: string) {
+  const staffChanged = form.value.staff_id !== staffId
+  const startChanged = form.value.start_time !== startTime
   form.value.staff_id = staffId
   form.value.start_time = startTime
+  if (staffChanged || startChanged || !isCurrentEndTimeValid()) {
+    form.value.end_time = ''
+  }
+}
+
+function selectEndTime(endTime: string) {
+  form.value.end_time = endTime
+}
+
+function parseTime(time: string) {
+  const [hour, minute] = time.split(':').map(Number)
+  return hour * 60 + minute
+}
+
+function minutesToTime(totalMinutes: number) {
+  const hour = Math.floor(totalMinutes / 60)
+  const minute = totalMinutes % 60
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function sortStaffSlots(list: any[]) {
+  return [...list].sort((a, b) => {
+    const roleDiff = Number(a.staff?.role === 'admin') - Number(b.staff?.role === 'admin')
+    if (roleDiff !== 0) return roleDiff
+    return (a.staff?.ID || 0) - (b.staff?.ID || 0)
+  })
 }
 
 async function nextStep() {
-  if (step.value === 2 && form.value.date) {
-    await loadSlots()
+  if (step.value === 1) {
+    if (!form.value.customer_id || form.value.pets.length === 0) {
+      uni.showToast({ title: '请先选择客户和至少一只宠物', icon: 'none' })
+      return
+    }
+  }
+  if (step.value === 2) {
+    if (!canProceedServices.value) {
+      uni.showToast({ title: '每只宠物都需要选择至少一个服务', icon: 'none' })
+      return
+    }
+    if (form.value.date) {
+      await loadSlots()
+    }
+  }
+  if (step.value === 3) {
+    if (!hasSelectedSlot.value) {
+      uni.showToast({ title: '请先选择完整预约时段', icon: 'none' })
+      return
+    }
+    if (!isCurrentSlotAvailable() || !isCurrentEndTimeValid()) {
+      await loadSlots()
+      uni.showToast({ title: '可用时段已变更，请重新选择', icon: 'none' })
+      return
+    }
   }
   step.value++
 }
@@ -627,7 +1119,8 @@ async function submitNewCustomer() {
       }
 
       const petRes = await createPet(petData)
-      form.value.pet_id = petRes.data.ID
+      form.value.pets = [{ pet_id: petRes.data.ID, service_ids: [] }]
+      petList.value = [petRes.data]
     }
 
     // Auto-fill appointment notes with key info for the groomer
@@ -650,18 +1143,30 @@ async function submitNewCustomer() {
 async function onSubmit() {
   submitting.value = true
   try {
-    await createAppointment({
+    const payload = {
       customer_id: form.value.customer_id,
-      pet_id: form.value.pet_id,
+      pet_id: form.value.pets[0]?.pet_id,
+      pets: form.value.pets.map(item => ({
+        pet_id: item.pet_id,
+        service_ids: item.service_ids,
+      })),
       staff_id: form.value.staff_id || undefined,
       date: form.value.date,
       start_time: form.value.start_time,
-      service_ids: form.value.service_ids,
+      end_time: form.value.end_time,
       source: 2,
       notes: form.value.notes,
-    })
-    uni.showToast({ title: '预约成功', icon: 'success' })
-    setTimeout(() => safeBack(), 500)
+    }
+
+    if (isEditMode.value) {
+      await updateAppointment(editAppointmentId.value, payload)
+      uni.showToast({ title: '修改成功', icon: 'success' })
+      setTimeout(() => safeBack(), 500)
+    } else {
+      await createAppointment(payload)
+      uni.showToast({ title: '预约成功', icon: 'success' })
+      setTimeout(() => safeBack(), 500)
+    }
   } finally { submitting.value = false }
 }
 </script>
@@ -847,8 +1352,11 @@ async function onSubmit() {
   border: 2rpx solid #E5E7EB;
   border-radius: 16rpx;
   padding: 4rpx 20rpx;
-  margin-bottom: 20rpx;
   transition: all 0.2s;
+}
+.search-wrap {
+  position: relative;
+  margin-bottom: 20rpx;
 }
 .search-icon {
   font-size: 28rpx;
@@ -860,6 +1368,93 @@ async function onSubmit() {
   padding: 18rpx 0;
   background: transparent;
   color: #374151;
+}
+.search-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 12rpx);
+  background: #fff;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 18rpx;
+  box-shadow: 0 16rpx 40rpx rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+  z-index: 20;
+}
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid #EEF2FF;
+  background: #fff;
+}
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+.suggestion-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+}
+.suggestion-title {
+  font-size: 27rpx;
+  color: #1F2937;
+  font-weight: 600;
+}
+.suggestion-subtitle {
+  font-size: 22rpx;
+  color: #6B7280;
+}
+.suggestion-pet-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-top: 4rpx;
+}
+.suggestion-pet-line {
+  font-size: 22rpx;
+  color: #4B5563;
+}
+.suggestion-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+.suggestion-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 18rpx;
+  line-height: 1.2;
+  background: #F3F4F6;
+  color: #4B5563;
+}
+.suggestion-tag.tag-fur {
+  background: #EEF2FF;
+  color: #4F46E5;
+}
+.suggestion-tag.tag-neutered {
+  background: #ECFDF5;
+  color: #047857;
+}
+.suggestion-tag.tag-aggression {
+  background: #FEF2F2;
+  color: #DC2626;
+}
+.suggestion-arrow {
+  font-size: 32rpx;
+  color: #C7D2FE;
+  flex-shrink: 0;
+}
+.search-empty {
+  margin: -8rpx 0 20rpx;
+  font-size: 24rpx;
+  color: #9CA3AF;
+  padding-left: 8rpx;
 }
 
 /* ========== Option List ========== */
@@ -963,6 +1558,38 @@ async function onSubmit() {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
 }
+.occupancy-card {
+  border-color: #C7D2FE;
+}
+.occupancy-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 0;
+}
+.occupancy-label {
+  font-size: 26rpx;
+  color: #6B7280;
+}
+.occupancy-value {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.occupancy-tip {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  color: #6366F1;
+  line-height: 1.6;
+}
+.occupancy-warning {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #D97706;
+  line-height: 1.6;
+}
 
 /* ========== Date Picker ========== */
 .date-picker {
@@ -1045,6 +1672,23 @@ async function onSubmit() {
   flex-wrap: wrap;
   gap: 16rpx;
 }
+.time-section-label {
+  display: block;
+  font-size: 24rpx;
+  color: #6B7280;
+  margin-bottom: 12rpx;
+}
+.end-time-panel {
+  margin-top: 24rpx;
+  padding-top: 24rpx;
+  border-top: 2rpx dashed #E5E7EB;
+}
+.end-time-empty {
+  display: block;
+  font-size: 24rpx;
+  color: #D97706;
+  line-height: 1.6;
+}
 .slot {
   padding: 18rpx 28rpx;
   background: #F9FAFB;
@@ -1111,6 +1755,37 @@ async function onSubmit() {
   font-size: 36rpx;
   color: #4F46E5;
   font-weight: 800;
+}
+.card-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1F2937;
+  display: block;
+  margin-bottom: 18rpx;
+}
+.confirm-pet-block {
+  padding: 20rpx 0;
+  border-bottom: 2rpx solid #F3F4F6;
+}
+.confirm-pet-block:first-of-type {
+  padding-top: 0;
+}
+.confirm-pet-block:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.confirm-pet-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.confirm-pet-services {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #6B7280;
+  line-height: 1.6;
 }
 
 /* ========== Forms ========== */

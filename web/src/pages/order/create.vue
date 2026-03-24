@@ -178,6 +178,7 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref, computed, onMounted } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { getPetList } from '@/api/pet'
 import { createOrder } from '@/api/order'
 import { getAddonList, createAddon, deleteAddon, priceLookup } from '@/api/addon'
@@ -186,6 +187,7 @@ import { getStaffList } from '@/api/staff'
 import { getCustomerCard } from '@/api/member-card'
 import { safeBack } from '@/utils/navigate'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
+import { getAppointment } from '@/api/appointment'
 
 const petKeyword = ref('')
 const petList = ref<any[]>([])
@@ -204,6 +206,7 @@ const submitting = ref(false)
 const useCustomPrice = ref(false)
 const customPriceInput = ref('')
 const memberBalance = ref(0)
+const prefillAppointmentId = ref(0)
 
 const staffNames = computed(() => ['未选择', ...staffList.value.map(s => s.name)])
 const selectedStaff = computed(() => {
@@ -224,6 +227,12 @@ const discountRate = computed(() => {
 const payAmount = computed(() => Math.round(totalAmount.value * discountRate.value * 100) / 100)
 const discountAmount = computed(() => totalAmount.value - payAmount.value)
 
+onLoad((query) => {
+  if (query?.appointment_id) {
+    prefillAppointmentId.value = parseInt(String(query.appointment_id)) || 0
+  }
+})
+
 onMounted(async () => {
   try {
     const sRes = await getServiceList({ page_size: 50 } as any)
@@ -231,9 +240,12 @@ onMounted(async () => {
   } catch {}
   try {
     const stRes = await getStaffList({ page_size: 50 } as any)
-    if (stRes.data?.list) staffList.value = stRes.data.list.filter((s: any) => s.role === 'staff')
+    if (stRes.data?.list) staffList.value = stRes.data.list.filter((s: any) => s.status === 1)
   } catch {}
   await loadAddons()
+  if (prefillAppointmentId.value) {
+    await prefillFromAppointment(prefillAppointmentId.value)
+  }
 })
 
 async function loadAddons() {
@@ -348,6 +360,48 @@ async function selectService(s: any) {
     const rules = res.data || []
     specList.value = rules.map((r: any) => ({ ...r, name: r.name || r.fur_level || r.pet_size || '规格' }))
   } catch { specList.value = [] }
+}
+
+async function prefillFromAppointment(appointmentId: number) {
+  try {
+    const res = await getAppointment(appointmentId)
+    const appt = res.data
+    const firstPetGroup = Array.isArray(appt?.pets) && appt.pets.length > 0 ? appt.pets[0] : null
+    const pet = firstPetGroup?.pet || appt?.pet
+    if (pet) {
+      await selectPet(pet)
+    }
+
+    const firstService = firstPetGroup?.services?.[0] || appt?.services?.[0]
+    if (firstService?.service_id) {
+      const service = serviceList.value.find((item) => item.ID === firstService.service_id)
+      if (service) {
+        await selectService(service)
+        if (typeof firstService.price === 'number' && firstService.price > 0) {
+          servicePrice.value = firstService.price
+        }
+      }
+    }
+
+    if (appt?.staff_id) {
+      const idx = staffList.value.findIndex((staff) => staff.ID === appt.staff_id)
+      if (idx >= 0) {
+        selectedStaffIdx.value = idx + 1
+      }
+    }
+
+    if (appt?.notes) {
+      remark.value = appt.notes
+    }
+
+    const petCount = Array.isArray(appt?.pets) ? appt.pets.length : 0
+    const serviceCount = firstPetGroup?.services?.length || appt?.services?.length || 0
+    if (petCount > 1 || serviceCount > 1) {
+      uni.showToast({ title: '已带入预约首项信息，请核对后开单', icon: 'none' })
+    }
+  } catch {
+    uni.showToast({ title: '预约信息带入失败', icon: 'none' })
+  }
 }
 
 function selectSpec(spec: any) {

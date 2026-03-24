@@ -20,13 +20,14 @@ func NewCustomerHandler(customerService *service.CustomerService, petService *se
 }
 
 type createCustomerReq struct {
-	Phone         string  `json:"phone"`
-	Nickname      string  `json:"nickname" binding:"required"`
-	Gender        int     `json:"gender"`
-	Remark        string  `json:"remark"`
-	Tags          string  `json:"tags"`
-	MemberBalance float64 `json:"member_balance"`
-	DiscountRate  float64 `json:"discount_rate"`
+	Phone          string  `json:"phone"`
+	Nickname       string  `json:"nickname" binding:"required"`
+	Gender         int     `json:"gender"`
+	Remark         string  `json:"remark"`
+	Tags           string  `json:"tags"`
+	CustomerTagIDs []uint  `json:"customer_tag_ids"`
+	MemberBalance  float64 `json:"member_balance"`
+	DiscountRate   float64 `json:"discount_rate"`
 }
 
 func (h *CustomerHandler) Create(c *gin.Context) {
@@ -51,7 +52,7 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 		DiscountRate:  discountRate,
 	}
 
-	if err := h.customerService.Create(customer); err != nil {
+	if err := h.customerService.CreateWithTags(customer, req.CustomerTagIDs); err != nil {
 		response.Error(c, http.StatusInternalServerError, "创建失败")
 		return
 	}
@@ -73,15 +74,17 @@ func (h *CustomerHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	keyword := c.Query("keyword")
+	memberCardTemplateID, _ := strconv.ParseUint(c.DefaultQuery("member_card_template_id", "0"), 10, 64)
+	customerTagID, _ := strconv.ParseUint(c.DefaultQuery("customer_tag_id", "0"), 10, 64)
 
 	var list []model.Customer
 	var total int64
 	var err error
 
 	if keyword != "" {
-		list, total, err = h.customerService.Search(shopID, keyword, page, pageSize)
+		list, total, err = h.customerService.Search(shopID, keyword, page, pageSize, uint(memberCardTemplateID), uint(customerTagID))
 	} else {
-		list, total, err = h.customerService.List(shopID, page, pageSize)
+		list, total, err = h.customerService.List(shopID, page, pageSize, uint(memberCardTemplateID), uint(customerTagID))
 	}
 
 	if err != nil {
@@ -115,7 +118,7 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 		customer.DiscountRate = req.DiscountRate
 	}
 
-	if err := h.customerService.Update(customer); err != nil {
+	if err := h.customerService.UpdateWithTags(customer, req.CustomerTagIDs); err != nil {
 		response.Error(c, http.StatusInternalServerError, "更新失败")
 		return
 	}

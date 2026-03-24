@@ -86,6 +86,12 @@
 			}
 		},
 		{
+			"path": "pages/customer/tag-manage",
+			"style": {
+				"navigationBarTitleText": "客户标签管理"
+			}
+		},
+		{
 			"path": "pages/customer/trash",
 			"style": {
 				"navigationBarTitleText": "回收站"
@@ -137,6 +143,12 @@
 			"path": "pages/order/create",
 			"style": {
 				"navigationBarTitleText": "开单收银"
+			}
+		},
+		{
+			"path": "pages/order/batch-create",
+			"style": {
+				"navigationBarTitleText": "预约开单确认"
 			}
 		},
 		{

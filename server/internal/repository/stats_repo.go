@@ -23,6 +23,25 @@ func (r *StatsRepository) FindByDateRange(shopID uint, startDate, endDate string
 	return stats, err
 }
 
+// RevenueTrendItem is a single day's revenue data
+type RevenueTrendItem struct {
+	Date       string  `json:"date"`
+	Revenue    float64 `json:"revenue"`
+	OrderCount int     `json:"order_count"`
+}
+
+// GetRevenueTrendRealtime queries orders table directly for daily revenue (no dependency on daily_stats)
+func (r *StatsRepository) GetRevenueTrendRealtime(shopID uint, startDate, endDate string) ([]RevenueTrendItem, error) {
+	var items []RevenueTrendItem
+	err := database.DB.Model(&model.Order{}).
+		Select("DATE(created_at) as date, COALESCE(SUM(pay_amount), 0) as revenue, COUNT(*) as order_count").
+		Where("shop_id = ? AND status = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Group("DATE(created_at)").
+		Order("date ASC").
+		Find(&items).Error
+	return items, err
+}
+
 type OverviewStats struct {
 	TodayRevenue          float64 `json:"today_revenue"`
 	TodayOrderCount       int     `json:"today_order_count"`
@@ -30,6 +49,22 @@ type OverviewStats struct {
 	TodayNewCustomers     int     `json:"today_new_customers"`
 	PendingAppointments   int64   `json:"pending_appointments"`
 	TotalCustomers        int64   `json:"total_customers"`
+}
+
+type MemberTemplateStat struct {
+	TemplateID   uint   `json:"template_id"`
+	TemplateName string `json:"template_name"`
+	Count        int    `json:"count"`
+}
+
+type MemberStats struct {
+	ActiveMembers      int64                `json:"active_members"`
+	FrozenMembers      int64                `json:"frozen_members"`
+	TotalBalance       float64              `json:"total_balance"`
+	TotalMemberSpent   float64              `json:"total_member_spent"`
+	RangeRecharge      float64              `json:"range_recharge"`
+	RangeConsumption   float64              `json:"range_consumption"`
+	TemplateBreakdown  []MemberTemplateStat `json:"template_breakdown"`
 }
 
 func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats, error) {
@@ -99,6 +134,48 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		Where("shop_id = ? AND status IN (0,1)", shopID).Count(&stats.PendingAppointments)
 	database.DB.Model(&model.Customer{}).
 		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
+
+	return &stats, nil
+}
+
+func (r *StatsRepository) GetMemberStats(shopID uint, startDate, endDate string) (*MemberStats, error) {
+	var stats MemberStats
+
+	database.DB.Model(&model.MemberCard{}).
+		Where("shop_id = ? AND status = 1", shopID).
+		Count(&stats.ActiveMembers)
+
+	database.DB.Model(&model.MemberCard{}).
+		Where("shop_id = ? AND status = 0", shopID).
+		Count(&stats.FrozenMembers)
+
+	database.DB.Model(&model.MemberCard{}).
+		Select("COALESCE(SUM(balance), 0)").
+		Where("shop_id = ? AND status = 1", shopID).
+		Scan(&stats.TotalBalance)
+
+	database.DB.Model(&model.MemberCard{}).
+		Select("COALESCE(SUM(total_spent), 0)").
+		Where("shop_id = ? AND status = 1", shopID).
+		Scan(&stats.TotalMemberSpent)
+
+	database.DB.Model(&model.RechargeRecord{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("shop_id = ? AND type = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Scan(&stats.RangeRecharge)
+
+	database.DB.Model(&model.RechargeRecord{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("shop_id = ? AND type = 2 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Scan(&stats.RangeConsumption)
+
+	database.DB.Table("member_cards").
+		Select("member_cards.template_id, member_card_templates.name as template_name, COUNT(*) as count").
+		Joins("JOIN member_card_templates ON member_card_templates.id = member_cards.template_id").
+		Where("member_cards.shop_id = ? AND member_cards.status = 1 AND member_cards.deleted_at IS NULL AND member_card_templates.deleted_at IS NULL", shopID).
+		Group("member_cards.template_id, member_card_templates.name").
+		Order("count DESC, member_cards.template_id ASC").
+		Find(&stats.TemplateBreakdown)
 
 	return &stats, nil
 }

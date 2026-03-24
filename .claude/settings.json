@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/genglsh/workstation/cat/cat/.claude/hooks/deploy.sh",
+            "timeout": 300,
+            "statusMessage": "Deploying changes to remote server...",
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // .tool_response.filePath // \"\"'); echo \"$FILE\" | grep -q '/web/src/' && echo \"$INPUT\" | /Users/genglsh/workstation/cat/cat/.claude/hooks/verify-frontend.sh || true",
+            "timeout": 300,
+            "statusMessage": "Verifying frontend with Playwright..."
+          }
+        ]
+      }
+    ]
+  }
+}

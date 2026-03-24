@@ -22,6 +22,14 @@ func NewOrderService(orderRepo *repository.OrderRepository, apptRepo *repository
 
 // CreateFromAppointment generates an order from a completed appointment
 func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, error) {
+	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if existingCount > 0 {
+		return nil, errors.New("该预约已开单")
+	}
+
 	appt, err := s.apptRepo.FindByID(appointmentID)
 	if err != nil {
 		return nil, errors.New("预约不存在")
@@ -45,16 +53,36 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 	}
 
 	var items []model.OrderItem
-	for _, svc := range appt.Services {
-		items = append(items, model.OrderItem{
-			OrderID:   order.ID,
-			ItemType:  1, // service
-			ItemID:    svc.ServiceID,
-			Name:      svc.ServiceName,
-			Quantity:  1,
-			UnitPrice: svc.Price,
-			Amount:    svc.Price,
-		})
+	if len(appt.Pets) > 0 {
+		for _, apptPet := range appt.Pets {
+			petName := "宠物"
+			if apptPet.Pet != nil && apptPet.Pet.Name != "" {
+				petName = apptPet.Pet.Name
+			}
+			for _, svc := range apptPet.Services {
+				items = append(items, model.OrderItem{
+					OrderID:   order.ID,
+					ItemType:  1, // service
+					ItemID:    svc.ServiceID,
+					Name:      petName + " · " + svc.ServiceName,
+					Quantity:  1,
+					UnitPrice: svc.Price,
+					Amount:    svc.Price,
+				})
+			}
+		}
+	} else {
+		for _, svc := range appt.Services {
+			items = append(items, model.OrderItem{
+				OrderID:   order.ID,
+				ItemType:  1, // service
+				ItemID:    svc.ServiceID,
+				Name:      svc.ServiceName,
+				Quantity:  1,
+				UnitPrice: svc.Price,
+				Amount:    svc.Price,
+			})
+		}
 	}
 	if len(items) > 0 {
 		if err := tx.Create(&items).Error; err != nil {
@@ -64,6 +92,84 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 	}
 
 	return order, tx.Commit().Error
+}
+
+func (s *OrderService) CreateSplitFromAppointment(appointmentID uint) ([]model.Order, error) {
+	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if existingCount > 0 {
+		return nil, errors.New("该预约已开单")
+	}
+
+	appt, err := s.apptRepo.FindByID(appointmentID)
+	if err != nil {
+		return nil, errors.New("预约不存在")
+	}
+
+	if len(appt.Pets) == 0 {
+		order, err := s.CreateFromAppointment(appointmentID)
+		if err != nil {
+			return nil, err
+		}
+		return []model.Order{*order}, nil
+	}
+
+	orders := make([]model.Order, 0, len(appt.Pets))
+	tx := database.DB.Begin()
+
+	for _, apptPet := range appt.Pets {
+		custID := appt.CustomerID
+		petID := apptPet.PetID
+		order := model.Order{
+			OrderNo:       utils.GenerateOrderNo(),
+			ShopID:        appt.ShopID,
+			CustomerID:    &custID,
+			PetID:         &petID,
+			AppointmentID: &appt.ID,
+			StaffID:       appt.StaffID,
+			TotalAmount:   apptPet.TotalAmount,
+			PayAmount:     apptPet.TotalAmount,
+			Remark:        appt.Notes,
+		}
+
+		if err := tx.Create(&order).Error; err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+
+		petName := "宠物"
+		if apptPet.Pet != nil && apptPet.Pet.Name != "" {
+			petName = apptPet.Pet.Name
+		}
+
+		items := make([]model.OrderItem, 0, len(apptPet.Services))
+		for _, svc := range apptPet.Services {
+			items = append(items, model.OrderItem{
+				OrderID:   order.ID,
+				ItemType:  1,
+				ItemID:    svc.ServiceID,
+				Name:      petName + " · " + svc.ServiceName,
+				Quantity:  1,
+				UnitPrice: svc.Price,
+				Amount:    svc.Price,
+			})
+		}
+		if len(items) > 0 {
+			if err := tx.Create(&items).Error; err != nil {
+				tx.Rollback()
+				return nil, err
+			}
+		}
+
+		orders = append(orders, order)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	return orders, nil
 }
 
 // CreateDirect creates a standalone order (walk-in / direct billing)

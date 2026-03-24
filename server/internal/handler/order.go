@@ -48,6 +48,28 @@ func (h *OrderHandler) CreateFromAppointment(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
+	var req fromApptReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	results := make([]*model.Order, 0, len(orders))
+	for _, order := range orders {
+		result, err := h.orderService.GetByID(order.ID)
+		if err == nil {
+			results = append(results, result)
+		}
+	}
+	response.Success(c, results)
+}
+
 // POST /b/orders — 猫咪洗护快速开单
 type createOrderReq struct {
 	PetID      uint             `json:"pet_id"`
@@ -192,13 +214,22 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	payAmount := math.Round(totalAmount*discountRate*100) / 100
 	discountAmount := totalAmount - payAmount
 
-	// Calculate staff commission
+	// Calculate staff commission by item type
 	var commission float64
 	if req.StaffID != nil && *req.StaffID > 0 {
 		var staff model.Staff
 		if err := database.DB.First(&staff, *req.StaffID).Error; err == nil {
-			// Commission based on service amount (not addons), rate is percentage like 20/30/35
-			commission = math.Round(serviceAmount*staff.CommissionRate) / 100
+			var svcTotal, productTotal float64
+			for _, it := range items {
+				switch it.ItemType {
+				case 1: // 洗浴/服务
+					svcTotal += it.Amount
+				case 2: // 商品
+					productTotal += it.Amount
+				}
+			}
+			commission += math.Round(svcTotal*staff.CommissionRate) / 100
+			commission += math.Round(productTotal*staff.ProductCommissionRate) / 100
 		}
 	}
 

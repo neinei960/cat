@@ -1,5 +1,14 @@
 <template>
   <view class="page">
+    <!-- 头像 -->
+    <view class="avatar-section" @click="chooseAvatar">
+      <img v-if="form.avatar" :src="avatarFullUrl" class="avatar-img" />
+      <view v-else class="avatar-placeholder">
+        <text class="avatar-icon">🐱</text>
+        <text class="avatar-hint">点击上传照片</text>
+      </view>
+    </view>
+
     <!-- 基本身份 -->
     <view class="section">
       <text class="section-title">基本信息</text>
@@ -180,8 +189,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getPet, createPet, updatePet, deletePet } from '@/api/pet'
+import { getFurCategoryList, createFurCategory, deleteFurCategory } from '@/api/fur-category'
+import { uploadFile } from '@/api/upload'
 import { safeBack } from '@/utils/navigate'
 import { getPersonalityColor, getPersonalityBg, personalityColors, colorOptions } from '@/utils/personality'
 
@@ -268,23 +279,35 @@ function addPersonality() {
 }
 const bathFreqs = ['每月', '两月', '三月', '半年', '一年']
 
-const furLevels = ref<string[]>(['短毛猫', '长毛猫', 'A', 'B', 'C', 'D'])
+const furLevels = ref<string[]>([])
+const furCategoryMap = ref<Record<string, number>>({})
 const showFurAdd = ref(false)
 const newFurName = ref('')
 
 const ageInput = ref('')
+const localAvatarPreview = ref('')
 
 const form = ref({
   name: '', owner_phone: '', breed: '', gender: 0, birth_date: '',
   weight: '', coat_color: '', fur_level: '', personality: '',
   aggression: '', forbidden_zones: '', bath_frequency: '',
-  neutered: false, care_notes: '', behavior_notes: '',
+  neutered: false, care_notes: '', behavior_notes: '', avatar: '',
 })
 
+const avatarFullUrl = computed(() => {
+  if (localAvatarPreview.value) return localAvatarPreview.value
+  const v = form.value.avatar
+  if (!v) return ''
+  if (v.startsWith('http')) return v
+  return window.location.origin + v
+})
 const aggressionIndex = computed(() => Math.max(aggressions.indexOf(form.value.aggression), 0))
 const bathFreqIndex = computed(() => Math.max(bathFreqs.indexOf(form.value.bath_frequency), 0))
 
 let syncing = false
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024
+const TARGET_AVATAR_UPLOAD_SIZE = 900 * 1024
+const H5_ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 
 // 年龄 -> 出生日期（实时）
 function onAgeInput() {
@@ -311,34 +334,69 @@ function onBirthDateChange(e: any) {
   syncing = false
 }
 
+async function loadFurLevels() {
+  try {
+    const res = await getFurCategoryList()
+    const list = Array.isArray(res.data) ? res.data : []
+    furLevels.value = list.map(item => item.name).filter(Boolean)
+    furCategoryMap.value = list.reduce<Record<string, number>>((acc, item) => {
+      if (item.name) acc[item.name] = item.ID
+      return acc
+    }, {})
+  } catch {
+    uni.showToast({ title: '加载毛发等级失败', icon: 'none' })
+  }
+}
+
 // 毛发等级长按删除
 function onFurLongPress(fl: string) {
   uni.showActionSheet({
     itemList: [`删除「${fl}」`],
-    success: (res) => {
+    success: async (res) => {
       if (res.tapIndex === 0) {
-        furLevels.value = furLevels.value.filter(f => f !== fl)
-        if (form.value.fur_level === fl) form.value.fur_level = ''
+        try {
+          const furId = furCategoryMap.value[fl]
+          if (!furId) {
+            uni.showToast({ title: '未找到对应分类', icon: 'none' })
+            return
+          }
+          await deleteFurCategory(furId)
+          if (form.value.fur_level === fl) form.value.fur_level = ''
+          await loadFurLevels()
+          uni.showToast({ title: '已删除', icon: 'success' })
+        } catch {
+          uni.showToast({ title: '删除失败', icon: 'none' })
+        }
       }
     }
   })
 }
 
 // 新增毛发等级
-function addFurLevel() {
+async function addFurLevel() {
   const name = newFurName.value.trim()
   if (!name) return
   if (furLevels.value.includes(name)) {
     uni.showToast({ title: '已存在', icon: 'none' })
     return
   }
-  furLevels.value.push(name)
-  form.value.fur_level = name
-  newFurName.value = ''
-  showFurAdd.value = false
+  try {
+    await createFurCategory({
+      name,
+      sort_order: furLevels.value.length + 1,
+    })
+    await loadFurLevels()
+    form.value.fur_level = name
+    newFurName.value = ''
+    showFurAdd.value = false
+    uni.showToast({ title: '添加成功', icon: 'success' })
+  } catch {
+    uni.showToast({ title: '添加失败', icon: 'none' })
+  }
 }
 
 onLoad((query) => {
+  void loadFurLevels()
   if (query?.id) {
     id.value = parseInt(query.id)
     loadData()
@@ -348,9 +406,14 @@ onLoad((query) => {
   }
 })
 
+onShow(() => {
+  void loadFurLevels()
+})
+
 async function loadData() {
   const res = await getPet(id.value)
   const d = res.data
+  clearLocalAvatarPreview()
   form.value = {
     name: d.name, owner_phone: d.customer?.phone || '',
     breed: d.breed, gender: d.gender, birth_date: d.birth_date ? d.birth_date.split('T')[0] : '',
@@ -360,6 +423,7 @@ async function loadData() {
     forbidden_zones: d.forbidden_zones || '', bath_frequency: d.bath_frequency || '',
     neutered: d.neutered, care_notes: d.care_notes || '',
     behavior_notes: d.behavior_notes || '',
+    avatar: d.avatar || '',
   }
   // 反算年龄
   if (form.value.birth_date) {
@@ -368,6 +432,190 @@ async function loadData() {
     const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
     ageInput.value = months > 0 ? (months / 12).toFixed(1) : ''
   }
+}
+
+function chooseAvatar() {
+  if (typeof document === 'undefined') {
+    uni.chooseImage({
+      count: 1,
+      sizeType: ['compressed'],
+      sourceType: ['album', 'camera'],
+      success: async (res) => {
+        const filePath = res.tempFilePaths?.[0]
+        if (!filePath) return
+        localAvatarPreview.value = filePath
+        uni.showLoading({ title: '上传中...' })
+        try {
+          form.value.avatar = await uploadFile(filePath)
+          uni.showToast({ title: '上传成功', icon: 'success' })
+        } catch {
+          uni.showToast({ title: '上传失败', icon: 'none' })
+        } finally {
+          uni.hideLoading()
+        }
+      }
+    })
+    return
+  }
+
+  // H5 使用 input[type=file]，并把 iPhone 常见的 HEIC/HEIF 统一转成 JPEG 后再上传
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.style.display = 'none'
+  document.body.appendChild(input)
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) {
+      input.remove()
+      return
+    }
+    uni.showLoading({ title: '上传中...' })
+    try {
+      const normalizedFile = await normalizeAvatarFile(file)
+      updateLocalAvatarPreview(normalizedFile)
+      if (normalizedFile.size > MAX_AVATAR_SIZE) {
+        throw new Error('图片不能超过2MB')
+      }
+      form.value.avatar = await uploadH5Avatar(normalizedFile)
+      uni.showToast({ title: '上传成功', icon: 'success' })
+    } catch (err: any) {
+      uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+    } finally {
+      uni.hideLoading()
+      input.value = ''
+      input.remove()
+    }
+  }
+  input.click()
+}
+
+function updateLocalAvatarPreview(file: File) {
+  clearLocalAvatarPreview()
+  localAvatarPreview.value = URL.createObjectURL(file)
+}
+
+function clearLocalAvatarPreview() {
+  if (localAvatarPreview.value && localAvatarPreview.value.startsWith('blob:')) {
+    URL.revokeObjectURL(localAvatarPreview.value)
+  }
+  localAvatarPreview.value = ''
+}
+
+function shouldConvertToJpeg(file: File) {
+  const lowerName = file.name.toLowerCase()
+  return !H5_ACCEPTED_IMAGE_TYPES.has(file.type) || lowerName.endsWith('.heic') || lowerName.endsWith('.heif')
+}
+
+async function normalizeAvatarFile(file: File): Promise<File> {
+  if (!shouldConvertToJpeg(file) && file.size <= MAX_AVATAR_SIZE) {
+    return file
+  }
+
+  const img = await loadImageFromFile(file)
+  const sourceWidth = img.naturalWidth || img.width
+  const sourceHeight = img.naturalHeight || img.height
+  const maxSides = [1600, 1280, 960, 720]
+  const qualities = [0.86, 0.78, 0.7, 0.62]
+
+  let bestBlob: Blob | null = null
+
+  for (const maxSide of maxSides) {
+    const { width, height } = fitImageSize(sourceWidth, sourceHeight, maxSide)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('浏览器不支持图片处理')
+    }
+
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(img, 0, 0, width, height)
+
+    for (const quality of qualities) {
+      const blob = await canvasToBlob(canvas, 'image/jpeg', quality)
+      bestBlob = blob
+      if (blob.size <= TARGET_AVATAR_UPLOAD_SIZE) {
+        return new File([blob], replaceImageExt(file.name, '.jpg'), {
+          type: 'image/jpeg',
+          lastModified: Date.now(),
+        })
+      }
+    }
+  }
+
+  if (!bestBlob) {
+    throw new Error('图片转换失败')
+  }
+
+  return new File([bestBlob], replaceImageExt(file.name, '.jpg'), {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  })
+}
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(img)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('图片读取失败'))
+    }
+    img.src = objectUrl
+  })
+}
+
+function fitImageSize(width: number, height: number, maxSide: number) {
+  if (width <= maxSide && height <= maxSide) {
+    return { width, height }
+  }
+  const ratio = width > height ? maxSide / width : maxSide / height
+  return {
+    width: Math.max(1, Math.round(width * ratio)),
+    height: Math.max(1, Math.round(height * ratio)),
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('图片转换失败'))
+        return
+      }
+      resolve(blob)
+    }, type, quality)
+  })
+}
+
+function replaceImageExt(name: string, ext: string) {
+  return /\.[^.]+$/.test(name) ? name.replace(/\.[^.]+$/, ext) : `${name}${ext}`
+}
+
+async function uploadH5Avatar(file: File): Promise<string> {
+  const token = uni.getStorageSync('token')
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
+  const apiBase = baseUrl.startsWith('http') ? baseUrl : window.location.origin + baseUrl
+  const fd = new FormData()
+  fd.append('file', file)
+
+  const res = await fetch(`${apiBase}/b/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || data?.code !== 0 || !data?.data?.url) {
+    throw new Error(data?.msg || '上传失败')
+  }
+  return data.data.url
 }
 
 async function onSubmit() {
@@ -404,6 +652,13 @@ async function onDelete() {
 
 <style scoped>
 .page { padding: 24rpx; }
+
+/* 头像 */
+.avatar-section { display: flex; justify-content: center; margin-bottom: 20rpx; }
+.avatar-img { width: 180rpx; height: 180rpx; border-radius: 50%; border: 4rpx solid #E5E7EB; }
+.avatar-placeholder { width: 180rpx; height: 180rpx; border-radius: 50%; background: #F3F4F6; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 4rpx dashed #D1D5DB; }
+.avatar-icon { font-size: 48rpx; }
+.avatar-hint { font-size: 20rpx; color: #9CA3AF; margin-top: 4rpx; }
 
 /* 分区 */
 .section { background: #fff; border-radius: 16rpx; padding: 20rpx 24rpx; margin-bottom: 20rpx; }

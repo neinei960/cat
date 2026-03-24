@@ -25,8 +25,8 @@ func (s *DashboardService) GetOverviewByRange(shopID uint, startDate, endDate st
 	return s.statsRepo.GetOverviewByRange(shopID, startDate, endDate)
 }
 
-func (s *DashboardService) GetRevenueChart(shopID uint, startDate, endDate string) ([]model.DailyStats, error) {
-	return s.statsRepo.FindByDateRange(shopID, startDate, endDate)
+func (s *DashboardService) GetRevenueChart(shopID uint, startDate, endDate string) ([]repository.RevenueTrendItem, error) {
+	return s.statsRepo.GetRevenueTrendRealtime(shopID, startDate, endDate)
 }
 
 func (s *DashboardService) GetServiceRanking(shopID uint, startDate, endDate string) ([]repository.ServiceRanking, error) {
@@ -39,6 +39,10 @@ func (s *DashboardService) GetStaffPerformance(shopID uint, startDate, endDate s
 
 func (s *DashboardService) GetCategoryStats(shopID uint, startDate, endDate string) ([]repository.CategoryStat, error) {
 	return s.statsRepo.GetCategoryStats(shopID, startDate, endDate)
+}
+
+func (s *DashboardService) GetMemberStats(shopID uint, startDate, endDate string) (*repository.MemberStats, error) {
+	return s.statsRepo.GetMemberStats(shopID, startDate, endDate)
 }
 
 // AggregateDaily recalculates daily stats for a given date

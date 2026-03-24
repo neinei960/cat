@@ -4,11 +4,11 @@
     <view class="header">
       <text class="title">数据看板</text>
       <view class="date-range">
-        <picker mode="date" :value="startDate" @change="(e:any) => { startDate = e.detail.value; loadAll() }">
+        <picker mode="date" :value="startDate" @change="(e:any) => { startDate = e.detail.value; quickActive = ''; loadAll() }">
           <text class="date-btn">{{ startDate }}</text>
         </picker>
         <text class="sep">至</text>
-        <picker mode="date" :value="endDate" @change="(e:any) => { endDate = e.detail.value; loadAll() }">
+        <picker mode="date" :value="endDate" @change="(e:any) => { endDate = e.detail.value; quickActive = ''; loadAll() }">
           <text class="date-btn">{{ endDate }}</text>
         </picker>
       </view>
@@ -50,15 +50,78 @@
       </view>
     </view>
 
-    <!-- Revenue trend -->
+    <!-- Member stats -->
+    <view class="section">
+      <text class="section-title">会员概览</text>
+      <view class="member-grid">
+        <view class="member-card">
+          <text class="member-val">{{ memberStats.active_members }}</text>
+          <text class="member-label">有效会员</text>
+        </view>
+        <view class="member-card">
+          <text class="member-val">{{ memberStats.frozen_members }}</text>
+          <text class="member-label">冻结会员</text>
+        </view>
+        <view class="member-card">
+          <text class="member-val">¥{{ memberStats.total_balance.toFixed(2) }}</text>
+          <text class="member-label">会员总余额</text>
+        </view>
+        <view class="member-card">
+          <text class="member-val">¥{{ memberStats.total_member_spent.toFixed(2) }}</text>
+          <text class="member-label">累计会员消费</text>
+        </view>
+        <view class="member-card">
+          <text class="member-val">¥{{ memberStats.range_recharge.toFixed(2) }}</text>
+          <text class="member-label">区间充值</text>
+        </view>
+        <view class="member-card">
+          <text class="member-val">¥{{ memberStats.range_consumption.toFixed(2) }}</text>
+          <text class="member-label">区间余额消费</text>
+        </view>
+      </view>
+
+      <view class="rank-list member-rank">
+        <view class="rank-item header" v-if="memberStats.template_breakdown.length > 0">
+          <text class="rank-name">会员卡类型</text>
+          <text class="rank-count">人数</text>
+        </view>
+        <view class="rank-item" v-for="item in memberStats.template_breakdown" :key="item.template_id">
+          <text class="rank-name">{{ item.template_name }}</text>
+          <text class="rank-count">{{ item.count }}人</text>
+        </view>
+        <view v-if="memberStats.template_breakdown.length === 0" class="empty-sm">暂无会员卡数据</view>
+      </view>
+    </view>
+
+    <!-- Revenue trend - Line Chart -->
     <view class="section">
       <text class="section-title">营收趋势</text>
-      <view class="chart-placeholder" v-if="revenueData.length === 0">暂无数据</view>
-      <view v-else class="bar-chart">
-        <view class="bar-item" v-for="d in revenueData" :key="d.date">
-          <view class="bar" :style="{ height: getBarHeight(d.revenue) + 'rpx' }"></view>
-          <text class="bar-label">{{ d.date.substring(5) }}</text>
-          <text class="bar-val">¥{{ d.revenue }}</text>
+      <view class="chart-placeholder" v-if="filledData.length === 0">暂无数据</view>
+      <view v-else class="line-chart-container">
+        <!-- Y axis labels -->
+        <view class="y-labels">
+          <text class="y-label" v-for="(v, i) in yLabels" :key="i">{{ v }}</text>
+        </view>
+        <!-- Chart area -->
+        <view class="chart-area">
+          <view class="chart-canvas" :style="{ height: '300rpx' }">
+            <!-- Grid lines -->
+            <view class="grid-line" v-for="i in 4" :key="'g'+i" :style="{ bottom: ((i-1) * 25) + '%' }"></view>
+            <!-- Bars (subtle background) + Line overlay -->
+            <view class="chart-bars">
+              <view class="chart-col" v-for="(d, idx) in filledData" :key="d.date">
+                <view class="chart-bar-bg" :style="{ height: getBarPct(d.revenue) + '%' }"></view>
+                <view class="chart-dot" :style="{ bottom: getBarPct(d.revenue) + '%' }">
+                  <view class="dot-inner"></view>
+                  <text class="dot-tooltip" v-if="d.revenue > 0">¥{{ d.revenue.toFixed(0) }}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+          <!-- X axis -->
+          <view class="x-labels">
+            <text class="x-label" v-for="d in filledData" :key="d.date">{{ d.date.substring(5) }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -142,7 +205,7 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref, onMounted, computed } from 'vue'
-import { getDashboardOverview, getRevenueChart, getServiceRanking, getStaffPerformance, getCategoryStats } from '@/api/dashboard'
+import { getDashboardOverview, getRevenueChart, getServiceRanking, getStaffPerformance, getCategoryStats, getMemberStats } from '@/api/dashboard'
 
 function localDateStr(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -184,31 +247,63 @@ const revenueData = ref<any[]>([])
 const serviceRanking = ref<any[]>([])
 const staffPerformance = ref<any[]>([])
 const categoryStats = ref<any[]>([])
+const memberStats = ref({
+  active_members: 0,
+  frozen_members: 0,
+  total_balance: 0,
+  total_member_spent: 0,
+  range_recharge: 0,
+  range_consumption: 0,
+  template_breakdown: [] as { template_id: number; template_name: string; count: number }[],
+})
 
-const maxRevenue = computed(() => Math.max(...revenueData.value.map(d => d.revenue), 1))
-function getBarHeight(revenue: number) { return Math.max((revenue / maxRevenue.value) * 200, 8) }
+// Fill date gaps so chart has continuous points
+function fillDateGaps(data: any[], sd: string, ed: string): any[] {
+  const map = new Map(data.map(d => [d.date, d]))
+  const result: any[] = []
+  const cur = new Date(sd)
+  const end = new Date(ed)
+  while (cur <= end) {
+    const ds = localDateStr(cur)
+    result.push(map.get(ds) || { date: ds, revenue: 0, order_count: 0 })
+    cur.setDate(cur.getDate() + 1)
+  }
+  return result
+}
+
+const filledData = computed(() => fillDateGaps(revenueData.value, startDate.value, endDate.value))
+const maxRevenue = computed(() => Math.max(...filledData.value.map(d => d.revenue), 1))
+
+function getBarPct(revenue: number): number {
+  return Math.max((revenue / maxRevenue.value) * 100, 2)
+}
+
+const yLabels = computed(() => {
+  const max = maxRevenue.value
+  return [max, Math.round(max * 0.66), Math.round(max * 0.33), 0].map(v => v > 0 ? '¥' + v : '0')
+})
 
 async function loadAll() {
-  quickActive.value = '' // clear quick active when manually picking dates
   const sd = startDate.value
   const ed = endDate.value
-  const [oRes, rRes, sRes, pRes, cRes] = await Promise.all([
+  const [oRes, rRes, sRes, pRes, cRes, mRes] = await Promise.all([
     getDashboardOverview(sd, ed),
     getRevenueChart(sd, ed),
     getServiceRanking(sd, ed),
     getStaffPerformance(sd, ed),
     getCategoryStats(sd, ed),
+    getMemberStats(sd, ed),
   ])
   overview.value = oRes.data
   revenueData.value = rRes.data || []
   serviceRanking.value = sRes.data || []
   staffPerformance.value = pRes.data || []
   categoryStats.value = cRes.data || []
+  memberStats.value = mRes.data
 }
 
 onMounted(() => {
-  quickActive.value = 'today'
-  loadAll()
+  setQuickDate('week')
 })
 </script>
 
@@ -232,12 +327,28 @@ onMounted(() => {
 .stat-label { font-size: 22rpx; color: #6B7280; display: block; margin-top: 4rpx; }
 .section { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }
 .section-title { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 16rpx; }
+.member-grid { display: flex; flex-wrap: wrap; gap: 16rpx; margin-bottom: 20rpx; }
+.member-card { width: calc(33.33% - 12rpx); background: linear-gradient(180deg, #F8FAFC 0%, #EEF2FF 100%); border: 1rpx solid #E5E7EB; border-radius: 16rpx; padding: 20rpx 16rpx; text-align: center; }
+.member-val { font-size: 30rpx; font-weight: 700; color: #3730A3; display: block; }
+.member-label { font-size: 22rpx; color: #6B7280; display: block; margin-top: 6rpx; }
+.member-rank { margin-top: 8rpx; }
 .chart-placeholder { text-align: center; padding: 40rpx; color: #9CA3AF; font-size: 26rpx; }
-.bar-chart { display: flex; align-items: flex-end; gap: 12rpx; height: 280rpx; padding-top: 40rpx; overflow-x: auto; }
-.bar-item { flex: 1; min-width: 60rpx; display: flex; flex-direction: column; align-items: center; }
-.bar { width: 100%; background: #4F46E5; border-radius: 8rpx 8rpx 0 0; min-height: 8rpx; }
-.bar-label { font-size: 20rpx; color: #6B7280; margin-top: 8rpx; white-space: nowrap; }
-.bar-val { font-size: 18rpx; color: #4F46E5; white-space: nowrap; }
+
+/* Line chart */
+.line-chart-container { display: flex; gap: 8rpx; overflow-x: auto; }
+.y-labels { display: flex; flex-direction: column; justify-content: space-between; width: 80rpx; min-width: 80rpx; padding: 0 0 40rpx; }
+.y-label { font-size: 18rpx; color: #9CA3AF; text-align: right; }
+.chart-area { flex: 1; min-width: 0; }
+.chart-canvas { position: relative; background: #FAFBFC; border-radius: 12rpx; border: 1rpx solid #F3F4F6; overflow: hidden; }
+.grid-line { position: absolute; left: 0; right: 0; height: 1rpx; background: #F3F4F6; }
+.chart-bars { display: flex; height: 100%; align-items: flex-end; }
+.chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+.chart-bar-bg { width: 60%; background: linear-gradient(180deg, rgba(79,70,229,0.15), rgba(79,70,229,0.03)); border-radius: 6rpx 6rpx 0 0; min-height: 4rpx; transition: height 0.3s; }
+.chart-dot { position: absolute; left: 50%; transform: translateX(-50%); }
+.dot-inner { width: 12rpx; height: 12rpx; border-radius: 50%; background: #4F46E5; border: 3rpx solid #fff; box-shadow: 0 2rpx 6rpx rgba(79,70,229,0.3); }
+.dot-tooltip { position: absolute; bottom: 20rpx; left: 50%; transform: translateX(-50%); font-size: 18rpx; color: #4F46E5; font-weight: 600; white-space: nowrap; }
+.x-labels { display: flex; padding-top: 8rpx; }
+.x-label { flex: 1; text-align: center; font-size: 18rpx; color: #9CA3AF; }
 .rank-list { }
 .rank-item { display: flex; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F3F4F6; font-size: 26rpx; }
 .rank-item:last-child { border-bottom: none; }

@@ -19,11 +19,13 @@ func NewStaffHandler(staffService *service.StaffService) *StaffHandler {
 }
 
 type createStaffReq struct {
-	Phone          string  `json:"phone" binding:"required"`
-	Name           string  `json:"name" binding:"required"`
-	Password       string  `json:"password"`
-	Role           string  `json:"role"`
-	CommissionRate float64 `json:"commission_rate"`
+	Phone                 string  `json:"phone" binding:"required"`
+	Name                  string  `json:"name" binding:"required"`
+	Password              string  `json:"password"`
+	Role                  string  `json:"role"`
+	CommissionRate        float64 `json:"commission_rate"`
+	ProductCommissionRate float64 `json:"product_commission_rate"`
+	FeedingCommissionRate float64 `json:"feeding_commission_rate"`
 }
 
 func (h *StaffHandler) Create(c *gin.Context) {
@@ -34,11 +36,13 @@ func (h *StaffHandler) Create(c *gin.Context) {
 	}
 
 	staff := &model.Staff{
-		ShopID:         c.GetUint("shop_id"),
-		Phone:          req.Phone,
-		Name:           req.Name,
-		Role:           req.Role,
-		CommissionRate: req.CommissionRate,
+		ShopID:                c.GetUint("shop_id"),
+		Phone:                 req.Phone,
+		Name:                  req.Name,
+		Role:                  req.Role,
+		CommissionRate:        req.CommissionRate,
+		ProductCommissionRate: req.ProductCommissionRate,
+		FeedingCommissionRate: req.FeedingCommissionRate,
 	}
 	// 只允许创建 staff 角色
 	staff.Role = "staff"
@@ -79,12 +83,14 @@ func (h *StaffHandler) List(c *gin.Context) {
 }
 
 type updateStaffReq struct {
-	Name           string  `json:"name"`
-	Phone          string  `json:"phone"`
-	Role           string  `json:"role"`
-	Status         int     `json:"status"`
-	CommissionRate float64 `json:"commission_rate"`
-	Avatar         string  `json:"avatar"`
+	Name                  string   `json:"name"`
+	Phone                 string   `json:"phone"`
+	Role                  string   `json:"role"`
+	Status                int      `json:"status"`
+	CommissionRate        *float64 `json:"commission_rate"`
+	ProductCommissionRate *float64 `json:"product_commission_rate"`
+	FeedingCommissionRate *float64 `json:"feeding_commission_rate"`
+	Avatar                string   `json:"avatar"`
 }
 
 func (h *StaffHandler) Update(c *gin.Context) {
@@ -113,8 +119,14 @@ func (h *StaffHandler) Update(c *gin.Context) {
 	if req.Status != 0 {
 		staff.Status = req.Status
 	}
-	if req.CommissionRate != 0 {
-		staff.CommissionRate = req.CommissionRate
+	if req.CommissionRate != nil {
+		staff.CommissionRate = *req.CommissionRate
+	}
+	if req.ProductCommissionRate != nil {
+		staff.ProductCommissionRate = *req.ProductCommissionRate
+	}
+	if req.FeedingCommissionRate != nil {
+		staff.FeedingCommissionRate = *req.FeedingCommissionRate
 	}
 	if req.Avatar != "" {
 		staff.Avatar = req.Avatar

@@ -24,7 +24,11 @@
         </view>
         <view class="card-bottom">
           <text class="phone">{{ item.phone }}</text>
-          <text class="commission" v-if="item.commission_rate">提成 {{ item.commission_rate }}%</text>
+          <view class="commissions" v-if="item.commission_rate || item.product_commission_rate || item.feeding_commission_rate">
+            <text class="commission" v-if="item.commission_rate">洗{{ item.commission_rate }}%</text>
+            <text class="commission" v-if="item.product_commission_rate">品{{ item.product_commission_rate }}%</text>
+            <text class="commission" v-if="item.feeding_commission_rate">喂{{ item.feeding_commission_rate }}%</text>
+          </view>
         </view>
       </view>
     </view>
@@ -83,5 +87,6 @@ onMounted(loadData)
 .status.inactive { color: #DC2626; background: #FEE2E2; }
 .card-bottom { display: flex; justify-content: space-between; margin-top: 16rpx; padding-top: 16rpx; border-top: 1rpx solid #F3F4F6; }
 .phone { font-size: 26rpx; color: #6B7280; }
-.commission { font-size: 26rpx; color: #4F46E5; }
+.commissions { display: flex; gap: 12rpx; }
+.commission { font-size: 24rpx; color: #4F46E5; }
 </style>

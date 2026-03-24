@@ -41,6 +41,8 @@ interface CreateStaffReq {
   password?: string
   role?: string
   commission_rate?: number
+  product_commission_rate?: number
+  feeding_commission_rate?: number
 }
 
 // Customer
@@ -61,7 +63,21 @@ interface Customer {
   discount_rate: number
   member_card_id?: number
   member_card?: MemberCard
+  customer_tags?: CustomerTag[]
+  pets?: Pet[]
   CreatedAt: string
+}
+
+interface CustomerTag {
+  ID: number
+  shop_id: number
+  name: string
+  description: string
+  color: string
+  sort_order: number
+  status: number
+  relation_count?: number
+  CreatedAt?: string
 }
 
 // Member Card

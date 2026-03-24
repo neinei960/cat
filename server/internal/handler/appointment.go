@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
@@ -22,13 +24,24 @@ func NewAppointmentHandler(apptService *service.AppointmentService) *Appointment
 func (h *AppointmentHandler) GetSlots(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	date := c.Query("date")
+	serviceIDs := parseServiceIDs(c.Query("service_ids"))
+	duration, _ := strconv.Atoi(c.DefaultQuery("duration", "0"))
 	serviceID, _ := strconv.ParseUint(c.Query("service_id"), 10, 64)
-	if date == "" || serviceID == 0 {
-		response.Error(c, http.StatusBadRequest, "请提供date和service_id")
+	excludeID, _ := strconv.ParseUint(c.Query("exclude_id"), 10, 64)
+	if date == "" || (len(serviceIDs) == 0 && serviceID == 0) {
+		response.Error(c, http.StatusBadRequest, "请提供date和service_ids")
 		return
 	}
 
-	slots, err := h.apptService.GetAvailableSlots(shopID, date, uint(serviceID))
+	var (
+		slots []service.StaffSlots
+		err   error
+	)
+	if len(serviceIDs) > 0 {
+		slots, err = h.apptService.GetAvailableSlotsByServicesExcluding(shopID, date, serviceIDs, duration, uint(excludeID))
+	} else {
+		slots, err = h.apptService.GetAvailableSlotsExcluding(shopID, date, uint(serviceID), uint(excludeID))
+	}
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -37,14 +50,39 @@ func (h *AppointmentHandler) GetSlots(c *gin.Context) {
 }
 
 type createApptReq struct {
-	CustomerID uint   `json:"customer_id"`
-	PetID      uint   `json:"pet_id"`
+	CustomerID uint `json:"customer_id"`
+	PetID      uint `json:"pet_id"`
+	Pets       []struct {
+		PetID      uint   `json:"pet_id"`
+		ServiceIDs []uint `json:"service_ids"`
+	} `json:"pets"`
 	StaffID    *uint  `json:"staff_id"`
 	Date       string `json:"date" binding:"required"`
 	StartTime  string `json:"start_time" binding:"required"`
-	ServiceIDs []uint `json:"service_ids" binding:"required"`
+	EndTime    string `json:"end_time"`
+	ServiceIDs []uint `json:"service_ids"`
 	Source     int    `json:"source"`
 	Notes      string `json:"notes"`
+}
+
+func buildPetSelections(req createApptReq) ([]service.AppointmentPetSelection, error) {
+	petSelections := make([]service.AppointmentPetSelection, 0, len(req.Pets))
+	if len(req.Pets) > 0 {
+		for _, item := range req.Pets {
+			petSelections = append(petSelections, service.AppointmentPetSelection{
+				PetID:      item.PetID,
+				ServiceIDs: item.ServiceIDs,
+			})
+		}
+	} else if req.PetID > 0 && len(req.ServiceIDs) > 0 {
+		petSelections = append(petSelections, service.AppointmentPetSelection{
+			PetID:      req.PetID,
+			ServiceIDs: req.ServiceIDs,
+		})
+	} else {
+		return nil, errors.New("请至少选择一只宠物和服务")
+	}
+	return petSelections, nil
 }
 
 func (h *AppointmentHandler) Create(c *gin.Context) {
@@ -54,13 +92,20 @@ func (h *AppointmentHandler) Create(c *gin.Context) {
 		return
 	}
 
+	petSelections, err := buildPetSelections(req)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	appt := &model.Appointment{
 		ShopID:     c.GetUint("shop_id"),
 		CustomerID: req.CustomerID,
-		PetID:      req.PetID,
+		PetID:      petSelections[0].PetID,
 		StaffID:    req.StaffID,
 		Date:       req.Date,
 		StartTime:  req.StartTime,
+		EndTime:    req.EndTime,
 		Source:     req.Source,
 		Notes:      req.Notes,
 	}
@@ -68,7 +113,7 @@ func (h *AppointmentHandler) Create(c *gin.Context) {
 		appt.Source = 2 // merchant created
 	}
 
-	if err := h.apptService.Create(appt, req.ServiceIDs); err != nil {
+	if err := h.apptService.CreateMulti(appt, petSelections); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -76,6 +121,59 @@ func (h *AppointmentHandler) Create(c *gin.Context) {
 	// Reload with relations
 	result, _ := h.apptService.GetByID(appt.ID)
 	response.Success(c, result)
+}
+
+func (h *AppointmentHandler) Update(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var req createApptReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	petSelections, err := buildPetSelections(req)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	appt := &model.Appointment{
+		ShopID:     c.GetUint("shop_id"),
+		CustomerID: req.CustomerID,
+		StaffID:    req.StaffID,
+		Date:       req.Date,
+		StartTime:  req.StartTime,
+		EndTime:    req.EndTime,
+		Source:     req.Source,
+		Notes:      req.Notes,
+	}
+	if appt.Source == 0 {
+		appt.Source = 2
+	}
+
+	if err := h.apptService.UpdateMulti(uint(id), c.GetUint("shop_id"), appt, petSelections); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, _ := h.apptService.GetByID(uint(id))
+	response.Success(c, result)
+}
+
+func parseServiceIDs(raw string) []uint {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]uint, 0, len(parts))
+	for _, part := range parts {
+		id, err := strconv.ParseUint(strings.TrimSpace(part), 10, 64)
+		if err == nil && id > 0 {
+			result = append(result, uint(id))
+		}
+	}
+	return result
 }
 
 func (h *AppointmentHandler) Get(c *gin.Context) {

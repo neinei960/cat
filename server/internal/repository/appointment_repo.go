@@ -1,8 +1,11 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
+	"gorm.io/gorm"
 )
 
 type AppointmentRepository struct{}
@@ -17,24 +20,32 @@ func (r *AppointmentRepository) Create(appt *model.Appointment) error {
 
 func (r *AppointmentRepository) FindByID(id uint) (*model.Appointment, error) {
 	var appt model.Appointment
-	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Services").
-		First(&appt, id).Error
+	err := r.withRelations().First(&appt, id).Error
+	if err == nil {
+		r.normalizeAppointment(&appt)
+	}
 	return &appt, err
 }
 
 func (r *AppointmentRepository) FindByShopAndDate(shopID uint, date string) ([]model.Appointment, error) {
 	var appts []model.Appointment
-	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Services").
+	err := r.withRelations().
 		Where("shop_id = ? AND date = ? AND status IN (0,1,2,3)", shopID, date).
 		Order("start_time ASC").Find(&appts).Error
+	if err == nil {
+		r.normalizeAppointments(appts)
+	}
 	return appts, err
 }
 
 func (r *AppointmentRepository) FindByShopAndDateRange(shopID uint, startDate, endDate string) ([]model.Appointment, error) {
 	var appts []model.Appointment
-	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Services").
+	err := r.withRelations().
 		Where("shop_id = ? AND date >= ? AND date <= ? AND status IN (0,1,2,3)", shopID, startDate, endDate).
 		Order("date ASC, start_time ASC").Find(&appts).Error
+	if err == nil {
+		r.normalizeAppointments(appts)
+	}
 	return appts, err
 }
 
@@ -51,8 +62,12 @@ func (r *AppointmentRepository) FindByCustomer(customerID uint, page, pageSize i
 	db := database.DB.Model(&model.Appointment{}).Where("customer_id = ?", customerID)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Pet").Preload("Staff").Preload("Services").
+	err := r.withRelations().
+		Where("customer_id = ?", customerID).
 		Order("date DESC, start_time DESC").Offset(offset).Limit(pageSize).Find(&appts).Error
+	if err == nil {
+		r.normalizeAppointments(appts)
+	}
 	return appts, total, err
 }
 
@@ -65,8 +80,14 @@ func (r *AppointmentRepository) FindByShopPaged(shopID uint, status *int, page, 
 	}
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Services").
-		Order("date DESC, start_time DESC").Offset(offset).Limit(pageSize).Find(&appts).Error
+	query := r.withRelations().Where("shop_id = ?", shopID)
+	if status != nil {
+		query = query.Where("status = ?", *status)
+	}
+	err := query.Order("date DESC, start_time DESC").Offset(offset).Limit(pageSize).Find(&appts).Error
+	if err == nil {
+		r.normalizeAppointments(appts)
+	}
 	return appts, total, err
 }
 
@@ -84,8 +105,88 @@ func (r *AppointmentRepository) CreateServices(services []model.AppointmentServi
 	return database.DB.Create(&services).Error
 }
 
+func (r *AppointmentRepository) CreatePets(pets []model.AppointmentPet) error {
+	return database.DB.Create(&pets).Error
+}
+
+func (r *AppointmentRepository) CreatePetServices(services []model.AppointmentPetService) error {
+	return database.DB.Create(&services).Error
+}
+
 func (r *AppointmentRepository) DeleteServicesByAppointment(appointmentID uint) error {
 	return database.DB.Where("appointment_id = ?", appointmentID).Delete(&model.AppointmentService{}).Error
+}
+
+func (r *AppointmentRepository) withRelations() *gorm.DB {
+	return database.DB.Preload("Customer").
+		Preload("Pet").
+		Preload("Staff").
+		Preload("Services").
+		Preload("Pets", func(db *gorm.DB) *gorm.DB {
+			return db.Order("sort_order ASC, id ASC")
+		}).
+		Preload("Pets.Pet").
+		Preload("Pets.Services")
+}
+
+func (r *AppointmentRepository) normalizeAppointments(appts []model.Appointment) {
+	for i := range appts {
+		r.normalizeAppointment(&appts[i])
+	}
+}
+
+func (r *AppointmentRepository) normalizeAppointment(appt *model.Appointment) {
+	if appt == nil {
+		return
+	}
+
+	if len(appt.Pets) == 0 && appt.PetID > 0 {
+		fallback := model.AppointmentPet{
+			AppointmentID: appt.ID,
+			PetID:         appt.PetID,
+			SortOrder:     1,
+			TotalAmount:   appt.TotalAmount,
+			Pet:           appt.Pet,
+		}
+		for _, svc := range appt.Services {
+			fallback.TotalDuration += svc.Duration
+			fallback.Services = append(fallback.Services, model.AppointmentPetService{
+				ServiceID:   svc.ServiceID,
+				ServiceName: svc.ServiceName,
+				Price:       svc.Price,
+				Duration:    svc.Duration,
+			})
+		}
+		appt.Pets = []model.AppointmentPet{fallback}
+	}
+
+	if appt.Pet == nil && len(appt.Pets) > 0 {
+		appt.Pet = appt.Pets[0].Pet
+	}
+
+	names := make([]string, 0, len(appt.Pets))
+	for _, petItem := range appt.Pets {
+		if petItem.Pet != nil && petItem.Pet.Name != "" {
+			names = append(names, petItem.Pet.Name)
+		}
+	}
+	appt.PetCount = len(appt.Pets)
+	switch len(names) {
+	case 0:
+		if appt.PetCount > 1 {
+			appt.PetSummary = "共" + itoa(appt.PetCount) + "只"
+		} else {
+			appt.PetSummary = "-"
+		}
+	case 1:
+		appt.PetSummary = names[0]
+	default:
+		appt.PetSummary = names[0] + "等" + itoa(len(names)) + "只"
+	}
+}
+
+func itoa(v int) string {
+	return fmt.Sprintf("%d", v)
 }
 
 // Check conflict: does the staff have overlapping appointments?

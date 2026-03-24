@@ -17,22 +17,36 @@ func (s *CustomerService) Create(customer *model.Customer) error {
 	return s.repo.Create(customer)
 }
 
+func (s *CustomerService) CreateWithTags(customer *model.Customer, tagIDs []uint) error {
+	if err := s.repo.Create(customer); err != nil {
+		return err
+	}
+	return s.repo.SetTags(customer, tagIDs)
+}
+
 func (s *CustomerService) GetByID(id uint) (*model.Customer, error) {
 	return s.repo.FindByID(id)
 }
 
-func (s *CustomerService) List(shopID uint, page, pageSize int) ([]model.Customer, int64, error) {
+func (s *CustomerService) List(shopID uint, page, pageSize int, memberCardTemplateID uint, customerTagID uint) ([]model.Customer, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.repo.FindByShopID(shopID, page, pageSize)
+	return s.repo.FindByShopID(shopID, page, pageSize, memberCardTemplateID, customerTagID)
 }
 
 func (s *CustomerService) Update(customer *model.Customer) error {
 	return s.repo.Update(customer)
+}
+
+func (s *CustomerService) UpdateWithTags(customer *model.Customer, tagIDs []uint) error {
+	if err := s.repo.Update(customer); err != nil {
+		return err
+	}
+	return s.repo.SetTags(customer, tagIDs)
 }
 
 func (s *CustomerService) Delete(id uint) error {
@@ -57,12 +71,12 @@ func (s *CustomerService) GetByPhone(phone string, shopID uint) (*model.Customer
 	return s.repo.FindByPhone(phone, shopID)
 }
 
-func (s *CustomerService) Search(shopID uint, keyword string, page, pageSize int) ([]model.Customer, int64, error) {
+func (s *CustomerService) Search(shopID uint, keyword string, page, pageSize int, memberCardTemplateID uint, customerTagID uint) ([]model.Customer, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.repo.Search(shopID, keyword, page, pageSize)
+	return s.repo.Search(shopID, keyword, page, pageSize, memberCardTemplateID, customerTagID)
 }

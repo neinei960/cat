@@ -36,3 +36,17 @@ export function getCategoryStats(startDate: string, endDate: string) {
     url: `/b/dashboard/category?start_date=${startDate}&end_date=${endDate}`,
   })
 }
+
+export function getMemberStats(startDate: string, endDate: string) {
+  return request<{
+    active_members: number
+    frozen_members: number
+    total_balance: number
+    total_member_spent: number
+    range_recharge: number
+    range_consumption: number
+    template_breakdown: { template_id: number; template_name: string; count: number }[]
+  }>({
+    url: `/b/dashboard/members?start_date=${startDate}&end_date=${endDate}`,
+  })
+}

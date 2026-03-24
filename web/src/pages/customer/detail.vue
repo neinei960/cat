@@ -3,7 +3,10 @@
     <view v-if="customer" class="profile">
       <view class="avatar">{{ (customer.nickname || '客').charAt(0) }}</view>
       <text class="name">{{ customer.nickname || '未命名' }}</text>
-      <text class="phone">{{ customer.phone || '未绑定手机' }}</text>
+      <text class="phone" @click="copyPhone">{{ customer.phone || '未绑定手机' }} <text class="copy-icon">复制</text></text>
+      <view class="profile-actions">
+        <text class="profile-edit" @click="goEdit">编辑资料</text>
+      </view>
     </view>
 
     <view class="stats" v-if="customer">
@@ -80,17 +83,6 @@
       </view>
     </view>
 
-    <view class="section" v-if="customer">
-      <view class="section-header">
-        <text class="section-title">备注</text>
-        <text class="link" @click="goEdit">编辑</text>
-      </view>
-      <text class="remark">{{ customer.remark || '暂无备注' }}</text>
-      <view class="tag-list" v-if="customer.tags">
-        <text class="tag" v-for="t in customer.tags.split(',')" :key="t">{{ t }}</text>
-      </view>
-    </view>
-
     <view class="section">
       <view class="section-header">
         <text class="section-title">宠物</text>
@@ -98,10 +90,15 @@
       </view>
       <view v-if="pets.length === 0" class="empty-sm">暂无宠物</view>
       <view class="pet-card" v-for="pet in pets" :key="pet.ID" @click="goEditPet(pet.ID)">
+        <img v-if="pet.avatar" :src="pet.avatar.startsWith('http') ? pet.avatar : pet.avatar" class="pet-avatar" />
+        <view v-else class="pet-avatar-fallback">{{ (pet.name || '猫').charAt(0) }}</view>
         <view class="pet-main">
           <view class="pet-top">
             <text class="pet-name">{{ pet.name }}</text>
-            <text class="pet-detail">{{ pet.breed || '未知品种' }} · {{ pet.gender === 1 ? '♂弟弟' : pet.gender === 2 ? '♀妹妹' : '' }}<text v-if="pet.birth_date"> · {{ calcAge(pet.birth_date) }}</text></text>
+            <text class="pet-breed">{{ pet.breed || '未知品种' }}</text>
+            <text class="pet-gender" v-if="pet.gender === 1" style="color:#3B82F6;">♂</text>
+            <text class="pet-gender" v-else-if="pet.gender === 2" style="color:#EC4899;">♀</text>
+            <text class="pet-age" v-if="pet.birth_date">{{ calcAge(pet.birth_date) }}</text>
             <text class="pet-weight" v-if="pet.weight">{{ pet.weight }}kg</text>
           </view>
           <view class="pet-tags" v-if="pet.fur_level || pet.neutered || pet.personality || (pet.aggression && pet.aggression !== '无')">
@@ -112,6 +109,26 @@
           </view>
         </view>
         <text class="pet-arrow">›</text>
+      </view>
+    </view>
+
+    <view class="section remark-section" v-if="customer">
+      <view class="section-header">
+        <text class="remark-title">备注</text>
+        <text class="link" @click="openTagModal">编辑标签</text>
+      </view>
+      <text class="remark">{{ customer.remark || '暂无备注' }}</text>
+      <view class="tag-list" v-if="customer.customer_tags?.length">
+        <text
+          class="tag"
+          v-for="tag in customer.customer_tags"
+          :key="tag.ID"
+          :style="{ background: withAlpha(tag.color, 0.14), color: tag.color }"
+        >{{ tag.name }}</text>
+      </view>
+      <view v-else class="empty-tag-row">
+        <text class="empty-tag-text">还没有关联客户标签</text>
+        <text class="empty-tag-action" @click="openTagModal">+ 去添加</text>
       </view>
     </view>
 
@@ -177,16 +194,51 @@
         </view>
       </view>
     </view>
+
+    <view class="modal-mask" v-if="showTagModal" @click="showTagModal = false">
+      <view class="modal-body" @click.stop>
+        <text class="modal-title">关联客户标签</text>
+        <view v-if="tagOptions.length" class="tag-modal-list">
+          <text
+            v-for="tag in tagOptions"
+            :key="tag.ID"
+            :class="['tag-modal-item', selectedTagIDs.includes(tag.ID) ? 'tag-modal-item-active' : '']"
+            :style="selectedTagIDs.includes(tag.ID)
+              ? { background: withAlpha(tag.color, 0.14), color: tag.color, borderColor: withAlpha(tag.color, 0.28) }
+              : { color: '#6B7280', background: '#F9FAFB', borderColor: '#E5E7EB' }"
+            @click="toggleTag(tag.ID)"
+          >
+            {{ tag.name }}
+          </text>
+        </view>
+        <view v-else class="empty-tag-row">
+          <text class="empty-tag-text">还没有可用标签</text>
+          <text class="empty-tag-action" @click="goTagManage">去新建</text>
+        </view>
+        <view class="modal-btns">
+          <view class="modal-btn cancel" @click="showTagModal = false">取消</view>
+          <view class="modal-btn confirm" @click="saveTagLinks">保存</view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { getCustomer, getCustomerPets } from '@/api/customer'
+import { getCustomer, getCustomerPets, updateCustomer } from '@/api/customer'
+import { getCustomerTags } from '@/api/customer-tag'
 import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
+
+function withAlpha(color: string, alpha: number) {
+  const hex = color.replace('#', '')
+  if (hex.length !== 6) return color
+  const value = Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return `#${hex}${value}`
+}
 
 function calcAge(birthDate: string): string {
   if (!birthDate) return ''
@@ -213,10 +265,13 @@ const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
 const showOpenCardModal = ref(false)
 const showRechargeModal = ref(false)
 const showAdjustModal = ref(false)
+const showTagModal = ref(false)
 const selectedTplId = ref(0)
 const rechargeAmount = ref('')
 const adjustAmount = ref('')
 const adjustRemark = ref('')
+const tagOptions = ref<CustomerTag[]>([])
+const selectedTagIDs = ref<number[]>([])
 
 const minRecharge = computed(() => {
   const tpl = templates.value.find(t => t.ID === selectedTplId.value)
@@ -254,6 +309,12 @@ async function loadAll() {
   memberCard.value = cardRes.data || null
   records.value = recordRes.data || []
   templates.value = (tplRes.data || []).filter((t: MemberCardTemplate) => t.status === 1)
+  selectedTagIDs.value = (cRes.data.customer_tags || []).map(tag => tag.ID)
+}
+
+async function loadTagOptions() {
+  const res = await getCustomerTags()
+  tagOptions.value = (res.data || []).filter(tag => tag.status === 1)
 }
 
 async function doOpenCard() {
@@ -311,9 +372,46 @@ async function doAdjust() {
   }
 }
 
+function copyPhone() {
+  if (!customer.value?.phone) return
+  uni.setClipboardData({
+    data: customer.value.phone,
+    success: () => uni.showToast({ title: '已复制手机号', icon: 'success' }),
+  })
+}
+
+async function openTagModal() {
+  await loadTagOptions()
+  selectedTagIDs.value = (customer.value?.customer_tags || []).map(tag => tag.ID)
+  showTagModal.value = true
+}
+
+function toggleTag(tagID: number) {
+  selectedTagIDs.value = selectedTagIDs.value.includes(tagID)
+    ? selectedTagIDs.value.filter(id => id !== tagID)
+    : [...selectedTagIDs.value, tagID]
+}
+
+async function saveTagLinks() {
+  if (!customer.value) return
+  await updateCustomer(customer.value.ID, {
+    nickname: customer.value.nickname,
+    phone: customer.value.phone,
+    gender: customer.value.gender,
+    remark: customer.value.remark,
+    member_balance: customer.value.member_balance,
+    discount_rate: customer.value.discount_rate,
+    customer_tag_ids: selectedTagIDs.value,
+  })
+  uni.showToast({ title: '标签已更新', icon: 'success' })
+  showTagModal.value = false
+  await loadAll()
+}
+
 function goEdit() { uni.navigateTo({ url: `/pages/customer/edit?id=${id.value}` }) }
 function goAddPet() { uni.navigateTo({ url: `/pages/pet/edit?owner_phone=${customer.value?.phone || ''}` }) }
 function goEditPet(petId: number) { uni.navigateTo({ url: `/pages/pet/edit?id=${petId}` }) }
+function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 </script>
 
 <style scoped>
@@ -322,6 +420,9 @@ function goEditPet(petId: number) { uni.navigateTo({ url: `/pages/pet/edit?id=${
 .avatar { width: 120rpx; height: 120rpx; border-radius: 50%; background: #6366F1; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 48rpx; font-weight: bold; margin-bottom: 16rpx; }
 .name { display: block; font-size: 34rpx; font-weight: 600; color: #1F2937; }
 .phone { display: block; font-size: 26rpx; color: #6B7280; margin-top: 8rpx; }
+.copy-icon { font-size: 22rpx; color: #4F46E5; margin-left: 8rpx; }
+.profile-actions { display: flex; justify-content: center; margin-top: 20rpx; }
+.profile-edit { display: inline-flex; align-items: center; justify-content: center; min-width: 176rpx; height: 60rpx; padding: 0 24rpx; border-radius: 999rpx; background: #EEF2FF; color: #4F46E5; font-size: 26rpx; font-weight: 600; }
 .stats { display: flex; background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }
 .stat-item { flex: 1; text-align: center; }
 .stat-val { display: block; font-size: 30rpx; font-weight: bold; color: #4F46E5; }
@@ -330,17 +431,26 @@ function goEditPet(petId: number) { uni.navigateTo({ url: `/pages/pet/edit?id=${
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
 .section-title { font-size: 30rpx; font-weight: 600; color: #1F2937; }
 .link { font-size: 26rpx; color: #4F46E5; }
-.remark { font-size: 26rpx; color: #6B7280; }
+.remark-section { padding: 16rpx 24rpx; }
+.remark-title { font-size: 26rpx; font-weight: 600; color: #9CA3AF; }
+.remark { font-size: 24rpx; color: #9CA3AF; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 12rpx; }
 .tag { font-size: 22rpx; padding: 6rpx 16rpx; background: #EEF2FF; color: #4F46E5; border-radius: 16rpx; }
+.empty-tag-row { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; margin-top: 14rpx; background: #F9FAFB; border-radius: 12rpx; padding: 16rpx; }
+.empty-tag-text { font-size: 22rpx; color: #9CA3AF; }
+.empty-tag-action { font-size: 22rpx; color: #4F46E5; }
 .empty-sm { font-size: 26rpx; color: #9CA3AF; text-align: center; padding: 24rpx; }
-.pet-card { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; display: flex; align-items: center; }
+.pet-card { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; display: flex; align-items: center; gap: 16rpx; }
+.pet-avatar { width: 72rpx; height: 72rpx; border-radius: 50%; flex-shrink: 0; }
+.pet-avatar-fallback { width: 72rpx; height: 72rpx; border-radius: 50%; background: #EEF2FF; color: #4F46E5; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; flex-shrink: 0; }
 .pet-card:last-child { border-bottom: none; }
 .pet-main { flex: 1; }
 .pet-top { display: flex; align-items: baseline; gap: 8rpx; }
 .pet-name { font-size: 28rpx; font-weight: 600; color: #1F2937; }
-.pet-detail { font-size: 22rpx; color: #6B7280; flex: 1; }
-.pet-weight { font-size: 24rpx; color: #4F46E5; font-weight: 600; }
+.pet-breed { font-size: 22rpx; color: #6B7280; }
+.pet-gender { font-size: 24rpx; font-weight: 600; }
+.pet-age { font-size: 22rpx; color: #6B7280; }
+.pet-weight { font-size: 24rpx; color: #4F46E5; font-weight: 600; margin-left: auto; }
 .pet-tags { display: flex; gap: 8rpx; flex-wrap: wrap; margin-top: 8rpx; }
 .pet-tag { font-size: 20rpx; padding: 2rpx 10rpx; background: #EEF2FF; color: #4F46E5; border-radius: 10rpx; }
 .pet-arrow { font-size: 32rpx; color: #C0C4CC; margin-left: 8rpx; }
@@ -395,6 +505,9 @@ function goEditPet(petId: number) { uni.navigateTo({ url: `/pages/pet/edit?id=${
 .tpl-name { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; }
 .tpl-active .tpl-name { color: #4F46E5; }
 .tpl-meta { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
+.tag-modal-list { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.tag-modal-item { padding: 10rpx 18rpx; border-radius: 999rpx; font-size: 24rpx; border: 1rpx solid transparent; }
+.tag-modal-item-active { font-weight: 600; }
 .modal-btns { display: flex; gap: 16rpx; margin-top: 24rpx; }
 .modal-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 12rpx; font-size: 28rpx; }
 .cancel { background: #F3F4F6; color: #6B7280; }

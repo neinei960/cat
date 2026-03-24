@@ -22,10 +22,11 @@ func main() {
 
 	// AutoMigrate
 	database.AutoMigrate(
-		&model.Shop{}, &model.Staff{}, &model.Customer{}, &model.Pet{},
+		&model.Shop{}, &model.Staff{}, &model.Customer{}, &model.CustomerTag{}, &model.CustomerTagRelation{}, &model.Pet{},
 		&model.Service{}, &model.ServicePriceRule{}, &model.ServiceAddon{}, &model.FurCategory{},
 		&model.StaffService{}, &model.StaffSchedule{},
 		&model.Appointment{}, &model.AppointmentService{},
+		&model.AppointmentPet{}, &model.AppointmentPetService{},
 		&model.Order{}, &model.OrderItem{}, &model.NotificationLog{}, &model.DailyStats{},
 	)
 
@@ -143,8 +144,8 @@ func main() {
 		for _, staffID := range []uint{groomer1.ID, groomer2.ID, groomer3.ID} {
 			sched := model.StaffSchedule{
 				StaffID: staffID, ShopID: shop.ID, Date: date,
-				StartTime: "09:00", EndTime: "18:00",
-				BreakStart: "12:00", BreakEnd: "13:00",
+				StartTime: "12:00", EndTime: "22:00",
+				BreakStart: "17:00", BreakEnd: "18:00",
 				MaxCapacity: 1, IsDayOff: false,
 			}
 			database.DB.Where("staff_id = ? AND date = ?", staffID, date).FirstOrCreate(&sched)
@@ -193,7 +194,7 @@ func main() {
 		Weight: 4.8, FurLevel: "C", Personality: "笑里藏刀",
 		Aggression: "可能", ForbiddenZones: "肚子、后腿",
 		BathFrequency: "两月",
-		CareNotes: "看起来乖但可能突然咬人，注意禁区", Status: 1,
+		CareNotes:     "看起来乖但可能突然咬人，注意禁区", Status: 1,
 	}
 	database.DB.Where("name = ? AND shop_id = ?", "小白", shop.ID).FirstOrCreate(&cat3)
 	fmt.Printf("Cats: %d, %d, %d\n", cat1.ID, cat2.ID, cat3.ID)

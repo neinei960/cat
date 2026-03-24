@@ -50,8 +50,10 @@ func (r *OrderRepository) Search(shopID uint, keyword string, status *int, page,
 	db := database.DB.Model(&model.Order{}).
 		Joins("LEFT JOIN customers ON customers.id = orders.customer_id").
 		Joins("LEFT JOIN pets ON pets.id = orders.pet_id").
-		Where("orders.shop_id = ? AND (orders.order_no LIKE ? OR customers.nickname LIKE ? OR customers.phone LIKE ? OR pets.name LIKE ?)",
-			shopID, like, like, like, like)
+		Joins("LEFT JOIN order_items ON order_items.order_id = orders.id AND order_items.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND (orders.order_no LIKE ? OR customers.nickname LIKE ? OR customers.phone LIKE ? OR pets.name LIKE ? OR order_items.name LIKE ?)",
+			shopID, like, like, like, like, like).
+		Distinct("orders.id")
 	if status != nil {
 		db = db.Where("orders.status = ?", *status)
 	}
@@ -78,4 +80,10 @@ func (r *OrderRepository) Update(order *model.Order) error {
 
 func (r *OrderRepository) CreateItems(items []model.OrderItem) error {
 	return database.DB.Create(&items).Error
+}
+
+func (r *OrderRepository) CountByAppointment(appointmentID uint) (int64, error) {
+	var count int64
+	err := database.DB.Model(&model.Order{}).Where("appointment_id = ?", appointmentID).Count(&count).Error
+	return count, err
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
@@ -80,6 +81,7 @@ func (h *PetHandler) Create(c *gin.Context) {
 		Species:        species,
 		Breed:          req.Breed,
 		Gender:         req.Gender,
+		BirthDate:      parseBirthDate(req.BirthDate),
 		Weight:         req.Weight,
 		CoatType:       req.CoatType,
 		CoatColor:      req.CoatColor,
@@ -174,6 +176,7 @@ func (h *PetHandler) Update(c *gin.Context) {
 	}
 	pet.Breed = req.Breed
 	pet.Gender = req.Gender
+	pet.BirthDate = parseBirthDate(req.BirthDate)
 	pet.Weight = req.Weight
 	pet.CoatType = req.CoatType
 	pet.CoatColor = req.CoatColor
@@ -192,6 +195,18 @@ func (h *PetHandler) Update(c *gin.Context) {
 		return
 	}
 	response.Success(c, pet)
+}
+
+func parseBirthDate(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 func (h *PetHandler) Delete(c *gin.Context) {

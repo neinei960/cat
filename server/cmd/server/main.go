@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"syscall"
 	"time"
 
 	"github.com/neinei960/cat/server/config"
@@ -13,6 +14,7 @@ import (
 )
 
 func main() {
+	syscall.Umask(0022)
 	if err := config.Load(); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -25,6 +27,8 @@ func main() {
 		&model.Shop{},
 		&model.Staff{},
 		&model.Customer{},
+		&model.CustomerTag{},
+		&model.CustomerTagRelation{},
 		&model.Pet{},
 		&model.MemberCardTemplate{},
 		&model.MemberCardDiscount{},
@@ -38,6 +42,8 @@ func main() {
 		&model.StaffSchedule{},
 		&model.Appointment{},
 		&model.AppointmentService{},
+		&model.AppointmentPet{},
+		&model.AppointmentPetService{},
 		&model.Order{},
 		&model.OrderItem{},
 		&model.NotificationLog{},

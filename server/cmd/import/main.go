@@ -24,10 +24,11 @@ func main() {
 
 	// AutoMigrate
 	database.AutoMigrate(
-		&model.Shop{}, &model.Staff{}, &model.Customer{}, &model.Pet{},
+		&model.Shop{}, &model.Staff{}, &model.Customer{}, &model.CustomerTag{}, &model.CustomerTagRelation{}, &model.Pet{},
 		&model.Service{}, &model.ServicePriceRule{}, &model.ServiceAddon{}, &model.FurCategory{},
 		&model.StaffService{}, &model.StaffSchedule{},
 		&model.Appointment{}, &model.AppointmentService{},
+		&model.AppointmentPet{}, &model.AppointmentPetService{},
 		&model.Order{}, &model.OrderItem{}, &model.NotificationLog{}, &model.DailyStats{},
 	)
 

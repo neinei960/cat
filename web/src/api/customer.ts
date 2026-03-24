@@ -1,6 +1,6 @@
 import { request } from './request'
 
-export function getCustomerList(params?: PageParams & { keyword?: string }) {
+export function getCustomerList(params?: PageParams & { keyword?: string; member_card_template_id?: number; customer_tag_id?: number }) {
   return request<PageResult<Customer>>({ url: '/b/customers', data: params })
 }
 

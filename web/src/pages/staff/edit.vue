@@ -16,8 +16,16 @@
       </view>
       <!-- 仅 admin 可见的管理字段 -->
       <view class="form-item" v-if="isAdmin">
-        <text class="label">提成比例 (%)</text>
+        <text class="label">洗浴提成 (%)</text>
         <input v-model="form.commission_rate" type="digit" placeholder="0" class="input" />
+      </view>
+      <view class="form-item" v-if="isAdmin">
+        <text class="label">商品提成 (%)</text>
+        <input v-model="form.product_commission_rate" type="digit" placeholder="0" class="input" />
+      </view>
+      <view class="form-item" v-if="isAdmin">
+        <text class="label">上门喂养提成 (%)</text>
+        <input v-model="form.feeding_commission_rate" type="digit" placeholder="0" class="input" />
       </view>
       <view class="form-item" v-if="id && isAdmin">
         <text class="label">状态</text>
@@ -38,6 +46,31 @@
       </view>
     </view>
 
+    <!-- 工作时间设置 (编辑模式, 仅 admin) -->
+    <view class="section" v-if="id && isAdmin">
+      <view class="section-header">
+        <text class="section-title">工作时间</text>
+        <text class="hint">设置本周排班，可逐日调整</text>
+      </view>
+      <view class="schedule-row" v-for="(day, idx) in weekSchedule" :key="day.date">
+        <view class="day-label">
+          <text class="day-name">{{ dayNames[idx] }}</text>
+          <text class="day-date">{{ day.date.slice(5) }}</text>
+        </view>
+        <view v-if="day.is_day_off" class="day-off-tag" @click="day.is_day_off = false">休息</view>
+        <view v-else class="time-inputs">
+          <input v-model="day.start_time" placeholder="12:00" class="time-input" maxlength="5" />
+          <text class="time-sep">-</text>
+          <input v-model="day.end_time" placeholder="22:00" class="time-input" maxlength="5" />
+          <view class="btn-day-off" @click="day.is_day_off = true">休</view>
+        </view>
+      </view>
+      <view class="schedule-actions">
+        <view class="btn-copy" @click="copyToAll">复制第一天到全周</view>
+        <view class="btn-save-schedule" @click="saveSchedule">保存排班</view>
+      </view>
+    </view>
+
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id && isAdmin" @click="onDelete">删除员工</button>
   </view>
@@ -46,7 +79,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getStaff, createStaff, updateStaff, deleteStaff, resetStaffPassword } from '@/api/staff'
+import { getStaff, createStaff, updateStaff, deleteStaff, resetStaffPassword, getStaffSchedule, batchSetSchedule } from '@/api/staff'
 import { safeBack } from '@/utils/navigate'
 import { useAuthStore } from '@/store/auth'
 
@@ -56,7 +89,7 @@ const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
 const id = ref(0)
 const submitting = ref(false)
 const newPassword = ref('')
-const form = ref({ name: '', phone: '', password: '', commission_rate: 0, status: 1 })
+const form = ref({ name: '', phone: '', password: '', commission_rate: 0, product_commission_rate: 0, feeding_commission_rate: 0, status: 1 })
 const statusList = [
   { label: '在职', value: 1 },
   { label: '离职', value: 2 },
@@ -65,10 +98,82 @@ const statusList = [
 const statusIndex = computed(() => statusList.findIndex(s => s.value === form.value.status) || 0)
 function onStatusChange(e: any) { form.value.status = statusList[e.detail.value].value }
 
+// 排班
+interface DaySchedule {
+  date: string
+  start_time: string
+  end_time: string
+  is_day_off: boolean
+}
+const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const weekSchedule = ref<DaySchedule[]>([])
+
+function getWeekDates(): string[] {
+  const now = new Date()
+  const day = now.getDay() || 7 // 周日=7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - day + 1)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    return d.toISOString().split('T')[0]
+  })
+}
+
+function initWeekSchedule() {
+  weekSchedule.value = getWeekDates().map(date => ({
+    date, start_time: '12:00', end_time: '22:00', is_day_off: false,
+  }))
+}
+
+async function loadSchedule() {
+  const dates = getWeekDates()
+  try {
+    const res = await getStaffSchedule(id.value, dates[0], dates[6])
+    const existing = res.data || []
+    weekSchedule.value = dates.map(date => {
+      const found = existing.find((s: any) => s.date === date)
+      return found
+        ? { date, start_time: found.start_time, end_time: found.end_time, is_day_off: found.is_day_off }
+        : { date, start_time: '12:00', end_time: '22:00', is_day_off: false }
+    })
+  } catch {
+    initWeekSchedule()
+  }
+}
+
+function copyToAll() {
+  if (!weekSchedule.value.length) return
+  const first = weekSchedule.value[0]
+  weekSchedule.value.forEach((day, i) => {
+    if (i > 0) {
+      day.start_time = first.start_time
+      day.end_time = first.end_time
+      day.is_day_off = first.is_day_off
+    }
+  })
+}
+
+async function saveSchedule() {
+  try {
+    await batchSetSchedule(id.value, weekSchedule.value.map(d => ({
+      date: d.date,
+      start_time: d.is_day_off ? '' : d.start_time,
+      end_time: d.is_day_off ? '' : d.end_time,
+      is_day_off: d.is_day_off,
+      max_capacity: 1,
+    })))
+    uni.showToast({ title: '排班已保存', icon: 'success' })
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '保存失败', icon: 'none' })
+  }
+}
+
 onLoad((query) => {
   if (query?.id) {
     id.value = parseInt(query.id)
     loadData()
+    if (isAdmin.value) loadSchedule()
   }
 })
 
@@ -79,6 +184,8 @@ async function loadData() {
     phone: res.data.phone,
     password: '',
     commission_rate: res.data.commission_rate,
+    product_commission_rate: res.data.product_commission_rate || 0,
+    feeding_commission_rate: res.data.feeding_commission_rate || 0,
     status: res.data.status,
   }
 }
@@ -90,19 +197,24 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
+    const payload = {
+      name: form.value.name,
+      phone: form.value.phone,
+      commission_rate: toNumber(form.value.commission_rate),
+      product_commission_rate: toNumber(form.value.product_commission_rate),
+      feeding_commission_rate: toNumber(form.value.feeding_commission_rate),
+      status: form.value.status,
+    }
     if (id.value) {
-      await updateStaff(id.value, {
-        name: form.value.name,
-        phone: form.value.phone,
-        commission_rate: form.value.commission_rate,
-        status: form.value.status,
-      })
+      await updateStaff(id.value, payload)
     } else {
       await createStaff({
-        phone: form.value.phone,
-        name: form.value.name,
+        phone: payload.phone,
+        name: payload.name,
         password: form.value.password || undefined,
-        commission_rate: form.value.commission_rate,
+        commission_rate: payload.commission_rate,
+        product_commission_rate: payload.product_commission_rate,
+        feeding_commission_rate: payload.feeding_commission_rate,
       })
     }
     uni.showToast({ title: '保存成功', icon: 'success' })
@@ -110,6 +222,11 @@ async function onSubmit() {
   } finally {
     submitting.value = false
   }
+}
+
+function toNumber(value: string | number) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
 }
 
 async function onResetPassword() {
@@ -163,6 +280,22 @@ async function onDelete() {
 .reset-row { display: flex; gap: 16rpx; align-items: center; }
 .flex1 { flex: 1; }
 .btn-reset { font-size: 26rpx; color: #fff; background: #F59E0B; padding: 12rpx 24rpx; border-radius: 12rpx; white-space: nowrap; }
+/* 排班 */
+.hint { font-size: 22rpx; color: #9CA3AF; }
+.schedule-row { display: flex; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.schedule-row:last-child { border-bottom: none; }
+.day-label { width: 100rpx; }
+.day-name { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; }
+.day-date { font-size: 20rpx; color: #9CA3AF; }
+.time-inputs { display: flex; align-items: center; gap: 8rpx; flex: 1; }
+.time-input { width: 120rpx; text-align: center; font-size: 26rpx; color: #1F2937; background: #F9FAFB; border-radius: 8rpx; height: 56rpx; }
+.time-sep { font-size: 24rpx; color: #9CA3AF; }
+.btn-day-off { font-size: 22rpx; color: #9CA3AF; padding: 8rpx 16rpx; background: #F3F4F6; border-radius: 8rpx; }
+.day-off-tag { font-size: 24rpx; color: #9CA3AF; background: #F3F4F6; padding: 8rpx 24rpx; border-radius: 8rpx; flex: 1; text-align: center; }
+.schedule-actions { display: flex; gap: 16rpx; margin-top: 16rpx; }
+.btn-copy { flex: 1; text-align: center; font-size: 26rpx; color: #6B7280; background: #F3F4F6; padding: 14rpx; border-radius: 10rpx; }
+.btn-save-schedule { flex: 1; text-align: center; font-size: 26rpx; color: #fff; background: #4F46E5; padding: 14rpx; border-radius: 10rpx; }
+
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 .btn-delete { background: #fff; color: #DC2626; border: 1rpx solid #DC2626; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 </style>

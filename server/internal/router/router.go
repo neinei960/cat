@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/neinei960/cat/server/config"
 	"github.com/neinei960/cat/server/internal/handler"
 	"github.com/neinei960/cat/server/internal/middleware"
 	"github.com/neinei960/cat/server/internal/repository"
@@ -20,6 +21,7 @@ func Setup(mode string) *gin.Engine {
 	shopRepo := repository.NewShopRepository()
 	staffRepo := repository.NewStaffRepository()
 	customerRepo := repository.NewCustomerRepository()
+	customerTagRepo := repository.NewCustomerTagRepository()
 	petRepo := repository.NewPetRepository()
 	serviceRepo := repository.NewServiceRepository()
 	scheduleRepo := repository.NewScheduleRepository()
@@ -35,6 +37,7 @@ func Setup(mode string) *gin.Engine {
 	staffService := service.NewStaffService(staffRepo, scheduleRepo, serviceRepo)
 	serviceService := service.NewServiceService(serviceRepo)
 	customerService := service.NewCustomerService(customerRepo)
+	customerTagService := service.NewCustomerTagService(customerTagRepo)
 	petService := service.NewPetService(petRepo)
 	apptService := service.NewAppointmentService(apptRepo, scheduleRepo, serviceRepo, staffRepo)
 	orderService := service.NewOrderService(orderRepo, apptRepo)
@@ -47,6 +50,7 @@ func Setup(mode string) *gin.Engine {
 	staffHandler := handler.NewStaffHandler(staffService)
 	serviceHandler := handler.NewServiceHandler(serviceService)
 	customerHandler := handler.NewCustomerHandler(customerService, petService)
+	customerTagHandler := handler.NewCustomerTagHandler(customerTagService)
 	petHandler := handler.NewPetHandler(petService, customerService)
 	apptHandler := handler.NewAppointmentHandler(apptService)
 	orderHandler := handler.NewOrderHandler(orderService, petService, customerService, serviceService)
@@ -54,12 +58,16 @@ func Setup(mode string) *gin.Engine {
 	addonHandler := handler.NewAddonHandler()
 	memberCardHandler := handler.NewMemberCardHandler()
 	svcCategoryHandler := handler.NewServiceCategoryHandler()
+	furCategoryHandler := handler.NewFurCategoryHandler()
 	productRepo := repository.NewProductRepository()
 	productService := service.NewProductService(productRepo)
 	productHandler := handler.NewProductHandler(productService)
 	productCategoryHandler := handler.NewProductCategoryHandler()
 	cHandler := handler.NewCAppointmentHandler(apptService, serviceService, staffService, petService)
 	_ = notifService // used for async notifications in appointment status changes
+
+	// Static files (uploads) - for local dev; nginx handles this in production
+	r.Static("/uploads", config.AppConfig.Upload.Path)
 
 	v1 := r.Group("/api/v1")
 	{
@@ -77,6 +85,9 @@ func Setup(mode string) *gin.Engine {
 	// B-end routes (JWT auth)
 	b := v1.Group("/b", middleware.JWTAuth())
 	{
+		// Upload
+		b.POST("/upload", handler.Upload)
+
 		// Shop
 		b.GET("/shop", shopHandler.Get)
 		b.PUT("/shop", middleware.RequireRole("admin"), shopHandler.Update)
@@ -120,6 +131,12 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/customers/:id/restore", middleware.RequireRole("admin"), customerHandler.Restore)
 		b.GET("/customers/:id/pets", customerHandler.GetPets)
 
+		// Customer Tags
+		b.POST("/customer-tags", middleware.RequireRole("admin"), customerTagHandler.Create)
+		b.GET("/customer-tags", customerTagHandler.List)
+		b.PUT("/customer-tags/:id", middleware.RequireRole("admin"), customerTagHandler.Update)
+		b.DELETE("/customer-tags/:id", middleware.RequireRole("admin"), customerTagHandler.Delete)
+
 		// Pets
 		b.POST("/pets", petHandler.Create)
 		b.GET("/pets", petHandler.List)
@@ -147,6 +164,12 @@ func Setup(mode string) *gin.Engine {
 		b.PUT("/addons/:id", middleware.RequireRole("admin"), addonHandler.Update)
 		b.DELETE("/addons/:id", middleware.RequireRole("admin"), addonHandler.Delete)
 
+		// Fur Categories
+		b.POST("/fur-categories", middleware.RequireRole("admin"), furCategoryHandler.Create)
+		b.GET("/fur-categories", furCategoryHandler.List)
+		b.PUT("/fur-categories/:id", middleware.RequireRole("admin"), furCategoryHandler.Update)
+		b.DELETE("/fur-categories/:id", middleware.RequireRole("admin"), furCategoryHandler.Delete)
+
 		// Products
 		b.GET("/products/brands", productHandler.GetBrands)
 		b.POST("/products", middleware.RequireRole("admin"), productHandler.Create)
@@ -167,6 +190,7 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/appointments", apptHandler.Create)
 		b.GET("/appointments", apptHandler.List)
 		b.GET("/appointments/:id", apptHandler.Get)
+		b.PUT("/appointments/:id", apptHandler.Update)
 		b.PUT("/appointments/:id/status", apptHandler.UpdateStatus)
 		b.PUT("/appointments/:id/assign", middleware.RequireRole("admin"), apptHandler.AssignStaff)
 		b.PUT("/appointments/:id/reschedule", middleware.RequireRole("admin"), apptHandler.Reschedule)
@@ -174,6 +198,7 @@ func Setup(mode string) *gin.Engine {
 		// Orders
 		b.POST("/orders", orderHandler.Create)
 		b.POST("/orders/from-appointment", orderHandler.CreateFromAppointment)
+		b.POST("/orders/from-appointment/batch", orderHandler.CreateBatchFromAppointment)
 		b.GET("/orders", orderHandler.List)
 		b.GET("/orders/price-lookup", orderHandler.PriceLookup)
 		b.GET("/orders/:id", orderHandler.Get)
@@ -187,6 +212,7 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/dashboard/services", dashHandler.ServiceRanking)
 		b.GET("/dashboard/staff", middleware.RequireRole("admin"), dashHandler.StaffPerformance)
 		b.GET("/dashboard/category", dashHandler.CategoryStats)
+		b.GET("/dashboard/members", dashHandler.MemberStats)
 		b.POST("/dashboard/aggregate", middleware.RequireRole("admin"), dashHandler.Aggregate)
 	}
 
