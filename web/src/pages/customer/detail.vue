@@ -1,27 +1,37 @@
 <template>
   <SideLayout>
   <view class="page">
-    <view v-if="customer" class="profile">
-      <view class="avatar">{{ (customer.nickname || '客').charAt(0) }}</view>
-      <text class="name">{{ customer.nickname || '未命名' }}</text>
-      <text class="phone" @click="copyPhone">{{ customer.phone || '未绑定手机' }} <text class="copy-icon">复制</text></text>
-      <view class="profile-actions">
-        <text class="profile-edit" @click="goEdit">编辑资料</text>
+    <view v-if="customer" class="profile-card">
+      <!-- hero 渐变背景 -->
+      <view class="profile-hero"></view>
+      <!-- 头像浮出 hero -->
+      <view class="avatar-wrap">
+        <view class="avatar">{{ (customer.nickname || '客').charAt(0) }}</view>
       </view>
-    </view>
-
-    <view class="stats" v-if="customer">
-      <view class="stat-item">
-        <text class="stat-val">{{ customer.visit_count }}</text>
-        <text class="stat-label">到店次数</text>
+      <!-- 姓名手机 -->
+      <view class="profile-info">
+        <text class="name">{{ customer.nickname || '未命名' }}</text>
+        <text class="phone" @click="copyPhone">{{ customer.phone || '未绑定手机' }} <text class="copy-icon">复制</text></text>
+        <view class="profile-actions">
+          <text class="profile-edit" @click="goEdit">编辑资料</text>
+        </view>
       </view>
-      <view class="stat-item">
-        <text class="stat-val">¥{{ customer.total_spent.toFixed(2) }}</text>
-        <text class="stat-label">累计消费</text>
-      </view>
-      <view class="stat-item">
-        <text class="stat-val">{{ customer.last_visit_at ? customer.last_visit_at.substring(0,10) : '-' }}</text>
-        <text class="stat-label">最近到店</text>
+      <!-- 统计数据内嵌在卡片底部 -->
+      <view class="stats-row">
+        <view class="stat-item">
+          <text class="stat-val">{{ customer.visit_count }}</text>
+          <text class="stat-label">到店次数</text>
+        </view>
+        <view class="stat-divider"></view>
+        <view class="stat-item">
+          <text class="stat-val">¥{{ customer.total_spent.toFixed(2) }}</text>
+          <text class="stat-label">累计消费</text>
+        </view>
+        <view class="stat-divider"></view>
+        <view class="stat-item">
+          <text class="stat-val">{{ customer.last_visit_at ? customer.last_visit_at.substring(0,10) : '-' }}</text>
+          <text class="stat-label">最近到店</text>
+        </view>
       </view>
     </view>
 
@@ -524,17 +534,25 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 
 <style scoped>
 .page { padding: 24rpx; }
-.profile { background: #fff; border-radius: 16rpx; padding: 40rpx; text-align: center; margin-bottom: 16rpx; }
-.avatar { width: 120rpx; height: 120rpx; border-radius: 50%; background: #6366F1; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 48rpx; font-weight: bold; margin-bottom: 16rpx; }
-.name { display: block; font-size: 34rpx; font-weight: 600; color: #1F2937; }
+
+/* Profile card with hero */
+.profile-card { background: #fff; border-radius: 20rpx; margin-bottom: 16rpx; overflow: hidden; }
+.profile-hero { height: 200rpx; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); }
+.avatar-wrap { display: flex; justify-content: center; margin-top: -70rpx; }
+.avatar { width: 140rpx; height: 140rpx; border-radius: 50%; background: linear-gradient(135deg, #6366F1, #7C3AED); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 56rpx; font-weight: bold; border: 6rpx solid #fff; box-shadow: 0 8rpx 24rpx rgba(99, 102, 241, 0.30); }
+.profile-info { text-align: center; padding: 20rpx 40rpx 0; }
+.name { display: block; font-size: 36rpx; font-weight: 700; color: #1F2937; }
 .phone { display: block; font-size: 26rpx; color: #6B7280; margin-top: 8rpx; }
 .copy-icon { font-size: 22rpx; color: #4F46E5; margin-left: 8rpx; }
 .profile-actions { display: flex; justify-content: center; margin-top: 20rpx; }
 .profile-edit { display: inline-flex; align-items: center; justify-content: center; min-width: 176rpx; height: 60rpx; padding: 0 24rpx; border-radius: 999rpx; background: #EEF2FF; color: #4F46E5; font-size: 26rpx; font-weight: 600; }
-.stats { display: flex; background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }
+
+/* Stats row inside profile card */
+.stats-row { display: flex; align-items: center; padding: 28rpx 24rpx 32rpx; margin-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
 .stat-item { flex: 1; text-align: center; }
 .stat-val { display: block; font-size: 30rpx; font-weight: bold; color: #4F46E5; }
 .stat-label { display: block; font-size: 22rpx; color: #9CA3AF; margin-top: 8rpx; }
+.stat-divider { width: 1rpx; height: 48rpx; background: #F3F4F6; flex-shrink: 0; }
 .section { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
 .section-title { font-size: 30rpx; font-weight: 600; color: #1F2937; }

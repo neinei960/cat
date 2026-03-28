@@ -49,6 +49,10 @@ type OverviewStats struct {
 	TodayNewCustomers     int     `json:"today_new_customers"`
 	PendingAppointments   int64   `json:"pending_appointments"`
 	TotalCustomers        int64   `json:"total_customers"`
+	AvgOrderValue         float64 `json:"avg_order_value"`
+	NoShowRate            float64 `json:"no_show_rate"`
+	NoShowCount           int64   `json:"no_show_count"`
+	TotalAppointments     int64   `json:"total_appointments"`
 }
 
 type MemberTemplateStat struct {
@@ -102,6 +106,25 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 	database.DB.Model(&model.Customer{}).
 		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
 
+	// 客单价 (AOV) - 近30天已完成订单
+	var aovResult struct{ Avg float64 }
+	database.DB.Model(&model.Order{}).
+		Select("COALESCE(AVG(pay_amount), 0) as avg").
+		Where("shop_id = ? AND status = 1 AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)", shopID).
+		Scan(&aovResult)
+	stats.AvgOrderValue = aovResult.Avg
+
+	// 爽约率 - 近30天
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)", shopID).
+		Count(&stats.TotalAppointments)
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND status = 5 AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)", shopID).
+		Count(&stats.NoShowCount)
+	if stats.TotalAppointments > 0 {
+		stats.NoShowRate = float64(stats.NoShowCount) / float64(stats.TotalAppointments)
+	}
+
 	return &stats, nil
 }
 
@@ -134,6 +157,25 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		Where("shop_id = ? AND status IN (0,1,6)", shopID).Count(&stats.PendingAppointments)
 	database.DB.Model(&model.Customer{}).
 		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
+
+	// AOV for range
+	var aovResult struct{ Avg float64 }
+	database.DB.Model(&model.Order{}).
+		Select("COALESCE(AVG(pay_amount), 0) as avg").
+		Where("shop_id = ? AND status = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Scan(&aovResult)
+	stats.AvgOrderValue = aovResult.Avg
+
+	// No-show for range
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= ? AND date <= ?", shopID, startDate, endDate).
+		Count(&stats.TotalAppointments)
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND status = 5 AND date >= ? AND date <= ?", shopID, startDate, endDate).
+		Count(&stats.NoShowCount)
+	if stats.TotalAppointments > 0 {
+		stats.NoShowRate = float64(stats.NoShowCount) / float64(stats.TotalAppointments)
+	}
 
 	return &stats, nil
 }

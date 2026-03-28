@@ -39,11 +39,14 @@
         v-for="item in tabItems"
         :key="item.path"
         class="tab-item"
-        :class="{ active: isActive(item.path) }"
+        :class="{ active: isActive(item.path), 'tab-item-highlight': item.highlight }"
         @click="navigate(item.path)"
       >
-        <text class="tab-icon">{{ item.icon }}</text>
-        <text class="tab-label">{{ item.label }}</text>
+        <view v-if="item.highlight" class="tab-icon-highlight">
+          <text class="tab-icon">{{ item.icon }}</text>
+        </view>
+        <text v-else class="tab-icon">{{ item.icon }}</text>
+        <text class="tab-label" :style="item.highlight ? 'color: #4F46E5;' : ''">{{ item.label }}</text>
       </view>
       <view class="tab-item" @click="showMoreMenu = true">
         <text class="tab-icon">⚙️</text>
@@ -139,7 +142,7 @@ const menuItems = computed(() => allMenuItems.filter(m => !m.adminOnly || isAdmi
 
 const tabItems = [
   { icon: '🏠', label: '工作台', path: '/pages/index/index' },
-  { icon: '🧾', label: '开单', path: '/pages/order/create' },
+  { icon: '🧾', label: '开单', path: '/pages/order/create', highlight: true },
   { icon: '📅', label: '预约', path: '/pages/appointment/calendar' },
   { icon: '🐱', label: '猫咪', path: '/pages/pet/list' },
   { icon: '📋', label: '订单', path: '/pages/order/list' },
@@ -341,6 +344,23 @@ function handleLogout() {
 }
 
 .tab-item.active .tab-label {
+  color: #4F46E5;
+  font-weight: 500;
+}
+
+.tab-icon-highlight {
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -15px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.tab-item-highlight .tab-label {
   color: #4F46E5;
   font-weight: 500;
 }

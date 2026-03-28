@@ -17,14 +17,6 @@
       <input v-model="keyword" placeholder="搜索客户姓名/手机号/猫咪名字" class="search-input" @confirm="loadData" />
     </view>
 
-    <view class="tag-entry" @click="goTagManage">
-      <view class="tag-entry-main">
-        <text class="tag-entry-title">客户标签</text>
-        <text class="tag-entry-desc">统一管理熟客、回访、高净值等标签</text>
-      </view>
-      <text class="tag-entry-action">去设置</text>
-    </view>
-
     <view class="filter-section">
       <text class="filter-label">会员等级</text>
       <scroll-view scroll-x class="filter-scroll" show-scrollbar="false">
@@ -333,11 +325,6 @@ onReachBottom(loadMore)
 .btn-add { font-size: 24rpx; color: #fff; background: #4F46E5; padding: 10rpx 18rpx; border-radius: 999rpx; line-height: 1; }
 .search-bar { margin-bottom: 18rpx; }
 .search-input { background: #fff; border-radius: 12rpx; padding: 14rpx 20rpx; font-size: 26rpx; }
-.tag-entry { margin-bottom: 18rpx; background: linear-gradient(135deg, #EEF2FF, #F8FAFC); border-radius: 16rpx; padding: 18rpx 20rpx; display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
-.tag-entry-main { min-width: 0; }
-.tag-entry-title { display: block; font-size: 28rpx; font-weight: 700; color: #1F2937; }
-.tag-entry-desc { display: block; margin-top: 6rpx; font-size: 22rpx; color: #6B7280; line-height: 1.5; }
-.tag-entry-action { flex-shrink: 0; font-size: 22rpx; color: #4F46E5; background: rgba(255,255,255,0.92); padding: 10rpx 16rpx; border-radius: 999rpx; }
 .filter-section { margin-bottom: 18rpx; }
 .filter-label { display: block; margin-bottom: 10rpx; font-size: 22rpx; color: #6B7280; }
 .filter-scroll { white-space: nowrap; }

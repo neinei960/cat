@@ -707,15 +707,15 @@ async function onDelete() {
 .picker { font-size: 28rpx; color: #1F2937; height: 60rpx; line-height: 60rpx; background: #F9FAFB; border-radius: 8rpx; padding: 0 16rpx; }
 
 /* 两列布局 */
-.row { display: flex; gap: 16rpx; margin-bottom: 16rpx; }
+.row { display: flex; gap: 16rpx; margin-bottom: 16rpx; flex-wrap: wrap; }
 .row:last-child { margin-bottom: 0; }
-.col { flex: 1; min-width: 0; }
+.col { flex: 1; min-width: 45%; }
 
 /* 带单位的输入框 */
 .input-unit { display: flex; align-items: center; background: #F9FAFB; border-radius: 8rpx; padding-right: 12rpx; }
 .input-unit .input { background: transparent; flex: 1; }
 .age-inputs { display: flex; align-items: center; gap: 4rpx; background: #F9FAFB; border-radius: 8rpx; padding: 0 12rpx; }
-.age-input { width: 80rpx; text-align: center; background: transparent; }
+.age-input { width: 80rpx; min-width: 70rpx; text-align: center; background: transparent; }
 .unit { font-size: 26rpx; color: #6B7280; white-space: nowrap; }
 .flex1 { flex: 1; }
 

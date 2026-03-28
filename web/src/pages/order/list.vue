@@ -71,8 +71,8 @@
           <view :class="['status', `s${item.status}`]">{{ statusMap[item.status] }}</view>
         </view>
         <view class="card-body">
-          <text class="customer">{{ item.customer?.nickname || '-' }}</text>
-          <text class="pet-name" v-if="item.pet">🐱 {{ item.pet.name }}</text>
+          <text class="customer">{{ item.customer?.nickname || '-' }}<text v-if="item.pet" class="customer-pet"> · 🐱{{ item.pet.name }}</text></text>
+          <text class="order-time">{{ item.CreatedAt?.substring(0, 16).replace('T', ' ') }}</text>
           <text class="items-summary">{{ (item.items || []).map((i: any) => i.name).join(', ') }}</text>
         </view>
         <view class="card-footer">
@@ -227,12 +227,13 @@ onShow(loadData)
 .s2 { background: #F3F4F6; color: #6B7280; }
 .s3 { background: #FEE2E2; color: #DC2626; }
 .card-body { margin-bottom: 12rpx; }
-.customer { font-size: 28rpx; font-weight: 600; color: #1F2937; }
-.pet-name { font-size: 24rpx; color: #6B7280; margin-left: 12rpx; }
+.customer { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; }
+.customer-pet { font-size: 24rpx; font-weight: 400; color: #6B7280; }
+.order-time { font-size: 22rpx; color: #9CA3AF; display: block; margin-top: 4rpx; }
 .items-summary { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
 .card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12rpx; border-top: 1rpx solid #F3F4F6; }
 .footer-left { display: flex; align-items: center; gap: 8rpx; }
 .pay-method { font-size: 24rpx; color: #6B7280; }
 .meituan-badge { font-size: 20rpx; color: #EA580C; background: #FFF7ED; padding: 4rpx 10rpx; border-radius: 8rpx; border: 1rpx solid #FED7AA; }
-.amount { font-size: 32rpx; font-weight: bold; color: #4F46E5; }
+.amount { font-size: 36rpx; font-weight: 700; color: #4F46E5; }
 </style>

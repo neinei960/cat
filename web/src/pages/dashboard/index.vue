@@ -48,6 +48,14 @@
         <text class="stat-val">{{ overview.total_customers }}</text>
         <text class="stat-label">总客户</text>
       </view>
+      <view class="stat-card">
+        <text class="stat-val">¥{{ (overview.avg_order_value || 0).toFixed(0) }}</text>
+        <text class="stat-label">客单价</text>
+      </view>
+      <view class="stat-card" :class="{ warn: (overview.no_show_rate || 0) > 0.1 }">
+        <text class="stat-val">{{ ((overview.no_show_rate || 0) * 100).toFixed(1) }}%</text>
+        <text class="stat-label">爽约率 ({{ overview.no_show_count || 0 }}/{{ overview.total_appointments || 0 }})</text>
+      </view>
     </view>
 
     <!-- Member stats -->
@@ -242,6 +250,7 @@ function setQuickDate(type: string) {
 const overview = ref({
   today_revenue: 0, today_order_count: 0, today_appointment_count: 0,
   today_new_customers: 0, pending_appointments: 0, total_customers: 0,
+  avg_order_value: 0, no_show_rate: 0, no_show_count: 0, total_appointments: 0,
 })
 const revenueData = ref<any[]>([])
 const serviceRanking = ref<any[]>([])
@@ -323,6 +332,8 @@ onMounted(() => {
 .stat-card { width: calc(33.33% - 12rpx); background: #fff; border-radius: 16rpx; padding: 24rpx 16rpx; text-align: center; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
 .stat-card.primary { background: linear-gradient(135deg, #4F46E5, #7C3AED); }
 .stat-card.primary .stat-val, .stat-card.primary .stat-label { color: #fff; }
+.stat-card.warn { border: 2rpx solid #FDE68A; background: #FFFBEB; }
+.stat-card.warn .stat-val { color: #DC2626; }
 .stat-val { font-size: 32rpx; font-weight: bold; color: #4F46E5; display: block; }
 .stat-label { font-size: 22rpx; color: #6B7280; display: block; margin-top: 4rpx; }
 .section { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; }

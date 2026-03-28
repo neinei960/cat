@@ -53,8 +53,8 @@
               <text v-if="logoError" class="receipt-logo-emoji">🐱</text>
             </view>
             <view class="receipt-brand">
-              <text class="receipt-shop">树街の猫</text>
-              <text class="receipt-sub">赛级皮毛调理体验店</text>
+              <text class="receipt-shop">{{ shopName }}</text>
+              <text class="receipt-sub" v-if="shopSubtitle">{{ shopSubtitle }}</text>
               <text class="receipt-sub2">— 消费小票 —</text>
             </view>
           </view>
@@ -216,6 +216,7 @@ import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getOrder, payOrder, cancelOrder, refundOrder } from '@/api/order'
+import { getShop } from '@/api/shop'
 import { getCustomerCard } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import html2canvas from 'html2canvas'
@@ -229,6 +230,8 @@ const memberBalance = ref(0)
 const customerCard = ref<any>(null)
 const logoError = ref(false)
 const logoSrc = '/uploads/brand/logo.png'
+const shopName = ref('猫咪洗护')
+const shopSubtitle = ref('')
 const balanceAfterPay = computed(() => {
   if (!order.value || order.value.pay_method !== 'balance') return 0
   return Math.max(memberBalance.value, 0)
@@ -330,6 +333,14 @@ onLoad(async (query) => {
   if (query?.id) {
     const res = await getOrder(parseInt(query.id))
     order.value = res.data
+    // Load shop info for receipt
+    try {
+      const shopRes = await getShop()
+      if (shopRes.data) {
+        shopName.value = shopRes.data.name || '猫咪洗护'
+        shopSubtitle.value = shopRes.data.address || ''
+      }
+    } catch {}
     // Load member balance for receipt
     if (order.value?.customer_id) {
       try {

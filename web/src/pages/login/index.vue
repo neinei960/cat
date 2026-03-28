@@ -3,8 +3,8 @@
     <view class="login-card">
       <view class="logo-section">
         <text class="logo-icon">🐾</text>
-        <text class="logo-title">宠物洗护管理系统</text>
-        <text class="logo-subtitle">员工登录</text>
+        <text class="logo-title">猫咪洗护</text>
+        <text class="logo-subtitle">店铺管理系统</text>
       </view>
 
       <view class="form-section">
@@ -16,6 +16,9 @@
             v-model="phone"
             placeholder="请输入手机号"
             maxlength="11"
+            @focus="phoneFocused = true"
+            @blur="phoneFocused = false"
+            :class="{ 'input-field-focus': phoneFocused }"
           />
         </view>
 
@@ -26,6 +29,9 @@
             type="password"
             v-model="password"
             placeholder="请输入密码"
+            @focus="pwdFocused = true"
+            @blur="pwdFocused = false"
+            :class="{ 'input-field-focus': pwdFocused }"
           />
         </view>
 
@@ -49,6 +55,8 @@ import { useAuthStore } from '@/store/auth'
 const phone = ref('')
 const password = ref('')
 const loading = ref(false)
+const phoneFocused = ref(false)
+const pwdFocused = ref(false)
 
 const authStore = useAuthStore()
 
@@ -86,7 +94,7 @@ async function handleLogin() {
 <style scoped>
 .login-page {
   min-height: 100vh;
-  background-color: #F5F6FA;
+  background: linear-gradient(160deg, #EEF2FF 0%, #F5F6FA 50%, #F0FDF4 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -97,9 +105,9 @@ async function handleLogin() {
   width: 100%;
   max-width: 680rpx;
   background-color: #FFFFFF;
-  border-radius: 24rpx;
+  border-radius: 28rpx;
   padding: 80rpx 60rpx;
-  box-shadow: 0 8rpx 40rpx rgba(0, 0, 0, 0.06);
+  box-shadow: 0 12rpx 48rpx rgba(79, 70, 229, 0.10);
 }
 
 .logo-section {
@@ -115,15 +123,17 @@ async function handleLogin() {
 }
 
 .logo-title {
-  font-size: 40rpx;
-  font-weight: 700;
+  font-size: 44rpx;
+  font-weight: 800;
   color: #1F2937;
   margin-bottom: 12rpx;
+  letter-spacing: 2rpx;
 }
 
 .logo-subtitle {
-  font-size: 28rpx;
-  color: #6B7280;
+  font-size: 26rpx;
+  color: #9CA3AF;
+  letter-spacing: 1rpx;
 }
 
 .form-section {
@@ -136,7 +146,7 @@ async function handleLogin() {
 
 .input-label {
   font-size: 28rpx;
-  color: #1F2937;
+  color: #374151;
   font-weight: 500;
   margin-bottom: 16rpx;
   display: block;
@@ -145,28 +155,36 @@ async function handleLogin() {
 .input-field {
   width: 100%;
   height: 96rpx;
-  background-color: #F5F6FA;
+  background-color: #FAFAFA;
   border-radius: 16rpx;
   padding: 0 32rpx;
   font-size: 30rpx;
   color: #1F2937;
   box-sizing: border-box;
+  border: 1.5rpx solid #E5E7EB;
+  transition: border-color 0.2s;
+}
+
+.input-field-focus {
+  border-color: #6366F1;
+  background-color: #FAFBFF;
 }
 
 .login-btn {
   width: 100%;
-  height: 96rpx;
-  background-color: #4F46E5;
+  height: 100rpx;
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
   color: #FFFFFF;
   font-size: 32rpx;
   font-weight: 600;
-  border-radius: 16rpx;
-  margin-top: 20rpx;
+  border-radius: 20rpx;
+  margin-top: 24rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  line-height: 96rpx;
+  line-height: 100rpx;
+  box-shadow: 0 8rpx 24rpx rgba(99, 102, 241, 0.35);
 }
 
 .login-btn::after {
@@ -175,5 +193,6 @@ async function handleLogin() {
 
 .login-btn-disabled {
   opacity: 0.6;
+  box-shadow: none;
 }
 </style>
