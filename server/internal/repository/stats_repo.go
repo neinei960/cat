@@ -96,7 +96,7 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 
 	// Pending appointments count
 	database.DB.Model(&model.Appointment{}).
-		Where("shop_id = ? AND status IN (0,1)", shopID).Count(&stats.PendingAppointments)
+		Where("shop_id = ? AND status IN (0,1,6)", shopID).Count(&stats.PendingAppointments)
 
 	// Total customers
 	database.DB.Model(&model.Customer{}).
@@ -131,7 +131,7 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 	stats.TodayNewCustomers = int(newCustCount)
 
 	database.DB.Model(&model.Appointment{}).
-		Where("shop_id = ? AND status IN (0,1)", shopID).Count(&stats.PendingAppointments)
+		Where("shop_id = ? AND status IN (0,1,6)", shopID).Count(&stats.PendingAppointments)
 	database.DB.Model(&model.Customer{}).
 		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
 

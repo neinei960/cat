@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view class="hint">已删除的客户将在 1 天后自动清除</view>
 
@@ -21,11 +22,13 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getDeletedCustomers, restoreCustomer } from '@/api/customer'
+import SideLayout from '@/components/SideLayout.vue'
 
 const list = ref<any[]>([])
 const loading = ref(true)

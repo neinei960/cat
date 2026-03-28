@@ -27,5 +27,5 @@ type Customer struct {
 	Shop         *Shop         `json:"shop,omitempty" gorm:"foreignKey:ShopID"`
 	MemberCard   *MemberCard   `json:"member_card,omitempty" gorm:"foreignKey:MemberCardID"`
 	Pets         []Pet         `json:"pets,omitempty" gorm:"foreignKey:CustomerID"`
-	CustomerTags []CustomerTag `json:"customer_tags,omitempty" gorm:"many2many:customer_tag_relations;"`
+	CustomerTags []CustomerTag `json:"customer_tags,omitempty" gorm:"many2many:customer_tag_relations;joinForeignKey:CustomerID;joinReferences:TagID"`
 }

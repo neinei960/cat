@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view class="hero">
       <view>
@@ -64,11 +65,13 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { createCustomerTag, deleteCustomerTag, getCustomerTags, updateCustomerTag } from '@/api/customer-tag'
 
 const loading = ref(true)

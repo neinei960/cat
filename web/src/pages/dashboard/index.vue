@@ -157,7 +157,7 @@
       <view class="rank-list">
         <view class="rank-item header" v-if="staffPerformance.length > 0">
           <text class="rank-no">#</text>
-          <text class="rank-name">技师</text>
+          <text class="rank-name">洗护师</text>
           <text class="rank-count">接单</text>
           <text class="rank-revenue">营业额</text>
           <text class="rank-commission">提成</text>

@@ -21,19 +21,25 @@ func (r *ServiceRepository) FindByID(id uint) (*model.Service, error) {
 	return &svc, err
 }
 
+func (r *ServiceRepository) FindActiveByIDAndShop(id, shopID uint) (*model.Service, error) {
+	var svc model.Service
+	err := database.DB.Where("id = ? AND shop_id = ? AND status = 1", id, shopID).First(&svc).Error
+	return &svc, err
+}
+
 func (r *ServiceRepository) FindByShopID(shopID uint, page, pageSize int) ([]model.Service, int64, error) {
 	var services []model.Service
 	var total int64
 	db := database.DB.Model(&model.Service{}).Where("shop_id = ?", shopID)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Order("sort_order ASC, id ASC").Offset(offset).Limit(pageSize).Find(&services).Error
+	err := db.Preload("PriceRules").Order("sort_order ASC, id ASC").Offset(offset).Limit(pageSize).Find(&services).Error
 	return services, total, err
 }
 
 func (r *ServiceRepository) FindActiveByShopID(shopID uint) ([]model.Service, error) {
 	var services []model.Service
-	err := database.DB.Where("shop_id = ? AND status = 1", shopID).
+	err := database.DB.Preload("PriceRules").Where("shop_id = ? AND status = 1", shopID).
 		Order("sort_order ASC, id ASC").Find(&services).Error
 	return services, err
 }
@@ -64,6 +70,22 @@ func (r *ServiceRepository) UpdatePriceRule(rule *model.ServicePriceRule) error 
 
 func (r *ServiceRepository) DeletePriceRule(id uint) error {
 	return database.DB.Delete(&model.ServicePriceRule{}, id).Error
+}
+
+// Discounts
+
+func (r *ServiceRepository) CreateDiscount(d *model.ServiceDiscount) error {
+	return database.DB.Create(d).Error
+}
+
+func (r *ServiceRepository) FindDiscounts(serviceID uint) ([]model.ServiceDiscount, error) {
+	var discounts []model.ServiceDiscount
+	err := database.DB.Where("service_id = ?", serviceID).Find(&discounts).Error
+	return discounts, err
+}
+
+func (r *ServiceRepository) DeleteDiscount(id uint) error {
+	return database.DB.Delete(&model.ServiceDiscount{}, id).Error
 }
 
 // Staff services

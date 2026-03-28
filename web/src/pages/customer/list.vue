@@ -14,7 +14,7 @@
     </view>
 
     <view class="search-bar">
-      <input v-model="keyword" placeholder="搜索客户姓名/手机号" class="search-input" @confirm="loadData" />
+      <input v-model="keyword" placeholder="搜索客户姓名/手机号/猫咪名字" class="search-input" @confirm="loadData" />
     </view>
 
     <view class="tag-entry" @click="goTagManage">
@@ -58,14 +58,21 @@
             :style="activeTagId === tag.ID ? { background: tag.color, color: '#fff' } : { background: withAlpha(tag.color, 0.12), color: tag.color }"
             @click="switchTag(tag.ID)"
           >
-            {{ tag.name }}<text class="filter-chip-count"> {{ tag.relation_count || 0 }}</text>
+            {{ tag.name }}
           </view>
         </view>
       </scroll-view>
     </view>
 
-    <view v-if="loading" class="loading">加载中...</view>
-    <view v-else-if="list.length === 0" class="empty">暂无客户</view>
+    <view v-if="loading" class="loading">
+      <text class="loading-icon">👥</text>
+      <text class="loading-text">正在加载客户...</text>
+    </view>
+    <view v-else-if="list.length === 0" class="empty">
+      <text class="empty-icon">👥</text>
+      <text class="empty-title">还没有客户</text>
+      <text class="empty-desc">点击右上角新增第一位客户吧</text>
+    </view>
 
     <view v-else class="list">
       <view class="card" v-for="item in list" :key="item.ID" @click="goDetail(item.ID)" @longpress="onLongPress(item)">
@@ -85,6 +92,23 @@
           <view :class="['info-pill', hasMemberCard(item) ? 'info-pill-balance' : 'info-pill-muted']">
             <text class="info-pill-label">余额</text>
             <text class="info-pill-value">¥{{ formatMoney(getMemberBalance(item)) }}</text>
+          </view>
+        </view>
+        <!-- 猫咪信息 -->
+        <view class="pet-list" v-if="item.pets?.length">
+          <view class="pet-item" v-for="pet in item.pets" :key="pet.ID">
+            <view class="pet-item-top">
+              <text class="pet-item-name">{{ pet.name }}</text>
+              <text class="pet-item-meta">{{ formatPetMeta(pet) }}</text>
+            </view>
+            <view class="pet-item-tags" v-if="getPetTags(pet).length">
+              <text
+                v-for="tag in getPetTags(pet)"
+                :key="tag.text"
+                class="pet-item-tag"
+                :style="tag.style"
+              >{{ tag.text }}</text>
+            </view>
           </view>
         </view>
         <view class="card-bottom">
@@ -118,6 +142,7 @@ import { onShow, onReachBottom } from '@dcloudio/uni-app'
 import { getCustomerList, deleteCustomer } from '@/api/customer'
 import { getCustomerTags } from '@/api/customer-tag'
 import { getCardTemplates } from '@/api/member-card'
+import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
 
 const PAGE_SIZE = 50
 const list = ref<Customer[]>([])
@@ -153,6 +178,42 @@ function withAlpha(color: string, alpha: number) {
   if (hex.length !== 6) return color
   const value = Math.round(alpha * 255).toString(16).padStart(2, '0')
   return `#${hex}${value}`
+}
+
+function formatPetMeta(pet: any) {
+  const parts: string[] = []
+  if (pet.breed) parts.push(pet.breed)
+  if (pet.gender === 1) parts.push('弟弟')
+  else if (pet.gender === 2) parts.push('妹妹')
+  return parts.join(' · ') || ''
+}
+
+function getPetAge(birthDate?: string) {
+  if (!birthDate) return ''
+  const birth = new Date(birthDate)
+  if (Number.isNaN(birth.getTime())) return ''
+  const now = new Date()
+  const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+  if (months < 1) return '不到1个月'
+  if (months < 12) return `${months}个月`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}岁${rem}个月` : `${years}岁`
+}
+
+function getPetTags(pet: any) {
+  const tags: Array<{ text: string; style: string }> = []
+  const age = getPetAge(pet.birth_date)
+  if (age) tags.push({ text: age, style: 'background:#F3F4F6;color:#4B5563;' })
+  if (pet.fur_level) tags.push({ text: pet.fur_level, style: 'background:#EEF2FF;color:#4F46E5;' })
+  if (pet.neutered) tags.push({ text: '已绝育', style: 'background:#ECFDF5;color:#047857;' })
+  if (pet.personality) {
+    tags.push({
+      text: pet.personality,
+      style: `background:${getPersonalityBg(pet.personality)};color:${getPersonalityColor(pet.personality)};`,
+    })
+  }
+  return tags
 }
 
 async function loadTemplates() {
@@ -284,7 +345,13 @@ onReachBottom(loadMore)
 .filter-chip { font-size: 24rpx; color: #6B7280; background: #F3F4F6; padding: 10rpx 18rpx; border-radius: 999rpx; white-space: nowrap; }
 .filter-chip-active { color: #fff; background: #4F46E5; }
 .filter-chip-count { font-size: 20rpx; opacity: 0.88; }
-.loading, .empty { text-align: center; padding: 100rpx 0; color: #9CA3AF; font-size: 28rpx; }
+.loading, .empty { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 16rpx; }
+.loading-icon, .empty-icon { font-size: 64rpx; }
+.loading-text { font-size: 26rpx; color: #9CA3AF; }
+.loading-icon { animation: bounce 1s infinite alternate; }
+.empty-title { font-size: 30rpx; font-weight: 500; color: #4B5563; }
+.empty-desc { font-size: 24rpx; color: #9CA3AF; }
+@keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12rpx); } }
 .card { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
 .card-top { display: flex; align-items: center; }
 .avatar { width: 80rpx; height: 80rpx; border-radius: 50%; background: #6366F1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 32rpx; font-weight: bold; }
@@ -303,6 +370,13 @@ onReachBottom(loadMore)
 .spent { font-size: 26rpx; color: #374151; }
 .customer-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8rpx; }
 .customer-tag { font-size: 20rpx; padding: 6rpx 12rpx; border-radius: 999rpx; }
+.pet-list { margin-top: 14rpx; display: flex; flex-direction: column; gap: 10rpx; }
+.pet-item { background: #F8FAFC; border-radius: 12rpx; padding: 12rpx 16rpx; border: 1rpx solid #E2E8F0; }
+.pet-item-top { display: flex; align-items: baseline; gap: 10rpx; }
+.pet-item-name { font-size: 26rpx; font-weight: 600; color: #1F2937; }
+.pet-item-meta { font-size: 22rpx; color: #6B7280; }
+.pet-item-tags { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 8rpx; }
+.pet-item-tag { font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 999rpx; line-height: 1.3; }
 .load-more { text-align: center; padding: 32rpx 0; font-size: 24rpx; color: #9CA3AF; }
 .load-more-done { color: #D1D5DB; font-size: 22rpx; }
 </style>

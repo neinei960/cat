@@ -47,7 +47,7 @@ const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
 
 const list = ref<Staff[]>([])
 const loading = ref(true)
-const roleMap: Record<string, string> = { admin: '店主', manager: '经理', staff: '技师' }
+const roleMap: Record<string, string> = { admin: '店主', manager: '经理', staff: '洗护师' }
 
 async function loadData() {
   loading.value = true

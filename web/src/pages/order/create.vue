@@ -53,7 +53,44 @@
     <!-- 洗浴项目 -->
     <view class="section" v-if="selectedPet">
       <text class="section-title">洗浴项目</text>
-      <view class="service-picker" v-if="serviceList.length > 0">
+      <view class="svc-picker" v-if="categoryTree.length > 0">
+        <!-- 1级分类：左侧栏 -->
+        <view class="svc-picker-sidebar">
+          <view
+            v-for="cat in categoryTree" :key="cat.ID"
+            :class="['sidebar-item', activeCategoryId === cat.ID ? 'active' : '']"
+            @click="selectCategory(cat.ID)"
+          ><text>{{ cat.name }}</text></view>
+        </view>
+        <!-- 右侧：2级标签 + 服务列表 -->
+        <view class="svc-picker-main">
+          <scroll-view scroll-x class="sub-tab-bar">
+            <view class="sub-tab-list">
+              <view :class="['sub-tab', activeSubCategoryId === 0 ? 'active' : '']" @click="selectSubCategory(0)">全部</view>
+              <view v-for="sub in subCategories" :key="sub.ID" :class="['sub-tab', activeSubCategoryId === sub.ID ? 'active' : '']" @click="selectSubCategory(sub.ID)">{{ sub.name }}</view>
+            </view>
+          </scroll-view>
+          <scroll-view scroll-y class="svc-item-list">
+            <view v-if="filteredServices.length === 0" class="svc-empty">暂无服务</view>
+            <view
+              v-for="s in filteredServices" :key="s.ID"
+              :class="['svc-item', selectedServiceId === s.ID ? 'checked' : '']"
+              @click="selectService(s)"
+            >
+              <view class="svc-item-info">
+                <text class="svc-item-name">{{ s.name }}</text>
+                <text class="svc-item-cat">{{ s.duration }}分钟</text>
+              </view>
+              <view class="svc-item-right">
+                <text class="svc-item-price">¥{{ s.base_price }}</text>
+                <view :class="['svc-item-check', selectedServiceId === s.ID ? 'on' : '']"></view>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+      </view>
+      <!-- Fallback: 无分类时显示扁平列表 -->
+      <view class="service-picker" v-else-if="serviceList.length > 0">
         <view
           class="service-opt"
           :class="{ active: selectedServiceId === s.ID }"
@@ -183,6 +220,7 @@ import { getPetList } from '@/api/pet'
 import { createOrder } from '@/api/order'
 import { getAddonList, createAddon, deleteAddon, priceLookup } from '@/api/addon'
 import { getServiceList, getPriceRules } from '@/api/service'
+import { getCategoryTree } from '@/api/service-category'
 import { getStaffList } from '@/api/staff'
 import { getCustomerCard } from '@/api/member-card'
 import { safeBack } from '@/utils/navigate'
@@ -193,6 +231,9 @@ const petKeyword = ref('')
 const petList = ref<any[]>([])
 const selectedPet = ref<any>(null)
 const serviceList = ref<any[]>([])
+const categoryTree = ref<any[]>([])
+const activeCategoryId = ref(0)
+const activeSubCategoryId = ref(0)
 const selectedServiceId = ref(0)
 const servicePrice = ref(0)
 const specList = ref<any[]>([])
@@ -219,6 +260,31 @@ const addonTotal = computed(() =>
 )
 const totalAmount = computed(() => servicePrice.value + addonTotal.value)
 
+const subCategories = computed(() => {
+  if (activeCategoryId.value === 0) return []
+  const cat = categoryTree.value.find((c: any) => c.ID === activeCategoryId.value)
+  return cat?.children || []
+})
+const filteredServices = computed(() => {
+  let list = serviceList.value.filter((s: any) => s.status === 1)
+  if (activeCategoryId.value > 0) {
+    const subIds = subCategories.value.map((c: any) => c.ID)
+    if (activeSubCategoryId.value > 0) {
+      list = list.filter((s: any) => s.category_id === activeSubCategoryId.value)
+    } else {
+      list = list.filter((s: any) => s.category_id && subIds.includes(s.category_id))
+    }
+  }
+  return list
+})
+function selectCategory(catId: number) {
+  activeCategoryId.value = catId
+  activeSubCategoryId.value = 0
+}
+function selectSubCategory(subId: number) {
+  activeSubCategoryId.value = subId
+}
+
 const discountRate = computed(() => {
   if (!selectedPet.value?.customer?.discount_rate) return 1
   const r = selectedPet.value.customer.discount_rate
@@ -235,8 +301,13 @@ onLoad((query) => {
 
 onMounted(async () => {
   try {
-    const sRes = await getServiceList({ page_size: 50 } as any)
+    const [sRes, catRes] = await Promise.all([
+      getServiceList({ page: 1, page_size: 200 } as any),
+      getCategoryTree(),
+    ])
     if (sRes.data?.list) serviceList.value = sRes.data.list
+    categoryTree.value = (catRes.data || []).filter((c: any) => c.status === 1)
+    if (categoryTree.value.length > 0) activeCategoryId.value = categoryTree.value[0].ID
   } catch {}
   try {
     const stRes = await getStaffList({ page_size: 50 } as any)
@@ -359,6 +430,14 @@ async function selectService(s: any) {
     const res = await getPriceRules(s.ID)
     const rules = res.data || []
     specList.value = rules.map((r: any) => ({ ...r, name: r.name || r.fur_level || r.pet_size || '规格' }))
+    // 自动匹配宠物毛发等级价格
+    if (selectedPet.value?.fur_level && rules.length > 0) {
+      const match = rules.find((r: any) => r.fur_level === selectedPet.value.fur_level)
+      if (match) {
+        servicePrice.value = match.price
+        selectedSpecId.value = match.ID
+      }
+    }
   } catch { specList.value = [] }
 }
 
@@ -541,4 +620,27 @@ async function onSubmit() {
 .input { font-size: 28rpx; color: #1F2937; flex: 1; }
 .staff-commission { font-size: 24rpx; color: #6B7280; padding: 8rpx 0; }
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
+
+/* 3-level service picker */
+.svc-picker { display: flex; border: 2rpx solid #E5E7EB; border-radius: 16rpx; overflow: hidden; height: 600rpx; }
+.svc-picker-sidebar { width: 160rpx; min-width: 160rpx; background: #F9FAFB; border-right: 2rpx solid #E5E7EB; overflow-y: auto; }
+.sidebar-item { padding: 28rpx 16rpx; font-size: 26rpx; color: #6B7280; text-align: center; border-left: 6rpx solid transparent; }
+.sidebar-item.active { background: #fff; color: #1F2937; font-weight: 600; border-left-color: #4F46E5; }
+.svc-picker-main { flex: 1; display: flex; flex-direction: column; background: #fff; min-width: 0; }
+.sub-tab-bar { white-space: nowrap; border-bottom: 2rpx solid #F3F4F6; flex-shrink: 0; }
+.sub-tab-list { display: inline-flex; padding: 16rpx 16rpx 0; gap: 12rpx; }
+.sub-tab { display: inline-block; padding: 12rpx 24rpx; font-size: 24rpx; color: #6B7280; border-radius: 32rpx; margin-bottom: 12rpx; white-space: nowrap; }
+.sub-tab.active { background: #EEF2FF; color: #4F46E5; font-weight: 600; }
+.svc-item-list { flex: 1; overflow-y: auto; padding: 8rpx 0; }
+.svc-empty { text-align: center; color: #9CA3AF; font-size: 26rpx; padding: 80rpx 0; }
+.svc-item { display: flex; align-items: center; justify-content: space-between; padding: 20rpx 24rpx; border-bottom: 1rpx solid #F3F4F6; }
+.svc-item.checked { background: #EEF2FF; }
+.svc-item-info { flex: 1; min-width: 0; }
+.svc-item-name { font-size: 28rpx; font-weight: 500; color: #1F2937; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-item-cat { font-size: 22rpx; color: #9CA3AF; display: block; margin-top: 4rpx; }
+.svc-item-right { display: flex; align-items: center; gap: 16rpx; margin-left: 16rpx; flex-shrink: 0; }
+.svc-item-price { font-size: 30rpx; font-weight: 700; color: #4F46E5; }
+.svc-item-check { width: 40rpx; height: 40rpx; border-radius: 50%; border: 3rpx solid #D1D5DB; box-sizing: border-box; }
+.svc-item-check.on { background: #4F46E5; border-color: #4F46E5; position: relative; }
+.svc-item-check.on::after { content: ''; position: absolute; left: 50%; top: 45%; width: 12rpx; height: 20rpx; border: solid #fff; border-width: 0 3rpx 3rpx 0; transform: translate(-50%, -50%) rotate(45deg); }
 </style>

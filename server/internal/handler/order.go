@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
+	"github.com/neinei960/cat/server/internal/repository"
 	"github.com/neinei960/cat/server/internal/service"
 	"github.com/neinei960/cat/server/pkg/database"
 	"github.com/neinei960/cat/server/pkg/response"
@@ -29,8 +30,20 @@ func NewOrderHandler(orderService *service.OrderService, petService *service.Pet
 }
 
 // POST /b/orders/from-appointment
+type serviceOverride struct {
+	ServiceID uint    `json:"service_id"`
+	Price     float64 `json:"price"`
+	Duration  int     `json:"duration"`
+}
+
+type petOverride struct {
+	PetID    uint              `json:"pet_id"`
+	Services []serviceOverride `json:"services"`
+}
+
 type fromApptReq struct {
-	AppointmentID uint `json:"appointment_id" binding:"required"`
+	AppointmentID uint          `json:"appointment_id" binding:"required"`
+	Overrides     []petOverride `json:"overrides"`
 }
 
 func (h *OrderHandler) CreateFromAppointment(c *gin.Context) {
@@ -54,7 +67,18 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
-	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID)
+
+	// 构建价格覆盖 map: petId -> serviceId -> {Price, Duration}
+	overrideMap := make(map[uint]map[uint]service.ServiceOverride)
+	for _, po := range req.Overrides {
+		svcMap := make(map[uint]service.ServiceOverride)
+		for _, so := range po.Services {
+			svcMap[so.ServiceID] = service.ServiceOverride{Price: so.Price, Duration: so.Duration}
+		}
+		overrideMap[po.PetID] = svcMap
+	}
+
+	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, overrideMap)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -232,7 +256,6 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			commission += math.Round(productTotal*staff.ProductCommissionRate) / 100
 		}
 	}
-
 	petID := &req.PetID
 	if req.PetID == 0 {
 		petID = nil
@@ -305,10 +328,17 @@ func (h *OrderHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	keyword := c.Query("keyword")
-	var status *int
+	staffID, _ := strconv.ParseUint(c.Query("staff_id"), 10, 64)
+
+	f := repository.OrderFilter{
+		DateFrom:  c.Query("date_from"),
+		DateTo:    c.Query("date_to"),
+		StaffID:   uint(staffID),
+		PayMethod: c.Query("pay_method"),
+	}
 	if s := c.Query("status"); s != "" {
 		v, _ := strconv.Atoi(s)
-		status = &v
+		f.Status = &v
 	}
 
 	var list []model.Order
@@ -316,9 +346,9 @@ func (h *OrderHandler) List(c *gin.Context) {
 	var err error
 
 	if keyword != "" {
-		list, total, err = h.orderService.Search(shopID, keyword, status, page, pageSize)
+		list, total, err = h.orderService.Search(shopID, keyword, f, page, pageSize)
 	} else {
-		list, total, err = h.orderService.ListPaged(shopID, status, page, pageSize)
+		list, total, err = h.orderService.ListPaged(shopID, f, page, pageSize)
 	}
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")

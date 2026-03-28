@@ -10,6 +10,7 @@ import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/internal/repository"
 	"github.com/neinei960/cat/server/internal/router"
+	"github.com/neinei960/cat/server/internal/service"
 	"github.com/neinei960/cat/server/pkg/database"
 )
 
@@ -37,6 +38,7 @@ func main() {
 		&model.ServiceCategory{},
 		&model.Service{},
 		&model.ServicePriceRule{},
+		&model.ServiceDiscount{},
 		&model.ServiceAddon{},
 		&model.StaffService{},
 		&model.StaffSchedule{},
@@ -51,6 +53,7 @@ func main() {
 		&model.Product{},
 		&model.ProductSKU{},
 		&model.ProductCategory{},
+		&model.ServiceRecord{},
 	); err != nil {
 		log.Fatalf("Failed to auto migrate: %v", err)
 	}
@@ -73,12 +76,56 @@ func main() {
 		}
 	}()
 
+	// 预约提醒定时任务：每小时扫描，提醒次日预约
+	go func() {
+		notifService := service.NewNotificationService(
+			repository.NewNotificationRepository(),
+			repository.NewCustomerRepository(),
+		)
+		apptRepo := repository.NewAppointmentRepository()
+
+		// 启动后先执行一次
+		sendReminders(apptRepo, notifService)
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			sendReminders(apptRepo, notifService)
+		}
+	}()
+
 	r := router.Setup(config.AppConfig.Server.Mode)
 
 	addr := fmt.Sprintf(":%d", config.AppConfig.Server.Port)
 	log.Printf("Server starting on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func sendReminders(apptRepo *repository.AppointmentRepository, notifService *service.NotificationService) {
+	tomorrow := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+
+	// 查所有店铺的次日预约（status 1已确认 或 6已到店）
+	var appts []model.Appointment
+	database.DB.Preload("Services").Preload("Customer").
+		Where("date = ? AND status IN (1, 6)", tomorrow).
+		Find(&appts)
+
+	sent := 0
+	for _, appt := range appts {
+		if appt.Customer == nil || appt.Customer.OpenID == "" {
+			continue
+		}
+		svcName := "洗护服务"
+		if len(appt.Services) > 0 {
+			svcName = appt.Services[0].ServiceName
+		}
+		notifService.SendAppointmentReminder(appt.ShopID, appt.CustomerID, appt.Date, appt.StartTime, svcName)
+		sent++
+	}
+	if sent > 0 {
+		log.Printf("Sent %d appointment reminders for %s", sent, tomorrow)
 	}
 }
 

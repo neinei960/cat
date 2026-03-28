@@ -4,7 +4,7 @@
 
     <view class="card">
       <view class="row"><text class="label">服务</text><text>{{ booking.selectedService?.name }}</text></view>
-      <view class="row"><text class="label">技师</text><text>{{ booking.selectedStaff?.name || '系统分配' }}</text></view>
+      <view class="row"><text class="label">洗护师</text><text>{{ booking.selectedStaff?.name || '系统分配' }}</text></view>
       <view class="row"><text class="label">日期</text><text>{{ booking.selectedDate }}</text></view>
       <view class="row"><text class="label">时间</text><text>{{ booking.selectedTime }}</text></view>
       <view class="row"><text class="label">价格</text><text class="price">¥{{ booking.selectedService?.base_price }}</text></view>

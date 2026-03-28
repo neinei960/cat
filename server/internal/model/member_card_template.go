@@ -10,6 +10,9 @@ type MemberCardTemplate struct {
 	DiscountRate        float64 `json:"discount_rate" gorm:"type:decimal(3,2);not null;default:1;comment:服务折扣率0.8=八折"`
 	ProductDiscountRate float64 `json:"product_discount_rate" gorm:"type:decimal(3,2);not null;default:1;comment:商品折扣率0.8=八折"`
 	ValidDays           int     `json:"valid_days" gorm:"default:0;comment:有效天数0=永久"`
+	CardType     int     `json:"card_type" gorm:"default:1;comment:1储值卡 2次卡"`
+	TotalTimes   int     `json:"total_times" gorm:"default:0;comment:次卡总次数"`
+	TimesPrice   float64 `json:"times_price" gorm:"type:decimal(10,2);default:0;comment:次卡售价"`
 	Color        string  `json:"color" gorm:"size:100;default:'linear-gradient(135deg, #4F46E5, #7C3AED)';comment:卡片渐变色"`
 	Status       int     `json:"status" gorm:"default:1;comment:0停售 1在售"`
 	SortOrder    int     `json:"sort_order" gorm:"default:0"`

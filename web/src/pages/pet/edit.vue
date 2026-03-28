@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <!-- 头像 -->
     <view class="avatar-section" @click="chooseAvatar">
@@ -8,6 +9,14 @@
         <text class="avatar-hint">点击上传照片</text>
       </view>
     </view>
+
+    <!-- 头像裁剪 -->
+    <ImageCropper
+      :src="cropperSrc"
+      :visible="showCropper"
+      @confirm="onCropConfirm"
+      @cancel="showCropper = false"
+    />
 
     <!-- 基本身份 -->
     <view class="section">
@@ -41,9 +50,11 @@
       <view class="row">
         <view class="col">
           <text class="label">年龄</text>
-          <view class="input-unit">
-            <input v-model="ageInput" type="digit" placeholder="0" class="input flex1" @input="onAgeInput" />
-            <text class="unit">岁</text>
+          <view class="age-inputs">
+            <input v-model="ageYears" type="number" placeholder="0" class="input age-input" @input="onAgeInput" />
+            <text class="unit">年</text>
+            <input v-model="ageMonths" type="number" placeholder="0" class="input age-input" @input="onAgeInput" />
+            <text class="unit">月</text>
           </view>
         </view>
         <view class="col">
@@ -185,11 +196,14 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
+import ImageCropper from '@/components/ImageCropper.vue'
 import { getPet, createPet, updatePet, deletePet } from '@/api/pet'
 import { getFurCategoryList, createFurCategory, deleteFurCategory } from '@/api/fur-category'
 import { uploadFile } from '@/api/upload'
@@ -284,8 +298,11 @@ const furCategoryMap = ref<Record<string, number>>({})
 const showFurAdd = ref(false)
 const newFurName = ref('')
 
-const ageInput = ref('')
+const ageYears = ref('')
+const ageMonths = ref('')
 const localAvatarPreview = ref('')
+const showCropper = ref(false)
+const cropperSrc = ref('')
 
 const form = ref({
   name: '', owner_phone: '', breed: '', gender: 0, birth_date: '',
@@ -312,11 +329,12 @@ const H5_ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif',
 // 年龄 -> 出生日期（实时）
 function onAgeInput() {
   if (syncing) return
-  const age = parseFloat(ageInput.value)
-  if (!age || age <= 0) { form.value.birth_date = ''; return }
+  const years = parseInt(ageYears.value) || 0
+  const months = parseInt(ageMonths.value) || 0
+  const totalMonths = years * 12 + months
+  if (totalMonths <= 0) { form.value.birth_date = ''; return }
   syncing = true
   const now = new Date()
-  const totalMonths = Math.round(age * 12)
   const birthDate = new Date(now.getFullYear(), now.getMonth() - totalMonths, 1)
   form.value.birth_date = birthDate.toISOString().split('T')[0]
   syncing = false
@@ -329,8 +347,14 @@ function onBirthDateChange(e: any) {
   form.value.birth_date = e.detail.value
   const birth = new Date(e.detail.value)
   const now = new Date()
-  const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
-  ageInput.value = months > 0 ? (months / 12).toFixed(1) : ''
+  const totalMonths = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+  if (totalMonths > 0) {
+    ageYears.value = String(Math.floor(totalMonths / 12))
+    ageMonths.value = String(totalMonths % 12)
+  } else {
+    ageYears.value = ''
+    ageMonths.value = ''
+  }
   syncing = false
 }
 
@@ -429,8 +453,11 @@ async function loadData() {
   if (form.value.birth_date) {
     const birth = new Date(form.value.birth_date)
     const now = new Date()
-    const months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
-    ageInput.value = months > 0 ? (months / 12).toFixed(1) : ''
+    const totalMonths = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+    if (totalMonths > 0) {
+      ageYears.value = String(Math.floor(totalMonths / 12))
+      ageMonths.value = String(totalMonths % 12)
+    }
   }
 }
 
@@ -464,30 +491,37 @@ function chooseAvatar() {
   input.accept = 'image/*'
   input.style.display = 'none'
   document.body.appendChild(input)
-  input.onchange = async () => {
+  input.onchange = () => {
     const file = input.files?.[0]
     if (!file) {
       input.remove()
       return
     }
-    uni.showLoading({ title: '上传中...' })
-    try {
-      const normalizedFile = await normalizeAvatarFile(file)
-      updateLocalAvatarPreview(normalizedFile)
-      if (normalizedFile.size > MAX_AVATAR_SIZE) {
-        throw new Error('图片不能超过2MB')
-      }
-      form.value.avatar = await uploadH5Avatar(normalizedFile)
-      uni.showToast({ title: '上传成功', icon: 'success' })
-    } catch (err: any) {
-      uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
-    } finally {
-      uni.hideLoading()
-      input.value = ''
-      input.remove()
-    }
+    // 打开裁剪器
+    cropperSrc.value = URL.createObjectURL(file)
+    showCropper.value = true
+    input.value = ''
+    input.remove()
   }
   input.click()
+}
+
+async function onCropConfirm(blob: Blob) {
+  showCropper.value = false
+  // 清理裁剪源
+  if (cropperSrc.value) { URL.revokeObjectURL(cropperSrc.value); cropperSrc.value = '' }
+
+  uni.showLoading({ title: '上传中...' })
+  try {
+    const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
+    updateLocalAvatarPreview(file)
+    form.value.avatar = await uploadH5Avatar(file)
+    uni.showToast({ title: '上传成功', icon: 'success' })
+  } catch (err: any) {
+    uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+  } finally {
+    uni.hideLoading()
+  }
 }
 
 function updateLocalAvatarPreview(file: File) {
@@ -651,11 +685,11 @@ async function onDelete() {
 </script>
 
 <style scoped>
-.page { padding: 24rpx; }
+.page { padding: 24rpx; background: #F5F6FA; min-height: 100vh; }
 
 /* 头像 */
 .avatar-section { display: flex; justify-content: center; margin-bottom: 20rpx; }
-.avatar-img { width: 180rpx; height: 180rpx; border-radius: 50%; border: 4rpx solid #E5E7EB; }
+.avatar-img { width: 180rpx; height: 180rpx; border-radius: 50%; border: 4rpx solid #E5E7EB; object-fit: cover; }
 .avatar-placeholder { width: 180rpx; height: 180rpx; border-radius: 50%; background: #F3F4F6; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 4rpx dashed #D1D5DB; }
 .avatar-icon { font-size: 48rpx; }
 .avatar-hint { font-size: 20rpx; color: #9CA3AF; margin-top: 4rpx; }
@@ -680,6 +714,8 @@ async function onDelete() {
 /* 带单位的输入框 */
 .input-unit { display: flex; align-items: center; background: #F9FAFB; border-radius: 8rpx; padding-right: 12rpx; }
 .input-unit .input { background: transparent; flex: 1; }
+.age-inputs { display: flex; align-items: center; gap: 4rpx; background: #F9FAFB; border-radius: 8rpx; padding: 0 12rpx; }
+.age-input { width: 80rpx; text-align: center; background: transparent; }
 .unit { font-size: 26rpx; color: #6B7280; white-space: nowrap; }
 .flex1 { flex: 1; }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/neinei960/cat/server/internal/model"
@@ -94,7 +95,17 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 	return order, tx.Commit().Error
 }
 
-func (s *OrderService) CreateSplitFromAppointment(appointmentID uint) ([]model.Order, error) {
+type ServiceOverride struct {
+	Price    float64
+	Duration int
+}
+
+func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides ...map[uint]map[uint]ServiceOverride) ([]model.Order, error) {
+	// overrideMap: petId -> serviceId -> {Price, Duration}
+	var overrideMap map[uint]map[uint]ServiceOverride
+	if len(overrides) > 0 && overrides[0] != nil {
+		overrideMap = overrides[0]
+	}
 	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
 	if err != nil {
 		return nil, err
@@ -144,17 +155,37 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint) ([]model.O
 			petName = apptPet.Pet.Name
 		}
 
+		// 应用价格覆盖
+		petSvcOverrides := make(map[uint]ServiceOverride)
+		if overrideMap != nil {
+			if m, ok := overrideMap[apptPet.PetID]; ok {
+				petSvcOverrides = m
+			}
+		}
+
 		items := make([]model.OrderItem, 0, len(apptPet.Services))
+		var orderTotal float64
 		for _, svc := range apptPet.Services {
+			price := svc.Price
+			if ov, ok := petSvcOverrides[svc.ServiceID]; ok {
+				price = ov.Price
+			}
 			items = append(items, model.OrderItem{
 				OrderID:   order.ID,
 				ItemType:  1,
 				ItemID:    svc.ServiceID,
 				Name:      petName + " · " + svc.ServiceName,
 				Quantity:  1,
-				UnitPrice: svc.Price,
-				Amount:    svc.Price,
+				UnitPrice: price,
+				Amount:    price,
 			})
+			orderTotal += price
+		}
+		// 如果有覆盖，更新订单总额
+		if len(petSvcOverrides) > 0 {
+			order.TotalAmount = orderTotal
+			order.PayAmount = orderTotal
+			tx.Save(&order)
 		}
 		if len(items) > 0 {
 			if err := tx.Create(&items).Error; err != nil {
@@ -205,24 +236,24 @@ func (s *OrderService) GetByID(id uint) (*model.Order, error) {
 	return s.orderRepo.FindByID(id)
 }
 
-func (s *OrderService) ListPaged(shopID uint, status *int, page, pageSize int) ([]model.Order, int64, error) {
+func (s *OrderService) ListPaged(shopID uint, f repository.OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.orderRepo.FindByShopPaged(shopID, status, page, pageSize)
+	return s.orderRepo.FindByShopPaged(shopID, f, page, pageSize)
 }
 
-func (s *OrderService) Search(shopID uint, keyword string, status *int, page, pageSize int) ([]model.Order, int64, error) {
+func (s *OrderService) Search(shopID uint, keyword string, f repository.OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.orderRepo.Search(shopID, keyword, status, page, pageSize)
+	return s.orderRepo.Search(shopID, keyword, f, page, pageSize)
 }
 
 // MarkPaid marks an order as paid
@@ -241,6 +272,11 @@ func (s *OrderService) MarkPaid(id uint, payMethod, transactionID string) error 
 	order.PayTime = &now
 	order.TransactionID = transactionID
 	order.Status = 1 // completed
+
+	// 美团订单提成打9折
+	if payMethod == "meituan" && order.Commission > 0 {
+		order.Commission = math.Round(order.Commission*90) / 100
+	}
 
 	if err := s.orderRepo.Update(order); err != nil {
 		return err

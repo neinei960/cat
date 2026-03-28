@@ -24,5 +24,15 @@ onHide(() => {
 uni-page-head {
   display: none !important;
 }
+/* picker 弹出层 z-index 需高于筛选面板(3000) */
+.uni-picker-container {
+  z-index: 5000 !important;
+}
+.uni-picker-container .uni-picker-mask {
+  z-index: 5000 !important;
+}
+.uni-picker-container .uni-picker-custom {
+  z-index: 5001 !important;
+}
 /* #endif */
 </style>

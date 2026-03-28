@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view class="form">
       <view class="form-item">
@@ -74,11 +75,13 @@
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id && isAdmin" @click="onDelete">删除员工</button>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getStaff, createStaff, updateStaff, deleteStaff, resetStaffPassword, getStaffSchedule, batchSetSchedule } from '@/api/staff'
 import { safeBack } from '@/utils/navigate'
 import { useAuthStore } from '@/store/auth'

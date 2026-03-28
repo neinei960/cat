@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page" v-if="order">
     <view :class="['status-bar', `s${order.status}`]">
       <text class="status-text">{{ statusMap[order.status] }}</text>
@@ -7,7 +8,7 @@
     <view class="card">
       <view class="row"><text class="label">订单号</text><text>{{ order.order_no }}</text></view>
       <view class="row"><text class="label">客户</text><text>{{ order.customer?.nickname || '-' }}</text></view>
-      <view class="row"><text class="label">技师</text><text>{{ order.staff?.name || '-' }}</text></view>
+      <view class="row"><text class="label">洗护师</text><text>{{ order.staff?.name || '-' }}</text></view>
       <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ payMethodMap[order.pay_method] || order.pay_method }}</text></view>
       <view class="row" v-if="order.pay_time"><text class="label">支付时间</text><text>{{ order.pay_time }}</text></view>
     </view>
@@ -141,7 +142,7 @@
           <!-- 底部信息 -->
           <view class="receipt-footer">
             <view class="receipt-footer-row">
-              <text class="receipt-footer-label">服务技师</text>
+              <text class="receipt-footer-label">服务洗护师</text>
               <text class="receipt-footer-value">{{ order.staff?.name || '-' }}</text>
             </view>
             <view class="receipt-footer-row">
@@ -190,12 +191,12 @@
             <text class="pay-card-label">现金</text>
           </view>
           <view class="pay-card" @click="doPay('wechat')">
-            <text class="pay-card-icon">💚</text>
-            <text class="pay-card-label">微信</text>
+            <text class="pay-card-icon">📱</text>
+            <text class="pay-card-label">扫码</text>
           </view>
-          <view class="pay-card" @click="doPay('alipay')">
-            <text class="pay-card-icon">💙</text>
-            <text class="pay-card-label">支付宝</text>
+          <view class="pay-card" @click="doPay('meituan')">
+            <text class="pay-card-icon">🟠</text>
+            <text class="pay-card-label">美团</text>
           </view>
           <view :class="['pay-card', memberBalance <= 0 ? 'pay-card-disabled' : '']" @click="payWithBalance">
             <text class="pay-card-icon">💳</text>
@@ -207,11 +208,13 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getOrder, payOrder, cancelOrder, refundOrder } from '@/api/order'
 import { getCustomerCard } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
@@ -321,7 +324,7 @@ function closeReceipt() {
   showReceipt.value = false
 }
 const statusMap: Record<number, string> = { 0: '待付款', 1: '已完成', 2: '已取消', 3: '已退款' }
-const payMethodMap: Record<string, string> = { wechat: '微信', alipay: '支付宝', cash: '现金', balance: '会员余额' }
+const payMethodMap: Record<string, string> = { wechat: '扫码', alipay: '扫码', cash: '现金', meituan: '美团', balance: '会员余额' }
 
 onLoad(async (query) => {
   if (query?.id) {

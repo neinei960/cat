@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view v-if="customer" class="profile">
       <view class="avatar">{{ (customer.nickname || '客').charAt(0) }}</view>
@@ -64,8 +65,12 @@
 
       <!-- 流水记录 -->
       <view v-if="records.length > 0" class="records">
-        <text class="records-title">充值/消费记录</text>
-        <view class="record-item" v-for="r in records" :key="r.ID">
+        <view class="records-header">
+          <text class="records-title">充值/消费记录</text>
+          <text v-if="records.length > 3 && !showAllRecords" class="records-toggle" @click="showAllRecords = true">查看全部 {{ records.length }} 条</text>
+          <text v-if="showAllRecords" class="records-toggle" @click="showAllRecords = false">收起</text>
+        </view>
+        <view class="record-item" v-for="r in displayRecords" :key="r.ID">
           <view class="record-left">
             <text :class="['record-type', r.type === 1 || (r.type === 4 && r.amount > 0) ? 'type-in' : 'type-out']">
               {{ r.type === 1 ? '充值' : r.type === 2 ? '消费' : r.type === 4 ? '调整' : '退款' }}
@@ -78,6 +83,29 @@
             </text>
             <text class="record-balance">余额:¥{{ r.balance_after.toFixed(2) }}</text>
             <text class="record-time">{{ r.CreatedAt.substring(5,16) }}</text>
+          </view>
+          <view v-if="isAdmin" class="record-actions">
+            <text class="record-btn record-btn-edit" @click.stop="editRecord(r)">编辑</text>
+            <text class="record-btn record-btn-del" @click.stop="confirmDeleteRecord(r)">删除</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 编辑记录弹窗 -->
+      <view v-if="editingRecord" class="modal-mask" @click="editingRecord = null">
+        <view class="modal" @click.stop>
+          <text class="modal-title">编辑记录</text>
+          <view class="form-item">
+            <text class="label">金额</text>
+            <input v-model="editForm.amount" type="digit" class="input" />
+          </view>
+          <view class="form-item">
+            <text class="label">备注</text>
+            <input v-model="editForm.remark" class="input" />
+          </view>
+          <view class="modal-actions">
+            <view class="modal-btn cancel" @click="editingRecord = null">取消</view>
+            <view class="modal-btn confirm" @click="saveRecord">保存</view>
           </view>
         </view>
       </view>
@@ -179,9 +207,18 @@
     <view class="modal-mask" v-if="showAdjustModal" @click="showAdjustModal = false">
       <view class="modal-body" @click.stop>
         <text class="modal-title">调整余额</text>
-        <view class="form-item">
+        <view class="adjust-mode-tabs">
+          <view :class="['adjust-tab', adjustMode === 'delta' ? 'adjust-tab-active' : '']" @click="adjustMode = 'delta'">加减调整</view>
+          <view :class="['adjust-tab', adjustMode === 'set' ? 'adjust-tab-active' : '']" @click="adjustMode = 'set'">直接设置</view>
+        </view>
+        <view class="form-item" v-if="adjustMode === 'delta'">
           <text class="label">调整金额 *</text>
           <input v-model="adjustAmount" type="digit" placeholder="正数增加，负数减少" class="input" />
+          <text class="field-hint">当前余额: ¥{{ memberCard?.balance.toFixed(2) }}</text>
+        </view>
+        <view class="form-item" v-else>
+          <text class="label">设置余额为 *</text>
+          <input v-model="adjustSetValue" type="digit" placeholder="输入目标余额" class="input" />
           <text class="field-hint">当前余额: ¥{{ memberCard?.balance.toFixed(2) }}</text>
         </view>
         <view class="form-item">
@@ -222,14 +259,16 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import SideLayout from '@/components/SideLayout.vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerPets, updateCustomer } from '@/api/customer'
 import { getCustomerTags } from '@/api/customer-tag'
-import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords } from '@/api/member-card'
+import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords, updateRechargeRecord, deleteRechargeRecord } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
 
@@ -268,10 +307,17 @@ const showAdjustModal = ref(false)
 const showTagModal = ref(false)
 const selectedTplId = ref(0)
 const rechargeAmount = ref('')
+const adjustMode = ref<'delta' | 'set'>('delta')
 const adjustAmount = ref('')
+const adjustSetValue = ref('')
 const adjustRemark = ref('')
 const tagOptions = ref<CustomerTag[]>([])
 const selectedTagIDs = ref<number[]>([])
+
+const showAllRecords = ref(false)
+const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 3))
+const editingRecord = ref<RechargeRecord | null>(null)
+const editForm = ref({ amount: '', remark: '' })
 
 const minRecharge = computed(() => {
   const tpl = templates.value.find(t => t.ID === selectedTplId.value)
@@ -353,15 +399,28 @@ async function doRecharge() {
 }
 
 async function doAdjust() {
-  const amount = parseFloat(adjustAmount.value)
-  if (!amount) {
-    uni.showToast({ title: '请输入调整金额', icon: 'none' }); return
+  let amount: number
+  if (adjustMode.value === 'set') {
+    const target = parseFloat(adjustSetValue.value)
+    if (isNaN(target) || target < 0) {
+      uni.showToast({ title: '请输入有效的目标余额', icon: 'none' }); return
+    }
+    amount = target - (memberCard.value?.balance || 0)
+    if (amount === 0) {
+      uni.showToast({ title: '余额未变化', icon: 'none' }); return
+    }
+  } else {
+    amount = parseFloat(adjustAmount.value)
+    if (!amount) {
+      uni.showToast({ title: '请输入调整金额', icon: 'none' }); return
+    }
   }
   if (!adjustRemark.value.trim()) {
     uni.showToast({ title: '请填写调整原因', icon: 'none' }); return
   }
+  const remarkPrefix = adjustMode.value === 'set' ? `设置余额为${(memberCard.value?.balance || 0) + amount}: ` : ''
   try {
-    await adjustBalance(id.value, { amount, remark: adjustRemark.value.trim() })
+    await adjustBalance(id.value, { amount, remark: remarkPrefix + adjustRemark.value.trim() })
     uni.showToast({ title: '调整成功', icon: 'success' })
     showAdjustModal.value = false
     adjustAmount.value = ''
@@ -370,6 +429,55 @@ async function doAdjust() {
   } catch (e: any) {
     uni.showToast({ title: e.message || '调整失败', icon: 'none' })
   }
+}
+
+function editRecord(r: RechargeRecord) {
+  editingRecord.value = r
+  editForm.value = { amount: String(r.amount), remark: r.remark }
+}
+
+async function saveRecord() {
+  if (!editingRecord.value) return
+  try {
+    await updateRechargeRecord(editingRecord.value.ID, {
+      amount: parseFloat(editForm.value.amount),
+      remark: editForm.value.remark,
+    })
+    uni.showToast({ title: '修改成功', icon: 'success' })
+    editingRecord.value = null
+    await loadAll()
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '修改失败', icon: 'none' })
+  }
+}
+
+function confirmDeleteRecord(r: RechargeRecord) {
+  uni.showModal({
+    title: '确认删除',
+    content: `确定要删除这条${r.type === 1 ? '充值' : r.type === 2 ? '消费' : '调整'}记录（¥${r.amount.toFixed(2)}）吗？`,
+    confirmColor: '#EF4444',
+    success: (res) => {
+      if (res.confirm) {
+        // 第二次确认
+        uni.showModal({
+          title: '再次确认',
+          content: '删除后余额将被回退，此操作不可恢复，确定删除？',
+          confirmColor: '#EF4444',
+          success: async (res2) => {
+            if (res2.confirm) {
+              try {
+                await deleteRechargeRecord(r.ID)
+                uni.showToast({ title: '已删除', icon: 'success' })
+                await loadAll()
+              } catch (e: any) {
+                uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+              }
+            }
+          }
+        })
+      }
+    }
+  })
 }
 
 function copyPhone() {
@@ -441,7 +549,7 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .empty-tag-action { font-size: 22rpx; color: #4F46E5; }
 .empty-sm { font-size: 26rpx; color: #9CA3AF; text-align: center; padding: 24rpx; }
 .pet-card { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; display: flex; align-items: center; gap: 16rpx; }
-.pet-avatar { width: 72rpx; height: 72rpx; border-radius: 50%; flex-shrink: 0; }
+.pet-avatar { width: 72rpx; height: 72rpx; border-radius: 50%; flex-shrink: 0; object-fit: cover; }
 .pet-avatar-fallback { width: 72rpx; height: 72rpx; border-radius: 50%; background: #EEF2FF; color: #4F46E5; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; flex-shrink: 0; }
 .pet-card:last-child { border-bottom: none; }
 .pet-main { flex: 1; }
@@ -470,6 +578,9 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .mc-btns { display: flex; gap: 16rpx; }
 .btn-recharge { flex: 1; background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 28rpx; }
 .btn-adjust { flex: 1; background: #fff; color: #F59E0B; border: 1rpx solid #F59E0B; border-radius: 12rpx; font-size: 28rpx; }
+.adjust-mode-tabs { display: flex; gap: 0; margin-bottom: 20rpx; background: #F3F4F6; border-radius: 12rpx; padding: 4rpx; }
+.adjust-tab { flex: 1; text-align: center; font-size: 26rpx; padding: 14rpx 0; border-radius: 10rpx; color: #6B7280; }
+.adjust-tab-active { background: #fff; color: #4F46E5; font-weight: 600; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.06); }
 .field-hint { font-size: 22rpx; color: #9CA3AF; display: block; margin-top: 4rpx; }
 .no-card { text-align: center; padding: 24rpx 0; }
 .no-card-text { font-size: 26rpx; color: #9CA3AF; display: block; margin-bottom: 16rpx; }
@@ -477,10 +588,16 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 
 /* Records */
 .records { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
-.records-title { font-size: 26rpx; font-weight: 600; color: #6B7280; display: block; margin-bottom: 12rpx; }
-.record-item { display: flex; justify-content: space-between; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F9FAFB; }
+.records-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12rpx; }
+.records-title { font-size: 26rpx; font-weight: 600; color: #6B7280; }
+.records-toggle { font-size: 24rpx; color: #4F46E5; }
+.record-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F9FAFB; }
 .record-item:last-child { border-bottom: none; }
 .record-left { display: flex; align-items: center; gap: 12rpx; }
+.record-actions { width: 100%; display: flex; justify-content: flex-end; gap: 16rpx; margin-top: 8rpx; }
+.record-btn { font-size: 22rpx; padding: 4rpx 16rpx; border-radius: 8rpx; }
+.record-btn-edit { color: #4F46E5; background: #EEF2FF; }
+.record-btn-del { color: #EF4444; background: #FEF2F2; }
 .record-type { font-size: 22rpx; padding: 4rpx 12rpx; border-radius: 8rpx; }
 .type-in { background: #D1FAE5; color: #059669; }
 .type-out { background: #FEE2E2; color: #DC2626; }

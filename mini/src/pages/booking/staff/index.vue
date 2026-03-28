@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <view class="title">选择技师</view>
+    <view class="title">选择洗护师</view>
     <view class="list">
       <view
         v-for="s in staffs" :key="s.ID"

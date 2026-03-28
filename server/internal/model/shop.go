@@ -25,5 +25,7 @@ type Shop struct {
 	Latitude      float64         `json:"latitude" gorm:"type:decimal(10,7)"`
 	Longitude     float64         `json:"longitude" gorm:"type:decimal(10,7)"`
 	BusinessHours json.RawMessage `json:"business_hours" gorm:"type:json;comment:营业时间"`
+	OpenTime      string          `json:"open_time" gorm:"size:10;default:10:00;comment:营业开始时间"`
+	CloseTime     string          `json:"close_time" gorm:"size:10;default:22:00;comment:营业结束时间"`
 	Status        int             `json:"status" gorm:"default:1;comment:1正常 2停业"`
 }

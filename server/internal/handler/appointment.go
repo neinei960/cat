@@ -191,6 +191,9 @@ func (h *AppointmentHandler) List(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	dateFrom := c.Query("date_from")
+	dateTo := c.Query("date_to")
+	staffID, _ := strconv.ParseUint(c.Query("staff_id"), 10, 64)
 
 	var status *int
 	if s := c.Query("status"); s != "" {
@@ -198,7 +201,7 @@ func (h *AppointmentHandler) List(c *gin.Context) {
 		status = &v
 	}
 
-	list, total, err := h.apptService.ListPaged(shopID, status, page, pageSize)
+	list, total, err := h.apptService.ListPaged(shopID, status, dateFrom, dateTo, uint(staffID), page, pageSize)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return

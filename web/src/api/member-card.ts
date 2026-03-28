@@ -41,3 +41,11 @@ export function adjustBalance(customerId: number, data: { amount: number; remark
 export function getRechargeRecords(customerId: number) {
   return request<RechargeRecord[]>({ url: `/b/customers/${customerId}/recharge-records` })
 }
+
+export function updateRechargeRecord(id: number, data: { amount?: number; remark?: string }) {
+  return request<RechargeRecord>({ url: `/b/recharge-records/${id}`, method: 'PUT', data })
+}
+
+export function deleteRechargeRecord(id: number) {
+  return request({ url: `/b/recharge-records/${id}`, method: 'DELETE' })
+}

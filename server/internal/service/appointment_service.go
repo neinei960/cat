@@ -259,29 +259,52 @@ func (s *AppointmentService) buildMultiPayload(appt *model.Appointment, petSelec
 			PetID:     selection.PetID,
 			SortOrder: idx + 1,
 		}
+		// 查宠物毛发等级，用于匹配价格规则
+		var petFurLevel string
+		var pet model.Pet
+		if err := database.DB.Select("fur_level").First(&pet, selection.PetID).Error; err == nil {
+			petFurLevel = pet.FurLevel
+		}
+
 		var petServices []model.AppointmentPetService
 		for _, sid := range serviceIDs {
-			svc, err := s.serviceRepo.FindByID(sid)
+			svc, err := s.serviceRepo.FindActiveByIDAndShop(sid, appt.ShopID)
 			if err != nil {
-				return nil, fmt.Errorf("服务 %d 不存在", sid)
+				return nil, fmt.Errorf("服务(ID=%d)不存在或已下架，请刷新页面重新选择", sid)
 			}
 
-			petRow.TotalDuration += svc.Duration
-			petRow.TotalAmount += svc.BasePrice
-			totalDuration += svc.Duration
-			totalAmount += svc.BasePrice
+			// 根据毛发等级匹配价格规则，否则用基础价
+			price := svc.BasePrice
+			duration := svc.Duration
+			if petFurLevel != "" {
+				rules, _ := s.serviceRepo.FindPriceRules(sid)
+				for _, r := range rules {
+					if r.FurLevel == petFurLevel {
+						price = r.Price
+						if r.Duration > 0 {
+							duration = r.Duration
+						}
+						break
+					}
+				}
+			}
+
+			petRow.TotalDuration += duration
+			petRow.TotalAmount += price
+			totalDuration += duration
+			totalAmount += price
 
 			petServices = append(petServices, model.AppointmentPetService{
 				ServiceID:   sid,
 				ServiceName: svc.Name,
-				Price:       svc.BasePrice,
-				Duration:    svc.Duration,
+				Price:       price,
+				Duration:    duration,
 			})
 			apptServices = append(apptServices, model.AppointmentService{
 				ServiceID:   sid,
 				ServiceName: svc.Name,
-				Price:       svc.BasePrice,
-				Duration:    svc.Duration,
+				Price:       price,
+				Duration:    duration,
 			})
 		}
 
@@ -356,7 +379,7 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	if err != nil || appt.ShopID != shopID {
 		return errors.New("预约不存在")
 	}
-	if appt.Status > 1 {
+	if appt.Status > 3 {
 		return errors.New("当前状态不允许修改预约")
 	}
 
@@ -506,14 +529,14 @@ func (s *AppointmentService) ListByCustomer(customerID uint, page, pageSize int)
 	return s.apptRepo.FindByCustomer(customerID, page, pageSize)
 }
 
-func (s *AppointmentService) ListPaged(shopID uint, status *int, page, pageSize int) ([]model.Appointment, int64, error) {
+func (s *AppointmentService) ListPaged(shopID uint, status *int, dateFrom, dateTo string, staffID uint, page, pageSize int) ([]model.Appointment, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.apptRepo.FindByShopPaged(shopID, status, page, pageSize)
+	return s.apptRepo.FindByShopPaged(shopID, status, dateFrom, dateTo, staffID, page, pageSize)
 }
 
 // UpdateStatus handles appointment status transitions.
@@ -525,15 +548,17 @@ func (s *AppointmentService) UpdateStatus(id uint, newStatus int, staffNotes, ca
 
 	valid := false
 	switch newStatus {
-	case 1:
+	case 1: // 已确认 ← 待确认
 		valid = appt.Status == 0
-	case 2:
-		valid = appt.Status == 1
-	case 3:
+	case 2: // 服务中 ← 已确认 or 已到店
+		valid = appt.Status == 1 || appt.Status == 6
+	case 3: // 待结算 ← 服务中
 		valid = appt.Status == 2
-	case 4:
-		valid = appt.Status == 0 || appt.Status == 1
-	case 5:
+	case 4: // 已取消 ← 待确认/已确认/已到店
+		valid = appt.Status == 0 || appt.Status == 1 || appt.Status == 6
+	case 5: // 未到店 ← 已确认
+		valid = appt.Status == 1
+	case 6: // 已到店 ← 已确认
 		valid = appt.Status == 1
 	}
 	if !valid {

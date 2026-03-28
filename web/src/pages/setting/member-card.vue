@@ -12,13 +12,21 @@
       <view v-else class="card-list">
         <view class="card" v-for="tpl in list" :key="tpl.ID">
           <view class="card-header" :style="{ background: getCardColor(tpl) }">
-            <text class="card-name">{{ tpl.name }}</text>
-            <text class="card-amount">¥{{ tpl.min_recharge.toFixed(0) }}</text>
+            <view class="card-name-row">
+              <text class="card-name">{{ tpl.name }}</text>
+              <text class="card-type-badge" v-if="tpl.card_type === 2">次卡</text>
+            </view>
+            <text class="card-amount" v-if="tpl.card_type !== 2">¥{{ tpl.min_recharge.toFixed(0) }}</text>
+            <text class="card-amount" v-else>{{ tpl.total_times }}次 / ¥{{ tpl.times_price }}</text>
           </view>
           <view class="card-body">
-            <view class="card-info-row">
+            <view class="card-info-row" v-if="tpl.card_type !== 2">
               <text class="info-label">储值门槛</text>
               <text class="info-value">¥{{ tpl.min_recharge }}</text>
+            </view>
+            <view class="card-info-row" v-if="tpl.card_type === 2">
+              <text class="info-label">总次数</text>
+              <text class="info-value">{{ tpl.total_times }}次</text>
             </view>
             <view class="card-info-row">
               <text class="info-label">服务折扣</text>
@@ -63,8 +71,23 @@
             <input v-model="modalForm.name" placeholder="如：I / II / III / 金卡" class="input" />
           </view>
           <view class="form-item">
+            <text class="label">卡类型</text>
+            <view class="type-tabs">
+              <view :class="['type-tab', modalForm.card_type === '1' ? 'active' : '']" @click="modalForm.card_type = '1'">储值卡</view>
+              <view :class="['type-tab', modalForm.card_type === '2' ? 'active' : '']" @click="modalForm.card_type = '2'">次卡</view>
+            </view>
+          </view>
+          <view class="form-item" v-if="modalForm.card_type === '1'">
             <text class="label">储值门槛 (元) *</text>
             <input v-model="modalForm.min_recharge" type="digit" placeholder="1000" class="input" />
+          </view>
+          <view class="form-item" v-if="modalForm.card_type === '2'">
+            <text class="label">总次数 *</text>
+            <input v-model="modalForm.total_times" type="number" placeholder="10" class="input" />
+          </view>
+          <view class="form-item" v-if="modalForm.card_type === '2'">
+            <text class="label">售价 (元) *</text>
+            <input v-model="modalForm.times_price" type="digit" placeholder="800" class="input" />
           </view>
           <view class="form-item">
             <text class="label">服务折扣 * (如0.8=八折)</text>
@@ -130,7 +153,7 @@ const showAdd = ref(false)
 const showEdit = ref(false)
 const editId = ref(0)
 
-const modalForm = ref({ name: '', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' })
+const modalForm = ref({ name: '', card_type: '1', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', total_times: '', times_price: '', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' })
 
 const colorPresets = [
   { name: '紫', value: 'linear-gradient(135deg, #4F46E5, #7C3AED)' },
@@ -160,10 +183,13 @@ async function editTpl(tpl: MemberCardTemplate) {
   editId.value = tpl.ID
   modalForm.value = {
     name: tpl.name,
+    card_type: String(tpl.card_type || 1),
     min_recharge: String(tpl.min_recharge),
     discount_rate: String(tpl.discount_rate),
     product_discount_rate: String(tpl.product_discount_rate || 1),
     valid_days: String(tpl.valid_days),
+    total_times: String(tpl.total_times || ''),
+    times_price: String(tpl.times_price || ''),
     color: tpl.color || 'linear-gradient(135deg, #4F46E5, #7C3AED)',
   }
   await loadDiscountForm(tpl)
@@ -193,7 +219,7 @@ const serviceCategories = ref<ServiceCategory[]>([])
 function closeModal() {
   showAdd.value = false
   showEdit.value = false
-  modalForm.value = { name: '', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }
+  modalForm.value = { name: '', card_type: '1', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', total_times: '', times_price: '', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }
 }
 
 async function onAdd() {
@@ -203,15 +229,25 @@ async function onAdd() {
 
 async function onSubmit() {
   const f = modalForm.value
-  if (!f.name || !f.min_recharge || !f.discount_rate) {
+  const isTimesCard = f.card_type === '2'
+  if (!f.name || !f.discount_rate) {
     uni.showToast({ title: '请填写必填项', icon: 'none' }); return
   }
-  const data = {
+  if (isTimesCard && (!f.total_times || !f.times_price)) {
+    uni.showToast({ title: '次卡请填写总次数和售价', icon: 'none' }); return
+  }
+  if (!isTimesCard && !f.min_recharge) {
+    uni.showToast({ title: '储值卡请填写储值门槛', icon: 'none' }); return
+  }
+  const data: any = {
     name: f.name,
-    min_recharge: parseFloat(f.min_recharge),
+    card_type: parseInt(f.card_type) || 1,
+    min_recharge: parseFloat(f.min_recharge) || 0,
     discount_rate: parseFloat(f.discount_rate),
     product_discount_rate: parseFloat(f.product_discount_rate) || 1,
     valid_days: parseInt(f.valid_days) || 0,
+    total_times: isTimesCard ? parseInt(f.total_times) || 0 : 0,
+    times_price: isTimesCard ? parseFloat(f.times_price) || 0 : 0,
     color: f.color,
   }
   try {
@@ -315,6 +351,12 @@ function deleteTpl(tpl: MemberCardTemplate) {
 .discount-input { width: 160rpx !important; text-align: center; }
 .discount-unit { font-size: 24rpx; color: #4F46E5; white-space: nowrap; }
 .empty-sm { font-size: 26rpx; color: #9CA3AF; text-align: center; padding: 24rpx; }
+
+.card-name-row { display: flex; align-items: center; gap: 8rpx; }
+.card-type-badge { font-size: 18rpx; background: rgba(255,255,255,0.3); padding: 2rpx 12rpx; border-radius: 8rpx; color: #fff; }
+.type-tabs { display: flex; gap: 12rpx; }
+.type-tab { flex: 1; text-align: center; padding: 16rpx; border-radius: 12rpx; background: #F3F4F6; color: #374151; font-size: 26rpx; font-weight: 500; }
+.type-tab.active { background: #4F46E5; color: #fff; }
 
 @media (max-width: 600px) {
   .card { width: 100%; }

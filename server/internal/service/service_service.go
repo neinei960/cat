@@ -60,3 +60,17 @@ func (s *ServiceService) UpdatePriceRule(rule *model.ServicePriceRule) error {
 func (s *ServiceService) DeletePriceRule(id uint) error {
 	return s.repo.DeletePriceRule(id)
 }
+
+// Discounts
+
+func (s *ServiceService) CreateDiscount(d *model.ServiceDiscount) error {
+	return s.repo.CreateDiscount(d)
+}
+
+func (s *ServiceService) GetDiscounts(serviceID uint) ([]model.ServiceDiscount, error) {
+	return s.repo.FindDiscounts(serviceID)
+}
+
+func (s *ServiceService) DeleteDiscount(id uint) error {
+	return s.repo.DeleteDiscount(id)
+}

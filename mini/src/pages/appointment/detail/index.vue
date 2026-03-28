@@ -5,7 +5,7 @@
       <view class="row"><text class="label">日期</text><text>{{ appt.date }}</text></view>
       <view class="row"><text class="label">时间</text><text>{{ appt.start_time }}-{{ appt.end_time }}</text></view>
       <view class="row"><text class="label">宠物</text><text>{{ appt.pet?.name }}</text></view>
-      <view class="row"><text class="label">技师</text><text>{{ appt.staff?.name || '待分配' }}</text></view>
+      <view class="row"><text class="label">洗护师</text><text>{{ appt.staff?.name || '待分配' }}</text></view>
       <view class="row"><text class="label">服务</text><text>{{ (appt.services||[]).map((s:any)=>s.service_name).join('+') }}</text></view>
       <view class="row"><text class="label">金额</text><text class="price">¥{{ appt.total_amount }}</text></view>
     </view>

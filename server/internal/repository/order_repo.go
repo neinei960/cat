@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
+	"gorm.io/gorm"
 )
 
 type OrderRepository struct{}
@@ -29,13 +30,38 @@ func (r *OrderRepository) FindByOrderNo(orderNo string) (*model.Order, error) {
 	return &order, err
 }
 
-func (r *OrderRepository) FindByShopPaged(shopID uint, status *int, page, pageSize int) ([]model.Order, int64, error) {
+type OrderFilter struct {
+	Status    *int
+	DateFrom  string
+	DateTo    string
+	StaffID   uint
+	PayMethod string
+}
+
+func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) *gorm.DB {
+	db = db.Where("shop_id = ?", shopID)
+	if f.Status != nil {
+		db = db.Where("status = ?", *f.Status)
+	}
+	if f.DateFrom != "" {
+		db = db.Where("DATE(created_at) >= ?", f.DateFrom)
+	}
+	if f.DateTo != "" {
+		db = db.Where("DATE(created_at) <= ?", f.DateTo)
+	}
+	if f.StaffID > 0 {
+		db = db.Where("staff_id = ?", f.StaffID)
+	}
+	if f.PayMethod != "" {
+		db = db.Where("pay_method = ?", f.PayMethod)
+	}
+	return db
+}
+
+func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
-	db := database.DB.Model(&model.Order{}).Where("shop_id = ?", shopID)
-	if status != nil {
-		db = db.Where("status = ?", *status)
-	}
+	db := r.applyFilters(database.DB.Model(&model.Order{}), shopID, f)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
 	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").
@@ -43,7 +69,7 @@ func (r *OrderRepository) FindByShopPaged(shopID uint, status *int, page, pageSi
 	return orders, total, err
 }
 
-func (r *OrderRepository) Search(shopID uint, keyword string, status *int, page, pageSize int) ([]model.Order, int64, error) {
+func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
 	like := "%" + keyword + "%"
@@ -54,8 +80,20 @@ func (r *OrderRepository) Search(shopID uint, keyword string, status *int, page,
 		Where("orders.shop_id = ? AND (orders.order_no LIKE ? OR customers.nickname LIKE ? OR customers.phone LIKE ? OR pets.name LIKE ? OR order_items.name LIKE ?)",
 			shopID, like, like, like, like, like).
 		Distinct("orders.id")
-	if status != nil {
-		db = db.Where("orders.status = ?", *status)
+	if f.Status != nil {
+		db = db.Where("orders.status = ?", *f.Status)
+	}
+	if f.DateFrom != "" {
+		db = db.Where("DATE(orders.created_at) >= ?", f.DateFrom)
+	}
+	if f.DateTo != "" {
+		db = db.Where("DATE(orders.created_at) <= ?", f.DateTo)
+	}
+	if f.StaffID > 0 {
+		db = db.Where("orders.staff_id = ?", f.StaffID)
+	}
+	if f.PayMethod != "" {
+		db = db.Where("orders.pay_method = ?", f.PayMethod)
 	}
 	db.Count(&total)
 	offset := (page - 1) * pageSize

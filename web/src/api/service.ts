@@ -31,3 +31,15 @@ export function createPriceRule(serviceId: number, data: Partial<ServicePriceRul
 export function deletePriceRule(serviceId: number, ruleId: number) {
   return request({ url: `/b/services/${serviceId}/prices/${ruleId}`, method: 'DELETE' })
 }
+
+export function getDiscounts(serviceId: number) {
+  return request<ServiceDiscount[]>({ url: `/b/services/${serviceId}/discounts` })
+}
+
+export function createDiscount(serviceId: number, data: Partial<ServiceDiscount>) {
+  return request<ServiceDiscount>({ url: `/b/services/${serviceId}/discounts`, method: 'POST', data })
+}
+
+export function deleteDiscount(serviceId: number, discountId: number) {
+  return request({ url: `/b/services/${serviceId}/discounts/${discountId}`, method: 'DELETE' })
+}

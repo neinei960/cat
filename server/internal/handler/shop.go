@@ -27,13 +27,15 @@ func (h *ShopHandler) Get(c *gin.Context) {
 }
 
 type updateShopReq struct {
-	Name          string `json:"name"`
-	Logo          string `json:"logo"`
-	Phone         string `json:"phone"`
-	Address       string `json:"address"`
-	Latitude      float64 `json:"latitude"`
-	Longitude     float64 `json:"longitude"`
+	Name          string      `json:"name"`
+	Logo          string      `json:"logo"`
+	Phone         string      `json:"phone"`
+	Address       string      `json:"address"`
+	Latitude      float64     `json:"latitude"`
+	Longitude     float64     `json:"longitude"`
 	BusinessHours interface{} `json:"business_hours"`
+	OpenTime      string      `json:"open_time"`
+	CloseTime     string      `json:"close_time"`
 }
 
 func (h *ShopHandler) Update(c *gin.Context) {
@@ -67,6 +69,12 @@ func (h *ShopHandler) Update(c *gin.Context) {
 	}
 	if req.Longitude != 0 {
 		shop.Longitude = req.Longitude
+	}
+	if req.OpenTime != "" {
+		shop.OpenTime = req.OpenTime
+	}
+	if req.CloseTime != "" {
+		shop.CloseTime = req.CloseTime
 	}
 
 	if err := h.shopService.Update(shop); err != nil {

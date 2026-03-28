@@ -85,9 +85,12 @@ interface MemberCardTemplate {
   ID: number
   shop_id: number
   name: string
+  card_type: number // 1储值卡 2次卡
   min_recharge: number
   discount_rate: number
   valid_days: number
+  total_times: number // 次卡总次数
+  times_price: number // 次卡售价
   color: string
   status: number
   sort_order: number
@@ -182,7 +185,10 @@ interface ServiceItem {
   applicable_sizes: string
   sort_order: number
   status: number
+  pricing_type: number  // 1按次 2按天
+  holiday_price: number
   price_rules?: ServicePriceRule[]
+  discounts?: ServiceDiscount[]
   service_category?: ServiceCategory
 }
 
@@ -195,6 +201,17 @@ interface ServicePriceRule {
   breed: string
   price: number
   duration: number
+}
+
+interface ServiceDiscount {
+  ID: number
+  service_id: number
+  type: number        // 1满天折扣 2住N免M
+  min_days: number
+  discount_price: number
+  free_days: number
+  is_holiday: boolean
+  status: number
 }
 
 // Schedule

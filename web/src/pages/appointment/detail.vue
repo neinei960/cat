@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page" v-if="appt">
     <view class="status-bar" :style="getAppointmentStatusBarStyle(appt.status)">
       <text class="status-text">{{ getAppointmentStatusLabel(appt.status) }}</text>
@@ -9,7 +10,7 @@
       <view class="row"><text class="label">时间</text><text>{{ appt.start_time }} - {{ appt.end_time }}</text></view>
       <view class="row"><text class="label">客户</text><text>{{ appt.customer?.nickname || appt.customer?.phone || '-' }}</text></view>
       <view class="row"><text class="label">宠物</text><text>{{ getPetSummary(appt) }}</text></view>
-      <view class="row"><text class="label">技师</text><text>{{ appt.staff?.name || '待分配' }}</text></view>
+      <view class="row"><text class="label">洗护师</text><text>{{ appt.staff?.name || '待分配' }}</text></view>
       <view class="row"><text class="label">来源</text><text>{{ sourceMap[appt.source] }}</text></view>
       <view class="row"><text class="label">金额</text><text class="amount">¥{{ appt.total_amount }}</text></view>
     </view>
@@ -19,6 +20,7 @@
       <view class="pet-block" v-for="petItem in appointmentPets" :key="petItem.ID || petItem.pet_id">
         <view class="pet-header">
           <text class="pet-name">{{ getPetName(petItem) }}</text>
+          <text v-if="petItem.pet?.aggression && petItem.pet.aggression !== '无'" class="aggression-warn">⚡ {{ petItem.pet.aggression }}</text>
           <text class="pet-meta">{{ getPetMeta(petItem) }}</text>
         </view>
         <view class="svc-item" v-for="s in petItem.services || []" :key="s.ID || `${petItem.pet_id}-${s.service_id}`">
@@ -31,24 +33,87 @@
     <view class="card" v-if="appt.notes || appt.staff_notes">
       <text class="card-title">备注</text>
       <text class="notes" v-if="appt.notes">客户: {{ appt.notes }}</text>
-      <text class="notes" v-if="appt.staff_notes">技师: {{ appt.staff_notes }}</text>
+      <text class="notes" v-if="appt.staff_notes">洗护师: {{ appt.staff_notes }}</text>
+    </view>
+
+    <!-- 服务记录 -->
+    <view class="card" v-if="appt.status >= 2">
+      <view class="card-title-row">
+        <text class="card-title" style="margin-bottom:0">服务记录</text>
+        <view class="add-record-btn" @click="showRecordForm = true" v-if="appt.status === 2 || appt.status === 3">+ 添加记录</view>
+      </view>
+      <view v-if="serviceRecords.length === 0" class="empty-records">暂无服务记录</view>
+      <view class="record-item" v-for="rec in serviceRecords" :key="rec.ID">
+        <view class="record-header">
+          <text class="record-staff">{{ rec.staff?.name || '技师' }}</text>
+          <text class="record-time">{{ rec.CreatedAt?.substring(0, 16) }}</text>
+        </view>
+        <text class="record-notes" v-if="rec.notes">{{ rec.notes }}</text>
+        <view class="record-tags" v-if="rec.skin_issues || rec.fur_condition || rec.weight">
+          <text class="record-tag" v-if="rec.weight">体重: {{ rec.weight }}</text>
+          <text class="record-tag" v-if="rec.fur_condition">毛况: {{ rec.fur_condition }}</text>
+          <text class="record-tag warn" v-if="rec.skin_issues">皮肤: {{ rec.skin_issues }}</text>
+        </view>
+        <view class="record-photos" v-if="rec.photos">
+          <image v-for="(url, idx) in rec.photos.split(',')" :key="idx" :src="url" class="record-photo" mode="aspectFill" @click="previewPhoto(rec.photos.split(','), idx)" />
+        </view>
+      </view>
+    </view>
+
+    <!-- 添加服务记录弹窗 -->
+    <view class="modal-mask" v-if="showRecordForm" @click="showRecordForm = false">
+      <view class="modal modal-lg" @click.stop>
+        <text class="modal-title">添加服务记录</text>
+        <view class="form-group">
+          <text class="form-label">服务记录</text>
+          <textarea v-model="recordForm.notes" placeholder="使用了什么浴液、剃了哪个部位、发现什么问题..." class="form-textarea" />
+        </view>
+        <view class="form-row-inline">
+          <view class="form-group half">
+            <text class="form-label">体重</text>
+            <input v-model="recordForm.weight" placeholder="如 4.5kg" class="form-input-sm" />
+          </view>
+          <view class="form-group half">
+            <text class="form-label">毛发状况</text>
+            <input v-model="recordForm.fur_condition" placeholder="如 轻微打结" class="form-input-sm" />
+          </view>
+        </view>
+        <view class="form-group">
+          <text class="form-label">皮肤问题</text>
+          <input v-model="recordForm.skin_issues" placeholder="如 耳朵发红、背部掉毛" class="form-input-sm" />
+        </view>
+        <view class="form-group">
+          <text class="form-label">照片（最多3张）</text>
+          <view class="photo-upload-row">
+            <image v-for="(url, idx) in recordPhotos" :key="idx" :src="url" class="photo-thumb" mode="aspectFill">
+              <text class="photo-del" @click.stop="recordPhotos.splice(idx, 1)">✕</text>
+            </image>
+            <view class="photo-add" v-if="recordPhotos.length < 3" @click="uploadPhoto">+</view>
+          </view>
+        </view>
+        <view class="modal-btns">
+          <view class="modal-btn cancel" @click="showRecordForm = false">取消</view>
+          <view class="modal-btn confirm" @click="submitRecord">保存</view>
+        </view>
+      </view>
     </view>
 
     <!-- Action buttons based on status -->
     <view class="actions">
       <button v-if="appt.status === 0" class="btn confirm" @click="doAction(1)">确认预约</button>
-      <button v-if="appt.status === 1" class="btn start" @click="doAction(2)">开始服务</button>
-      <button v-if="appt.status <= 1" class="btn edit" @click="goEdit">修改当前预约</button>
+      <button v-if="appt.status === 1" class="btn arrived" @click="doAction(6)">已到店</button>
+      <button v-if="appt.status === 1 || appt.status === 6" class="btn start" @click="doAction(2)">开始服务</button>
+      <button v-if="appt.status <= 3 || appt.status === 6" class="btn edit" @click="goEdit">修改预约</button>
       <button v-if="appt.status === 2" class="btn complete" @click="doAction(3)">完成服务</button>
       <button v-if="appt.status === 3" class="btn billing" @click="goBatchBilling">去开单</button>
-      <button v-if="appt.status <= 1" class="btn cancel" @click="doCancel">取消预约</button>
-      <button v-if="appt.status <= 1 && !appt.staff" class="btn assign" @click="showAssign = true">分配技师</button>
+      <button v-if="appt.status <= 1 || appt.status === 6" class="btn cancel" @click="doCancel">取消预约</button>
+      <button v-if="appt.status <= 1 && !appt.staff" class="btn assign" @click="showAssign = true">分配洗护师</button>
     </view>
 
     <!-- Assign staff modal -->
     <view class="modal-mask" v-if="showAssign" @click="showAssign = false">
       <view class="modal" @click.stop>
-        <text class="modal-title">分配技师</text>
+        <text class="modal-title">分配洗护师</text>
         <view class="option-list">
           <view class="option" v-for="s in staffList" :key="s.ID" @click="doAssign(s.ID)">
             {{ s.name }}
@@ -57,19 +122,89 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getAppointment, updateAppointmentStatus, assignStaff } from '@/api/appointment'
 import { getStaffList } from '@/api/staff'
 import { getAppointmentStatusBarStyle, getAppointmentStatusLabel } from '@/utils/appointment-status'
+import { request } from '@/api/request'
 
 const appt = ref<any>(null)
 const apptId = ref(0)
 const staffList = ref<Staff[]>([])
 const showAssign = ref(false)
+
+// 服务记录
+const serviceRecords = ref<any[]>([])
+const showRecordForm = ref(false)
+const recordForm = ref({ notes: '', weight: '', fur_condition: '', skin_issues: '' })
+const recordPhotos = ref<string[]>([])
+
+async function loadRecords() {
+  if (!apptId.value) return
+  try {
+    const res = await request<any[]>({ url: `/b/service-records?appointment_id=${apptId.value}` })
+    serviceRecords.value = res.data || []
+  } catch {}
+}
+
+async function submitRecord() {
+  const petId = appointmentPets.value[0]?.pet_id || appt.value?.pet_id || 0
+  try {
+    await request({ url: '/b/service-records', method: 'POST', data: {
+      appointment_id: apptId.value,
+      pet_id: petId,
+      notes: recordForm.value.notes,
+      photos: recordPhotos.value.join(','),
+      skin_issues: recordForm.value.skin_issues,
+      fur_condition: recordForm.value.fur_condition,
+      weight: recordForm.value.weight,
+    }})
+    showRecordForm.value = false
+    recordForm.value = { notes: '', weight: '', fur_condition: '', skin_issues: '' }
+    recordPhotos.value = []
+    uni.showToast({ title: '记录已保存', icon: 'success' })
+    loadRecords()
+  } catch {
+    uni.showToast({ title: '保存失败', icon: 'none' })
+  }
+}
+
+function uploadPhoto() {
+  uni.chooseImage({
+    count: 3 - recordPhotos.value.length,
+    sizeType: ['compressed'],
+    success: async (res) => {
+      for (const path of res.tempFilePaths) {
+        try {
+          const uploadRes = await new Promise<string>((resolve, reject) => {
+            uni.uploadFile({
+              url: '/api/v1/b/upload',
+              filePath: path,
+              name: 'file',
+              header: { Authorization: `Bearer ${uni.getStorageSync('token')}` },
+              success: (r) => {
+                const data = JSON.parse(r.data)
+                resolve(data.data?.url || data.url || '')
+              },
+              fail: reject,
+            })
+          })
+          if (uploadRes) recordPhotos.value.push(uploadRes)
+        } catch {}
+      }
+    }
+  })
+}
+
+function previewPhoto(urls: string[], idx: number) {
+  uni.previewImage({ urls, current: urls[idx] })
+}
 const sourceMap: Record<number, string> = { 1: '小程序', 2: '商家创建', 3: '电话' }
 const appointmentPets = computed(() => {
   if (Array.isArray(appt.value?.pets) && appt.value.pets.length > 0) {
@@ -89,13 +224,13 @@ const appointmentPets = computed(() => {
 onLoad(async (query) => {
   if (query?.id) {
     apptId.value = parseInt(query.id)
-    await Promise.all([loadAppointmentDetail(), loadStaffOptions()])
+    await Promise.all([loadAppointmentDetail(), loadStaffOptions(), loadRecords()])
   }
 })
 
 onShow(async () => {
   if (!apptId.value) return
-  await loadAppointmentDetail()
+  await Promise.all([loadAppointmentDetail(), loadRecords()])
 })
 
 async function loadAppointmentDetail() {
@@ -194,6 +329,7 @@ function getPetMeta(petItem: any) {
 .pet-block:last-of-type { border-bottom: none; padding-bottom: 0; }
 .pet-header { display: flex; justify-content: space-between; gap: 16rpx; margin-bottom: 12rpx; }
 .pet-name { font-size: 28rpx; font-weight: 700; color: #1F2937; }
+.aggression-warn { font-size: 22rpx; color: #DC2626; background: #FEE2E2; padding: 4rpx 14rpx; border-radius: 8rpx; font-weight: 600; margin-left: 8rpx; }
 .pet-meta { font-size: 22rpx; color: #6B7280; text-align: right; }
 .svc-item { display: flex; justify-content: space-between; padding: 12rpx 0; border-bottom: 1rpx solid #F3F4F6; font-size: 26rpx; }
 .pet-block .svc-item:last-child { border-bottom: none; padding-bottom: 0; }
@@ -202,6 +338,7 @@ function getPetMeta(petItem: any) {
 .actions { display: flex; flex-direction: column; gap: 16rpx; margin-top: 16rpx; }
 .btn { border-radius: 12rpx; font-size: 30rpx; }
 .confirm { background: #4F46E5; color: #fff; }
+.arrived { background: #A855F7; color: #fff; }
 .start { background: #10B981; color: #fff; }
 .edit { background: #EEF2FF; color: #4F46E5; }
 .complete { background: #059669; color: #fff; }
@@ -213,4 +350,37 @@ function getPetMeta(petItem: any) {
 .modal-title { font-size: 32rpx; font-weight: bold; margin-bottom: 24rpx; display: block; }
 .option-list { display: flex; flex-direction: column; gap: 12rpx; }
 .option { background: #F9FAFB; border-radius: 12rpx; padding: 20rpx 24rpx; font-size: 28rpx; }
+
+/* Service Records */
+.card-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.add-record-btn { font-size: 24rpx; color: #4F46E5; background: #EEF2FF; padding: 8rpx 20rpx; border-radius: 20rpx; font-weight: 600; }
+.empty-records { font-size: 24rpx; color: #9CA3AF; text-align: center; padding: 24rpx; }
+.record-item { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.record-item:last-child { border-bottom: none; }
+.record-header { display: flex; justify-content: space-between; margin-bottom: 8rpx; }
+.record-staff { font-size: 24rpx; font-weight: 600; color: #4F46E5; }
+.record-time { font-size: 22rpx; color: #9CA3AF; }
+.record-notes { font-size: 26rpx; color: #374151; display: block; margin-bottom: 8rpx; line-height: 1.5; }
+.record-tags { display: flex; flex-wrap: wrap; gap: 8rpx; margin-bottom: 8rpx; }
+.record-tag { font-size: 22rpx; padding: 4rpx 14rpx; border-radius: 8rpx; background: #F3F4F6; color: #374151; }
+.record-tag.warn { background: #FEE2E2; color: #DC2626; }
+.record-photos { display: flex; gap: 12rpx; flex-wrap: wrap; }
+.record-photo { width: 160rpx; height: 160rpx; border-radius: 12rpx; }
+
+/* Record form */
+.modal-lg { width: 90%; max-height: 80vh; }
+.form-group { margin-bottom: 20rpx; }
+.form-group.half { flex: 1; }
+.form-label { font-size: 26rpx; color: #374151; display: block; margin-bottom: 8rpx; font-weight: 500; }
+.form-textarea { width: 100%; height: 160rpx; font-size: 26rpx; padding: 16rpx; border: 1rpx solid #E5E7EB; border-radius: 12rpx; box-sizing: border-box; }
+.form-input-sm { width: 100%; font-size: 26rpx; padding: 12rpx 16rpx; border: 1rpx solid #E5E7EB; border-radius: 10rpx; box-sizing: border-box; }
+.form-row-inline { display: flex; gap: 16rpx; }
+.photo-upload-row { display: flex; gap: 12rpx; flex-wrap: wrap; }
+.photo-thumb { width: 140rpx; height: 140rpx; border-radius: 12rpx; position: relative; }
+.photo-del { position: absolute; top: -8rpx; right: -8rpx; width: 36rpx; height: 36rpx; background: #EF4444; color: #fff; border-radius: 50%; font-size: 20rpx; display: flex; align-items: center; justify-content: center; }
+.photo-add { width: 140rpx; height: 140rpx; border: 2rpx dashed #D1D5DB; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; font-size: 48rpx; color: #9CA3AF; }
+.modal-btns { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.modal-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 12rpx; font-size: 28rpx; font-weight: 600; }
+.modal-btn.cancel { background: #F3F4F6; color: #374151; }
+.modal-btn.confirm { background: #4F46E5; color: #fff; }
 </style>

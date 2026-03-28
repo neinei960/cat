@@ -46,7 +46,7 @@ export function updateAppointment(id: number, data: CreateApptReq) {
   return request<any>({ url: `/b/appointments/${id}`, method: 'PUT', data })
 }
 
-export function getAppointmentList(params?: PageParams & { status?: number }) {
+export function getAppointmentList(params?: PageParams & { status?: number; date_from?: string; date_to?: string }) {
   return request<PageResult<any>>({ url: '/b/appointments', data: params })
 }
 

@@ -14,7 +14,7 @@
         <text class="desc">{{ s.category }} · {{ s.duration }}分钟</text>
       </view>
     </view>
-    <button class="btn-next" :disabled="!booking.selectedService" @click="next">下一步 - 选技师</button>
+    <button class="btn-next" :disabled="!booking.selectedService" @click="next">下一步 - 选洗护师</button>
   </view>
 </template>
 

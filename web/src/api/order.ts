@@ -32,11 +32,11 @@ export function createOrderFromAppointment(appointmentId: number) {
   return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId } })
 }
 
-export function createBatchOrdersFromAppointment(appointmentId: number) {
-  return request<any[]>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId } })
+export function createBatchOrdersFromAppointment(appointmentId: number, extra?: any) {
+  return request<any[]>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
 }
 
-export function getOrderList(params?: PageParams & { status?: number; keyword?: string }) {
+export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string }) {
   return request<PageResult<any>>({ url: '/b/orders', data: params })
 }
 

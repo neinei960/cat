@@ -1,12 +1,16 @@
 package router
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/config"
 	"github.com/neinei960/cat/server/internal/handler"
 	"github.com/neinei960/cat/server/internal/middleware"
+	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/internal/repository"
 	"github.com/neinei960/cat/server/internal/service"
+	"github.com/neinei960/cat/server/pkg/response"
 )
 
 func Setup(mode string) *gin.Engine {
@@ -120,6 +124,9 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/services/:id/prices", middleware.RequireRole("admin"), serviceHandler.CreatePriceRule)
 		b.GET("/services/:id/prices", serviceHandler.GetPriceRules)
 		b.DELETE("/services/:id/prices/:rule_id", middleware.RequireRole("admin"), serviceHandler.DeletePriceRule)
+		b.POST("/services/:id/discounts", middleware.RequireRole("admin"), serviceHandler.CreateDiscount)
+		b.GET("/services/:id/discounts", serviceHandler.GetDiscounts)
+		b.DELETE("/services/:id/discounts/:discount_id", middleware.RequireRole("admin"), serviceHandler.DeleteDiscount)
 
 		// Customers
 		b.POST("/customers", customerHandler.Create)
@@ -157,6 +164,8 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/customers/:id/member-card", memberCardHandler.GetCard)
 		b.PUT("/customers/:id/adjust-balance", middleware.RequireRole("admin"), memberCardHandler.AdjustBalance)
 		b.GET("/customers/:id/recharge-records", memberCardHandler.GetRecords)
+		b.PUT("/recharge-records/:id", middleware.RequireRole("admin"), memberCardHandler.UpdateRecord)
+		b.DELETE("/recharge-records/:id", middleware.RequireRole("admin"), memberCardHandler.DeleteRecord)
 
 		// Service Addons
 		b.POST("/addons", middleware.RequireRole("admin"), addonHandler.Create)
@@ -194,6 +203,53 @@ func Setup(mode string) *gin.Engine {
 		b.PUT("/appointments/:id/status", apptHandler.UpdateStatus)
 		b.PUT("/appointments/:id/assign", middleware.RequireRole("admin"), apptHandler.AssignStaff)
 		b.PUT("/appointments/:id/reschedule", middleware.RequireRole("admin"), apptHandler.Reschedule)
+
+		// Service Records
+		svcRecordRepo := repository.NewServiceRecordRepository()
+		b.POST("/service-records", func(c *gin.Context) {
+			var req struct {
+				AppointmentID uint   `json:"appointment_id" binding:"required"`
+				PetID         uint   `json:"pet_id" binding:"required"`
+				Notes         string `json:"notes"`
+				Photos        string `json:"photos"`
+				SkinIssues    string `json:"skin_issues"`
+				FurCondition  string `json:"fur_condition"`
+				Weight        string `json:"weight"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			record := &model.ServiceRecord{
+				ShopID:        c.GetUint("shop_id"),
+				AppointmentID: req.AppointmentID,
+				PetID:         req.PetID,
+				StaffID:       c.GetUint("staff_id"),
+				Notes:         req.Notes,
+				Photos:        req.Photos,
+				SkinIssues:    req.SkinIssues,
+				FurCondition:  req.FurCondition,
+				Weight:        req.Weight,
+			}
+			if err := svcRecordRepo.Create(record); err != nil {
+				response.Error(c, 500, "保存失败")
+				return
+			}
+			response.Success(c, record)
+		})
+		b.GET("/service-records", func(c *gin.Context) {
+			apptID, _ := strconv.ParseUint(c.Query("appointment_id"), 10, 64)
+			petID, _ := strconv.ParseUint(c.Query("pet_id"), 10, 64)
+			if apptID > 0 {
+				records, _ := svcRecordRepo.FindByAppointment(uint(apptID))
+				response.Success(c, records)
+			} else if petID > 0 {
+				records, _ := svcRecordRepo.FindByPet(uint(petID), 20)
+				response.Success(c, records)
+			} else {
+				response.Error(c, 400, "请提供appointment_id或pet_id")
+			}
+		})
 
 		// Orders
 		b.POST("/orders", orderHandler.Create)

@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view class="section-title">基础信息</view>
     <view class="form">
@@ -17,14 +18,40 @@
           </picker>
         </view>
       </view>
+
+      <!-- 计费方式 -->
       <view class="form-item">
-        <text class="label">基础价格 (元) *</text>
-        <input v-model="form.base_price" type="digit" placeholder="0.00" class="input" />
+        <text class="label">计费方式 *</text>
+        <view class="pricing-type-toggle">
+          <view :class="['toggle-btn', form.pricing_type === 1 ? 'active' : '']" @click="form.pricing_type = 1">按次</view>
+          <view :class="['toggle-btn', form.pricing_type === 2 ? 'active' : '']" @click="form.pricing_type = 2">按天</view>
+        </view>
       </view>
-      <view class="form-item">
-        <text class="label">时长 (分钟) *</text>
-        <input v-model="form.duration" type="number" placeholder="60" class="input" />
-      </view>
+
+      <!-- 按次模式 -->
+      <template v-if="form.pricing_type === 1">
+        <view class="form-item">
+          <text class="label">基础价格 (元) *</text>
+          <input v-model="form.base_price" type="digit" placeholder="0.00" class="input" />
+        </view>
+        <view class="form-item">
+          <text class="label">时长 (分钟) *</text>
+          <input v-model="form.duration" type="number" placeholder="60" class="input" />
+        </view>
+      </template>
+
+      <!-- 按天模式 -->
+      <template v-if="form.pricing_type === 2">
+        <view class="form-item">
+          <text class="label">平时单价 (元/天) *</text>
+          <input v-model="form.base_price" type="digit" placeholder="80" class="input" />
+        </view>
+        <view class="form-item">
+          <text class="label">节假日单价 (元/天)</text>
+          <input v-model="form.holiday_price" type="digit" placeholder="95" class="input" />
+        </view>
+      </template>
+
       <view class="form-item">
         <text class="label">描述</text>
         <textarea v-model="form.description" placeholder="服务描述" class="textarea" />
@@ -35,50 +62,100 @@
       </view>
     </view>
 
-    <!-- 服务规格/项目 -->
-    <view class="section-title">
-      <text>服务规格</text>
-      <view class="btn-add-spec" @click="addSpec">+ 添加规格</view>
-    </view>
-    <view class="specs-hint" v-if="specs.length === 0">
-      <text>可添加多个规格，如：短毛/长毛/A/B/C/D，每个规格有独立的价格和时长</text>
-    </view>
-
-    <view class="spec-list" v-if="specs.length > 0">
-      <!-- 表头 -->
-      <view class="spec-header">
-        <text class="spec-col-name">规格名称 *</text>
-        <text class="spec-col-price">价格 (元) *</text>
-        <text class="spec-col-dur">时长 (分钟)</text>
-        <text class="spec-col-act">操作</text>
+    <!-- 服务规格/项目 (按次模式) -->
+    <template v-if="form.pricing_type === 1">
+      <view class="section-title">
+        <text>服务规格</text>
+        <view class="btn-add-spec" @click="addSpec">+ 添加规格</view>
+      </view>
+      <view class="specs-hint" v-if="specs.length === 0">
+        <text>可添加多个规格，如：短毛/长毛/A/B/C/D，每个规格有独立的价格和时长</text>
       </view>
 
-      <!-- 规格行 -->
-      <view class="spec-row" v-for="(spec, idx) in specs" :key="idx">
-        <view class="spec-col-name">
-          <input v-model="spec.name" placeholder="如：短毛猫" class="spec-input" />
+      <view class="spec-list" v-if="specs.length > 0">
+        <view class="spec-header">
+          <text class="spec-col-name">规格名称 *</text>
+          <text class="spec-col-price">价格 (元) *</text>
+          <text class="spec-col-dur">时长 (分钟)</text>
+          <text class="spec-col-act">操作</text>
         </view>
-        <view class="spec-col-price">
-          <input v-model="spec.price" type="digit" placeholder="0" class="spec-input" />
-        </view>
-        <view class="spec-col-dur">
-          <input v-model="spec.duration" type="number" placeholder="60" class="spec-input" />
-        </view>
-        <view class="spec-col-act">
-          <text class="spec-del" @click="removeSpec(idx)">删除</text>
+        <view class="spec-row" v-for="(spec, idx) in specs" :key="idx">
+          <view class="spec-col-name">
+            <input v-model="spec.name" placeholder="如：短毛猫" class="spec-input" />
+          </view>
+          <view class="spec-col-price">
+            <input v-model="spec.price" type="digit" placeholder="0" class="spec-input" />
+          </view>
+          <view class="spec-col-dur">
+            <input v-model="spec.duration" type="number" placeholder="60" class="spec-input" />
+          </view>
+          <view class="spec-col-act">
+            <text class="spec-del" @click="removeSpec(idx)">删除</text>
+          </view>
         </view>
       </view>
-    </view>
+    </template>
+
+    <!-- 优惠策略 (按天模式) -->
+    <template v-if="form.pricing_type === 2">
+      <view class="section-title">
+        <text>优惠策略</text>
+        <view class="btn-add-spec" @click="addDiscount">+ 添加策略</view>
+      </view>
+      <view class="specs-hint" v-if="discountItems.length === 0">
+        <text>可添加多种优惠，如：满3天享优惠价、住7免1等</text>
+      </view>
+
+      <view class="discount-list" v-if="discountItems.length > 0">
+        <view class="discount-card" v-for="(d, idx) in discountItems" :key="idx">
+          <view class="discount-row">
+            <view class="discount-field">
+              <text class="discount-label">类型</text>
+              <view class="pricing-type-toggle small">
+                <view :class="['toggle-btn', d.type === 1 ? 'active' : '']" @click="d.type = 1">满天折扣</view>
+                <view :class="['toggle-btn', d.type === 2 ? 'active' : '']" @click="d.type = 2">住N免M</view>
+              </view>
+            </view>
+            <view class="discount-field">
+              <text class="discount-label">适用</text>
+              <view class="pricing-type-toggle small">
+                <view :class="['toggle-btn', !d.is_holiday ? 'active' : '']" @click="d.is_holiday = false">平时</view>
+                <view :class="['toggle-btn', d.is_holiday ? 'active' : '']" @click="d.is_holiday = true">节假日</view>
+              </view>
+            </view>
+          </view>
+          <view class="discount-row">
+            <view class="discount-field">
+              <text class="discount-label">满 N 天</text>
+              <input v-model="d.min_days" type="number" placeholder="3" class="input" />
+            </view>
+            <view class="discount-field" v-if="d.type === 1">
+              <text class="discount-label">优惠单价 (元/天)</text>
+              <input v-model="d.discount_price" type="digit" placeholder="68" class="input" />
+            </view>
+            <view class="discount-field" v-if="d.type === 2">
+              <text class="discount-label">免 M 天</text>
+              <input v-model="d.free_days" type="number" placeholder="1" class="input" />
+            </view>
+            <view class="discount-act">
+              <text class="spec-del" @click="removeDiscount(idx)">删除</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </template>
 
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id" @click="onDelete">删除服务</button>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getService, createService, updateService, deleteService, getPriceRules, createPriceRule, deletePriceRule } from '@/api/service'
+import SideLayout from '@/components/SideLayout.vue'
+import { getService, createService, updateService, deleteService, getPriceRules, createPriceRule, deletePriceRule, getDiscounts, createDiscount, deleteDiscount } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { safeBack } from '@/utils/navigate'
 
@@ -88,13 +165,14 @@ const categories = ref<ServiceCategory[]>([])
 
 const form = ref({
   name: '', category: '', category_id: undefined as number | undefined,
-  base_price: '', duration: '',
+  base_price: '', duration: '', holiday_price: '',
+  pricing_type: 1,
   description: '', applicable_species: '', applicable_sizes: '', sort_order: 0
 })
 
-// Specs (price rules)
+// Specs (price rules) - for pricing_type=1
 interface SpecItem {
-  id?: number  // existing rule ID
+  id?: number
   name: string
   price: string
   duration: string
@@ -108,6 +186,26 @@ function addSpec() {
 
 function removeSpec(idx: number) {
   specs.value.splice(idx, 1)
+}
+
+// Discounts - for pricing_type=2
+interface DiscountItem {
+  id?: number
+  type: number
+  min_days: string
+  discount_price: string
+  free_days: string
+  is_holiday: boolean
+}
+const discountItems = ref<DiscountItem[]>([])
+const existingDiscountIds = ref<number[]>([])
+
+function addDiscount() {
+  discountItems.value.push({ type: 1, min_days: '', discount_price: '', free_days: '', is_holiday: false })
+}
+
+function removeDiscount(idx: number) {
+  discountItems.value.splice(idx, 1)
 }
 
 // Category picker state
@@ -192,6 +290,8 @@ async function loadData() {
   form.value = {
     name: d.name, category: d.category || '', category_id: d.category_id,
     base_price: String(d.base_price), duration: String(d.duration),
+    holiday_price: String(d.holiday_price || ''),
+    pricing_type: d.pricing_type || 1,
     description: d.description, applicable_species: d.applicable_species || '',
     applicable_sizes: d.applicable_sizes || '', sort_order: d.sort_order,
   }
@@ -206,20 +306,40 @@ async function loadData() {
       id: r.ID,
       name: r.name || r.fur_level || '',
       price: String(r.price),
-      duration: String(r.duration || ''),
+      duration: r.duration != null ? String(r.duration) : '',
+    }))
+  } catch {}
+
+  // Load existing discounts
+  try {
+    const discRes = await getDiscounts(id.value)
+    const discs = discRes.data || []
+    existingDiscountIds.value = discs.map((d: any) => d.ID)
+    discountItems.value = discs.map((d: any) => ({
+      id: d.ID,
+      type: d.type,
+      min_days: String(d.min_days),
+      discount_price: String(d.discount_price || ''),
+      free_days: String(d.free_days || ''),
+      is_holiday: d.is_holiday,
     }))
   } catch {}
 }
 
 async function onSubmit() {
-  if (!form.value.name || !form.value.base_price || !form.value.duration) {
+  if (!form.value.name || !form.value.base_price) {
     uni.showToast({ title: '请填写必填项', icon: 'none' }); return
   }
+  if (form.value.pricing_type === 1 && !form.value.duration) {
+    uni.showToast({ title: '请填写时长', icon: 'none' }); return
+  }
 
-  // Validate specs
-  for (const spec of specs.value) {
-    if (!spec.name.trim() || !spec.price) {
-      uni.showToast({ title: '规格名称和价格为必填', icon: 'none' }); return
+  // Validate specs (pricing_type=1)
+  if (form.value.pricing_type === 1) {
+    for (const spec of specs.value) {
+      if (!spec.name.trim() || !spec.price) {
+        uni.showToast({ title: '规格名称和价格为必填', icon: 'none' }); return
+      }
     }
   }
 
@@ -228,7 +348,9 @@ async function onSubmit() {
     const data = {
       ...form.value,
       base_price: parseFloat(form.value.base_price),
-      duration: parseInt(form.value.duration),
+      duration: parseInt(form.value.duration) || 0,
+      holiday_price: parseFloat(form.value.holiday_price) || 0,
+      pricing_type: form.value.pricing_type,
     }
 
     let serviceId = id.value
@@ -239,17 +361,37 @@ async function onSubmit() {
       serviceId = res.data.ID
     }
 
-    // Sync specs: delete old rules, create new ones
+    // Sync specs (pricing_type=1)
     for (const oldId of existingRuleIds.value) {
       await deletePriceRule(serviceId, oldId)
     }
-    for (const spec of specs.value) {
-      if (spec.name.trim()) {
-        await createPriceRule(serviceId, {
-          name: spec.name.trim(),
-          price: parseFloat(spec.price),
-          duration: parseInt(spec.duration) || 0,
-        })
+    if (form.value.pricing_type === 1) {
+      for (const spec of specs.value) {
+        if (spec.name.trim()) {
+          await createPriceRule(serviceId, {
+            name: spec.name.trim(),
+            price: parseFloat(spec.price),
+            duration: parseInt(spec.duration) || 0,
+          })
+        }
+      }
+    }
+
+    // Sync discounts (pricing_type=2)
+    for (const oldId of existingDiscountIds.value) {
+      await deleteDiscount(serviceId, oldId)
+    }
+    if (form.value.pricing_type === 2) {
+      for (const d of discountItems.value) {
+        if (d.min_days) {
+          await createDiscount(serviceId, {
+            type: d.type,
+            min_days: parseInt(d.min_days),
+            discount_price: parseFloat(d.discount_price) || 0,
+            free_days: parseInt(d.free_days) || 0,
+            is_holiday: d.is_holiday,
+          })
+        }
       }
     }
 
@@ -289,6 +431,21 @@ async function onDelete() {
 .cat-picker { display: flex; gap: 24rpx; }
 .cat-picker picker { flex: 1; }
 
+/* Pricing type toggle */
+.pricing-type-toggle {
+  display: flex; gap: 0; border-radius: 12rpx; overflow: hidden; border: 2rpx solid #E5E7EB;
+}
+.pricing-type-toggle .toggle-btn {
+  flex: 1; text-align: center; padding: 16rpx 24rpx; font-size: 28rpx;
+  color: #6B7280; background: #F9FAFB; cursor: pointer; transition: all 0.2s;
+}
+.pricing-type-toggle .toggle-btn.active {
+  color: #fff; background: #4F46E5; font-weight: 600;
+}
+.pricing-type-toggle.small .toggle-btn {
+  padding: 10rpx 16rpx; font-size: 24rpx;
+}
+
 /* Specs */
 .btn-add-spec {
   font-size: 26rpx; color: #4F46E5; background: #EEF2FF;
@@ -320,6 +477,20 @@ async function onDelete() {
   background: #F9FAFB; border-radius: 8rpx; padding: 0 12rpx;
 }
 .spec-del { font-size: 24rpx; color: #EF4444; }
+
+/* Discount cards */
+.discount-list { margin-bottom: 32rpx; }
+.discount-card {
+  background: #fff; border-radius: 16rpx; padding: 24rpx;
+  margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
+}
+.discount-row {
+  display: flex; gap: 16rpx; align-items: flex-end; margin-bottom: 16rpx;
+}
+.discount-row:last-child { margin-bottom: 0; }
+.discount-field { flex: 1; }
+.discount-label { font-size: 24rpx; color: #6B7280; display: block; margin-bottom: 8rpx; }
+.discount-act { width: 80rpx; text-align: center; padding-bottom: 8rpx; }
 
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 .btn-delete { background: #fff; color: #DC2626; border: 1rpx solid #DC2626; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }

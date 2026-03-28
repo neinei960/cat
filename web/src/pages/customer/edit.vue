@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <view class="form">
       <view class="form-item">
@@ -59,11 +60,13 @@
 
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getCustomer, createCustomer, updateCustomer } from '@/api/customer'
 import { getCustomerTags } from '@/api/customer-tag'
 import { safeBack } from '@/utils/navigate'

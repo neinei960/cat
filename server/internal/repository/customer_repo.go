@@ -64,7 +64,7 @@ func (r *CustomerRepository) buildCustomerListQuery(shopID uint, keyword string,
 			Where("customers.nickname LIKE ? OR customers.phone LIKE ? OR customers.remark LIKE ? OR pets.name LIKE ?",
 				like, like, like, like)
 	}
-	return db.Distinct("customers.id")
+	return db.Group("customers.id")
 }
 
 func (r *CustomerRepository) listCustomers(shopID uint, keyword string, memberCardTemplateID uint, customerTagID uint, page, pageSize int) ([]model.Customer, int64, error) {
@@ -77,10 +77,22 @@ func (r *CustomerRepository) listCustomers(shopID uint, keyword string, memberCa
 	}
 
 	offset := (page - 1) * pageSize
-	var ids []uint
+	type idRow struct{ ID uint }
+	var idRows []idRow
 	idDB := r.buildCustomerListQuery(shopID, keyword, memberCardTemplateID, customerTagID)
-	if err := idDB.Order("customers.id DESC").Offset(offset).Limit(pageSize).Pluck("customers.id", &ids).Error; err != nil {
+	// 按最近到店时间排序，相同则按会员卡等级（储值门槛）高的优先
+	idDB = idDB.Select("customers.id, MAX(customers.last_visit_at) AS last_visit_at, COALESCE(MAX(mct_sort.min_recharge), 0) AS sort_recharge").
+		Joins("LEFT JOIN member_cards mc_sort ON mc_sort.id = customers.member_card_id AND mc_sort.deleted_at IS NULL").
+		Joins("LEFT JOIN member_card_templates mct_sort ON mct_sort.id = mc_sort.template_id AND mct_sort.deleted_at IS NULL").
+		Order("last_visit_at DESC").
+		Order("sort_recharge DESC").
+		Order("customers.id DESC")
+	if err := idDB.Offset(offset).Limit(pageSize).Find(&idRows).Error; err != nil {
 		return nil, total, err
+	}
+	ids := make([]uint, len(idRows))
+	for i, r := range idRows {
+		ids[i] = r.ID
 	}
 	if len(ids) == 0 {
 		return []model.Customer{}, total, nil
@@ -109,7 +121,7 @@ func (r *CustomerRepository) listCustomers(shopID uint, keyword string, memberCa
 }
 
 func (r *CustomerRepository) Update(customer *model.Customer) error {
-	return database.DB.Save(customer).Error
+	return database.DB.Omit("CustomerTags").Save(customer).Error
 }
 
 func (r *CustomerRepository) SetTags(customer *model.Customer, tagIDs []uint) error {

@@ -71,18 +71,36 @@ func (r *AppointmentRepository) FindByCustomer(customerID uint, page, pageSize i
 	return appts, total, err
 }
 
-func (r *AppointmentRepository) FindByShopPaged(shopID uint, status *int, page, pageSize int) ([]model.Appointment, int64, error) {
+func (r *AppointmentRepository) FindByShopPaged(shopID uint, status *int, dateFrom, dateTo string, staffID uint, page, pageSize int) ([]model.Appointment, int64, error) {
 	var appts []model.Appointment
 	var total int64
 	db := database.DB.Model(&model.Appointment{}).Where("shop_id = ?", shopID)
 	if status != nil {
 		db = db.Where("status = ?", *status)
 	}
+	if dateFrom != "" {
+		db = db.Where("date >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		db = db.Where("date <= ?", dateTo)
+	}
+	if staffID > 0 {
+		db = db.Where("staff_id = ?", staffID)
+	}
 	db.Count(&total)
 	offset := (page - 1) * pageSize
 	query := r.withRelations().Where("shop_id = ?", shopID)
 	if status != nil {
 		query = query.Where("status = ?", *status)
+	}
+	if dateFrom != "" {
+		query = query.Where("date >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		query = query.Where("date <= ?", dateTo)
+	}
+	if staffID > 0 {
+		query = query.Where("staff_id = ?", staffID)
 	}
 	err := query.Order("date DESC, start_time DESC").Offset(offset).Limit(pageSize).Find(&appts).Error
 	if err == nil {

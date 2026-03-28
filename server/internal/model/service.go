@@ -13,6 +13,8 @@ type Service struct {
 	Duration         int     `json:"duration" gorm:"not null;comment:时长(分钟)"`
 	ApplicableSpecies string `json:"applicable_species" gorm:"size:100;comment:适用物种,逗号分隔"`
 	ApplicableSizes  string  `json:"applicable_sizes" gorm:"size:100;comment:适用体型,逗号分隔"`
+	PricingType      int     `json:"pricing_type" gorm:"default:1;comment:1按次 2按天"`
+	HolidayPrice     float64 `json:"holiday_price" gorm:"type:decimal(10,2);default:0;comment:节假日单价"`
 	SortOrder        int     `json:"sort_order" gorm:"default:0"`
 	Status           int     `json:"status" gorm:"default:1;comment:1启用 2停用"`
 

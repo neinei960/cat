@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <!-- 基本信息 -->
     <view class="section-title">基本信息</view>
@@ -126,11 +127,13 @@
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id" @click="onDelete">删除商品</button>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getProduct, createProduct, updateProduct, deleteProduct, getProductBrands, getProductCategories } from '@/api/product'
 import { safeBack } from '@/utils/navigate'
 

@@ -1,4 +1,5 @@
 <template>
+  <SideLayout>
   <view class="page">
     <!-- Header -->
     <view class="page-header">
@@ -210,29 +211,61 @@
       </view>
     </view>
 
-    <!-- Step 2: Services -->
+    <!-- Step 2: Services (3-level category selector) -->
     <view v-if="step === 2" class="step-content">
       <view class="card" v-for="item in selectedPetConfigs" :key="item.pet.ID">
         <view class="section-title">
           <text class="section-icon">✂️</text>
           <text>{{ item.pet.name }} · 选择服务</text>
         </view>
-        <view class="option-list">
-          <view
-            v-for="s in serviceList" :key="s.ID"
-            :class="['option service-option', item.selection.service_ids.includes(s.ID) ? 'selected' : '']"
-            @click="toggleService(item.pet.ID, s.ID)"
-          >
-            <view class="svc-row">
-              <view class="svc-left">
-                <text class="svc-check">{{ item.selection.service_ids.includes(s.ID) ? '☑️' : '⬜' }}</text>
-                <text class="svc-name">{{ s.name }}</text>
-              </view>
-              <view class="svc-right">
-                <text class="svc-price">¥{{ s.base_price }}</text>
-                <text class="svc-duration">{{ s.duration }}分钟</text>
-              </view>
+
+        <view class="svc-picker">
+          <!-- Level 1: Left sidebar -->
+          <view class="svc-picker-sidebar">
+            <view
+              v-for="cat in categoryTree" :key="cat.ID"
+              :class="['sidebar-item', activeCategoryId === cat.ID ? 'active' : '']"
+              @click="selectCategory(cat.ID)"
+            >
+              <text>{{ cat.name }}</text>
             </view>
+          </view>
+
+          <!-- Right content area -->
+          <view class="svc-picker-main">
+            <!-- Level 2: Sub-category tabs -->
+            <scroll-view scroll-x class="sub-tab-bar">
+              <view class="sub-tab-list">
+                <view
+                  :class="['sub-tab', activeSubCategoryId === 0 ? 'active' : '']"
+                  @click="selectSubCategory(0)"
+                >全部</view>
+                <view
+                  v-for="sub in subCategories" :key="sub.ID"
+                  :class="['sub-tab', activeSubCategoryId === sub.ID ? 'active' : '']"
+                  @click="selectSubCategory(sub.ID)"
+                >{{ sub.name }}</view>
+              </view>
+            </scroll-view>
+
+            <!-- Level 3: Service items -->
+            <scroll-view scroll-y class="svc-item-list">
+              <view v-if="filteredServices.length === 0" class="svc-empty">暂无服务</view>
+              <view
+                v-for="s in filteredServices" :key="s.ID"
+                :class="['svc-item', item.selection.service_ids.includes(s.ID) ? 'checked' : '']"
+                @click="toggleService(item.pet.ID, s.ID)"
+              >
+                <view class="svc-item-info">
+                  <text class="svc-item-name">{{ s.name }}</text>
+                  <text class="svc-item-cat">{{ getSubCategoryName(s.category_id) }} · {{ s.duration }}分钟</text>
+                </view>
+                <view class="svc-item-right">
+                  <text class="svc-item-price">¥{{ s.base_price }}</text>
+                  <view :class="['svc-item-check', item.selection.service_ids.includes(s.ID) ? 'on' : '']"></view>
+                </view>
+              </view>
+            </scroll-view>
           </view>
         </view>
       </view>
@@ -246,6 +279,11 @@
           <text class="summary-label">⏱️ 预计时长</text>
           <text class="summary-duration">{{ totalDuration }}分钟</text>
         </view>
+      </view>
+
+      <!-- Selected services summary bar -->
+      <view class="selected-bar" v-if="selectedServiceIds.length > 0">
+        <text class="selected-bar-text">已选择 {{ selectedServiceIds.length }} 项</text>
       </view>
 
       <view class="btn-row">
@@ -337,9 +375,10 @@
 
     <!-- Step 4: Confirm -->
     <view v-if="step === 4" class="step-content">
+      <!-- Detail card -->
       <view class="card confirm-card">
         <view class="confirm-header">
-          <text class="confirm-title">📋 预约详情</text>
+          <text class="confirm-title">预约详情</text>
         </view>
         <view class="confirm-row">
           <text class="label">👤 客户</text>
@@ -358,7 +397,7 @@
           <text class="value">{{ form.start_time }} - {{ form.end_time }}</text>
         </view>
         <view class="confirm-row">
-          <text class="label">💇 技师</text>
+          <text class="label">💇 洗护师</text>
           <text class="value">{{ selectedStaffName }}</text>
         </view>
         <view class="confirm-row">
@@ -375,11 +414,80 @@
         </view>
       </view>
 
-      <view class="card" v-if="confirmPetSummaries.length > 0">
-        <text class="card-title">宠物与服务</text>
-        <view class="confirm-pet-block" v-for="item in confirmPetSummaries" :key="item.pet_id">
-          <text class="confirm-pet-name">{{ item.name }}<text v-if="item.breed"> · {{ item.breed }}</text></text>
-          <text class="confirm-pet-services">{{ item.services.join(' + ') }}</text>
+      <!-- Pet & service cards -->
+      <view class="pet-card" v-for="item in confirmPetSummaries" :key="item.pet_id">
+        <view class="pet-card-top">
+          <view class="pet-card-avatar">🐱</view>
+          <view class="pet-card-info">
+            <text class="pet-card-name">{{ item.name }}</text>
+            <text class="pet-card-breed" v-if="item.breed">{{ item.breed }}</text>
+          </view>
+        </view>
+
+        <view class="pet-svc-row pet-svc-row-label">
+          <text class="pet-svc-title">预约项目</text>
+          <view class="pet-svc-add" @click="openServicePicker(item.pet_id)">添加 (已选{{ item.services.length }}项)</view>
+        </view>
+
+        <view class="pet-svc-table" v-if="item.services.length > 0">
+          <view class="pet-svc-table-head">
+            <text class="pet-svc-th">预约项目</text>
+            <text class="pet-svc-th-op">操作</text>
+          </view>
+          <view class="pet-svc-table-row" v-for="(svcName, idx) in item.services" :key="idx">
+            <text class="pet-svc-td">{{ svcName }}</text>
+            <view class="pet-svc-td-op" @click="removeServiceFromPet(item.pet_id, idx)">
+              <text class="pet-svc-del-btn">删除</text>
+            </view>
+          </view>
+        </view>
+        <view v-else class="pet-svc-empty">暂未选择服务项目</view>
+      </view>
+
+      <!-- Service picker popup -->
+      <view v-if="showServicePicker" class="svc-picker-overlay" @click.self="showServicePicker = false">
+        <view class="svc-picker-popup">
+          <view class="svc-picker-popup-header">
+            <text class="svc-picker-popup-title">选择服务</text>
+            <text class="svc-picker-popup-close" @click="showServicePicker = false">✕</text>
+          </view>
+          <view class="svc-picker">
+            <view class="svc-picker-sidebar">
+              <view
+                v-for="cat in categoryTree" :key="cat.ID"
+                :class="['sidebar-item', activeCategoryId === cat.ID ? 'active' : '']"
+                @click="selectCategory(cat.ID)"
+              ><text>{{ cat.name }}</text></view>
+            </view>
+            <view class="svc-picker-main">
+              <scroll-view scroll-x class="sub-tab-bar">
+                <view class="sub-tab-list">
+                  <view :class="['sub-tab', activeSubCategoryId === 0 ? 'active' : '']" @click="selectSubCategory(0)">全部</view>
+                  <view v-for="sub in subCategories" :key="sub.ID" :class="['sub-tab', activeSubCategoryId === sub.ID ? 'active' : '']" @click="selectSubCategory(sub.ID)">{{ sub.name }}</view>
+                </view>
+              </scroll-view>
+              <scroll-view scroll-y class="svc-item-list">
+                <view v-if="filteredServices.length === 0" class="svc-empty">暂无服务</view>
+                <view
+                  v-for="s in filteredServices" :key="s.ID"
+                  :class="['svc-item', pickerPetSelection?.service_ids.includes(s.ID) ? 'checked' : '']"
+                  @click="togglePickerService(s.ID)"
+                >
+                  <view class="svc-item-info">
+                    <text class="svc-item-name">{{ s.name }}</text>
+                    <text class="svc-item-cat">{{ getSubCategoryName(s.category_id) }} · {{ s.duration }}分钟</text>
+                  </view>
+                  <view class="svc-item-right">
+                    <text class="svc-item-price">¥{{ s.base_price }}</text>
+                    <view :class="['svc-item-check', pickerPetSelection?.service_ids.includes(s.ID) ? 'on' : '']"></view>
+                  </view>
+                </view>
+              </scroll-view>
+            </view>
+          </view>
+          <view class="svc-picker-popup-footer">
+            <button class="btn-primary" @click="showServicePicker = false">确定</button>
+          </view>
         </view>
       </view>
 
@@ -398,14 +506,17 @@
       </view>
     </view>
   </view>
+  </SideLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import SideLayout from '@/components/SideLayout.vue'
 import { getCustomerList, getCustomerPets, createCustomer } from '@/api/customer'
 import { createPet } from '@/api/pet'
 import { getServiceList } from '@/api/service'
+import { getCategoryTree } from '@/api/service-category'
 import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
 import { safeBack } from '@/utils/navigate'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
@@ -480,6 +591,11 @@ const customerKeyword = ref('')
 const customerList = ref<Customer[]>([])
 const petList = ref<Pet[]>([])
 const serviceList = ref<ServiceItem[]>([])
+const categoryTree = ref<any[]>([])
+const activeCategoryId = ref<number>(0)
+const activeSubCategoryId = ref<number>(0)
+const showServicePicker = ref(false)
+const pickerPetId = ref(0)
 const staffSlots = ref<any[]>([])
 const searchingCustomers = ref(false)
 const customerSuggestionOpen = ref(false)
@@ -608,6 +724,23 @@ const selectedServiceIds = computed(() => {
   })
   return Array.from(ids)
 })
+const subCategories = computed(() => {
+  if (activeCategoryId.value === 0) return []
+  const cat = categoryTree.value.find(c => c.ID === activeCategoryId.value)
+  return cat?.children || []
+})
+const filteredServices = computed(() => {
+  let list = serviceList.value
+  if (activeCategoryId.value > 0) {
+    const subIds = subCategories.value.map((c: any) => c.ID)
+    if (activeSubCategoryId.value > 0) {
+      list = list.filter(s => s.category_id === activeSubCategoryId.value)
+    } else {
+      list = list.filter(s => s.category_id && subIds.includes(s.category_id))
+    }
+  }
+  return list
+})
 const canProceedServices = computed(() =>
   form.value.pets.length > 0 && form.value.pets.every(petItem => petItem.service_ids.length > 0)
 )
@@ -628,12 +761,17 @@ onLoad(async (query) => {
   if (query?.staff_id) form.value.staff_id = parseInt(query.staff_id)
   if (query?.time) form.value.start_time = query.time
 
-  const [cRes, sRes] = await Promise.all([
+  const [cRes, sRes, catRes] = await Promise.all([
     getCustomerList({ page: 1, page_size: 100 }),
     getServiceList({ page: 1, page_size: 100 }),
+    getCategoryTree(),
   ])
   customerList.value = cRes.data.list || []
   serviceList.value = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+  categoryTree.value = (catRes.data || []).filter((c: any) => c.status === 1)
+  if (categoryTree.value.length > 0) {
+    activeCategoryId.value = categoryTree.value[0].ID
+  }
 
   if (editAppointmentId.value) {
     await loadAppointmentForEdit(editAppointmentId.value)
@@ -743,6 +881,51 @@ function getPetSelection(petId: number) {
   return form.value.pets.find(item => item.pet_id === petId)
 }
 
+const pickerPetSelection = computed(() =>
+  form.value.pets.find(p => p.pet_id === pickerPetId.value)
+)
+
+function openServicePicker(petId: number) {
+  pickerPetId.value = petId
+  showServicePicker.value = true
+}
+function togglePickerService(serviceId: number) {
+  const selection = form.value.pets.find(p => p.pet_id === pickerPetId.value)
+  if (!selection) return
+  const idx = selection.service_ids.indexOf(serviceId)
+  if (idx >= 0) selection.service_ids.splice(idx, 1)
+  else selection.service_ids.push(serviceId)
+}
+function removeServiceFromPet(petId: number, serviceIndex: number) {
+  const selection = form.value.pets.find(p => p.pet_id === petId)
+  if (!selection) return
+  // Get the actual service ID from confirmPetSummaries
+  const pet = confirmPetSummaries.value.find(p => p.pet_id === petId)
+  if (!pet) return
+  const svcName = pet.services[serviceIndex]
+  const svc = serviceList.value.find(s => s.name === svcName)
+  if (svc) {
+    const i = selection.service_ids.indexOf(svc.ID)
+    if (i >= 0) selection.service_ids.splice(i, 1)
+  }
+}
+
+function selectCategory(catId: number) {
+  activeCategoryId.value = catId
+  activeSubCategoryId.value = 0
+}
+function selectSubCategory(subId: number) {
+  activeSubCategoryId.value = subId
+}
+function getSubCategoryName(categoryId?: number): string {
+  if (!categoryId) return ''
+  for (const cat of categoryTree.value) {
+    const sub = (cat.children || []).find((c: any) => c.ID === categoryId)
+    if (sub) return sub.name
+  }
+  return ''
+}
+
 function ensurePetSelected(petId: number) {
   if (!isPetSelected(petId)) {
     form.value.pets.push({ pet_id: petId, service_ids: [] })
@@ -837,7 +1020,7 @@ function mergeCurrentEditSlotIntoStaffSlots() {
   let staffSlot = staffSlots.value.find(item => item.staff?.ID === originalStaffId)
   if (!staffSlot) {
     staffSlot = {
-      staff: editingAppointment.value.staff || { ID: originalStaffId, name: `技师#${originalStaffId}` },
+      staff: editingAppointment.value.staff || { ID: originalStaffId, name: `洗护师#${originalStaffId}` },
       slots: [],
     }
     staffSlots.value = [...staffSlots.value, staffSlot]
@@ -1143,6 +1326,25 @@ async function submitNewCustomer() {
 async function onSubmit() {
   submitting.value = true
   try {
+    // 提交前校验：重新获取服务列表，确保选中的服务仍然有效（防止服务被删除/下架后仍提交旧ID）
+    const sRes = await getServiceList({ page: 1, page_size: 100 })
+    const freshServices = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+    const freshIds = new Set(freshServices.map(s => s.ID))
+    let hasInvalid = false
+    for (const petItem of form.value.pets) {
+      const invalid = petItem.service_ids.filter(id => !freshIds.has(id))
+      if (invalid.length > 0) {
+        hasInvalid = true
+        petItem.service_ids = petItem.service_ids.filter(id => freshIds.has(id))
+      }
+    }
+    serviceList.value = freshServices
+    if (hasInvalid) {
+      uni.showToast({ title: '部分服务已下架，已自动移除，请确认后重新提交', icon: 'none', duration: 3000 })
+      submitting.value = false
+      return
+    }
+
     const payload = {
       customer_id: form.value.customer_id,
       pet_id: form.value.pets[0]?.pet_id,
@@ -1716,21 +1918,22 @@ async function onSubmit() {
   overflow: hidden;
 }
 .confirm-header {
-  margin: -28rpx -28rpx 24rpx -28rpx;
-  padding: 24rpx 28rpx;
-  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  margin: -28rpx -28rpx 20rpx -28rpx;
+  padding: 28rpx 28rpx;
+  background: linear-gradient(135deg, #1E1B4B, #312E81);
 }
 .confirm-title {
-  font-size: 32rpx;
+  font-size: 30rpx;
   font-weight: 700;
   color: #fff;
+  letter-spacing: 2rpx;
 }
 .confirm-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20rpx 0;
-  border-bottom: 2rpx solid #F3F4F6;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #F3F4F6;
   font-size: 28rpx;
 }
 .confirm-row:last-child {
@@ -1750,12 +1953,56 @@ async function onSubmit() {
   margin-top: 8rpx;
   padding-top: 24rpx;
   border-top: 2rpx dashed #E5E7EB;
+  border-bottom: none;
 }
 .amount {
-  font-size: 36rpx;
-  color: #4F46E5;
+  font-size: 40rpx;
+  color: #DC2626;
   font-weight: 800;
 }
+
+/* Pet card in confirm */
+.pet-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+.pet-card-top {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding-bottom: 24rpx;
+  margin-bottom: 20rpx;
+  border-bottom: 1rpx solid #F3F4F6;
+}
+.pet-card-avatar {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  flex-shrink: 0;
+}
+.pet-card-info {
+  display: flex;
+  flex-direction: column;
+}
+.pet-card-name {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.pet-card-breed {
+  font-size: 24rpx;
+  color: #9CA3AF;
+  margin-top: 4rpx;
+}
+
 .card-title {
   font-size: 28rpx;
   font-weight: 700;
@@ -1978,5 +2225,289 @@ async function onSubmit() {
 }
 .btn-submit:active {
   transform: scale(0.98);
+}
+
+/* ========== Pet Service Table (confirm step) ========== */
+.pet-svc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.pet-svc-row-label {
+  margin-bottom: 16rpx;
+}
+.pet-svc-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.pet-svc-add {
+  font-size: 24rpx;
+  color: #1E1B4B;
+  background: #fff;
+  border: 2rpx solid #1E1B4B;
+  border-radius: 32rpx;
+  padding: 10rpx 28rpx;
+  font-weight: 600;
+}
+.pet-svc-table {
+  border: 1rpx solid #E5E7EB;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+.pet-svc-table-head {
+  display: flex;
+  background: #F9FAFB;
+  border-bottom: 1rpx solid #E5E7EB;
+  padding: 16rpx 24rpx;
+}
+.pet-svc-th {
+  flex: 1;
+  font-size: 24rpx;
+  color: #9CA3AF;
+  font-weight: 500;
+}
+.pet-svc-th-op {
+  width: 80rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #9CA3AF;
+  font-weight: 500;
+}
+.pet-svc-table-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid #F3F4F6;
+}
+.pet-svc-table-row:last-child {
+  border-bottom: none;
+}
+.pet-svc-td {
+  flex: 1;
+  font-size: 26rpx;
+  color: #374151;
+}
+.pet-svc-td-op {
+  width: 80rpx;
+  text-align: center;
+}
+.pet-svc-del-btn {
+  font-size: 24rpx;
+  color: #EF4444;
+  font-weight: 500;
+}
+.pet-svc-empty {
+  font-size: 26rpx;
+  color: #D1D5DB;
+  text-align: center;
+  padding: 40rpx 0;
+  background: #FAFAFA;
+  border-radius: 12rpx;
+}
+
+/* Service picker popup overlay */
+.svc-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.svc-picker-popup {
+  background: #fff;
+  border-radius: 24rpx;
+  width: 90%;
+  max-width: 700rpx;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.svc-picker-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx 28rpx;
+  border-bottom: 2rpx solid #F3F4F6;
+}
+.svc-picker-popup-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.svc-picker-popup-close {
+  font-size: 36rpx;
+  color: #9CA3AF;
+  padding: 8rpx;
+}
+.svc-picker-popup .svc-picker {
+  height: 600rpx;
+  border: none;
+  border-radius: 0;
+}
+.svc-picker-popup-footer {
+  padding: 16rpx 28rpx 24rpx;
+  border-top: 2rpx solid #F3F4F6;
+}
+.svc-picker-popup-footer .btn-primary {
+  width: 100%;
+}
+
+/* ========== Service Picker (3-level) ========== */
+.svc-picker {
+  display: flex;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  overflow: hidden;
+  height: 700rpx;
+}
+.svc-picker-sidebar {
+  width: 160rpx;
+  min-width: 160rpx;
+  background: #F9FAFB;
+  border-right: 2rpx solid #E5E7EB;
+  overflow-y: auto;
+}
+.sidebar-item {
+  padding: 28rpx 16rpx;
+  font-size: 26rpx;
+  color: #6B7280;
+  text-align: center;
+  border-left: 6rpx solid transparent;
+  position: relative;
+}
+.sidebar-item.active {
+  background: #fff;
+  color: #1F2937;
+  font-weight: 600;
+  border-left-color: #F59E0B;
+}
+.svc-picker-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  min-width: 0;
+}
+.sub-tab-bar {
+  white-space: nowrap;
+  border-bottom: 2rpx solid #F3F4F6;
+  flex-shrink: 0;
+}
+.sub-tab-list {
+  display: inline-flex;
+  padding: 16rpx 16rpx 0;
+  gap: 12rpx;
+}
+.sub-tab {
+  display: inline-block;
+  padding: 12rpx 24rpx;
+  font-size: 24rpx;
+  color: #6B7280;
+  border-radius: 32rpx;
+  margin-bottom: 12rpx;
+  white-space: nowrap;
+}
+.sub-tab.active {
+  background: #FEF3C7;
+  color: #92400E;
+  font-weight: 600;
+}
+.svc-item-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8rpx 0;
+}
+.svc-empty {
+  text-align: center;
+  color: #9CA3AF;
+  font-size: 26rpx;
+  padding: 80rpx 0;
+}
+.svc-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid #F3F4F6;
+}
+.svc-item.checked {
+  background: #FFFBEB;
+}
+.svc-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.svc-item-name {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #1F2937;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.svc-item-cat {
+  font-size: 22rpx;
+  color: #9CA3AF;
+  display: block;
+  margin-top: 4rpx;
+}
+.svc-item-right {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-left: 16rpx;
+  flex-shrink: 0;
+}
+.svc-item-price {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #DC2626;
+}
+.svc-item-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 3rpx solid #D1D5DB;
+  box-sizing: border-box;
+}
+.svc-item-check.on {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  position: relative;
+}
+.svc-item-check.on::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 12rpx;
+  height: 20rpx;
+  border: solid #fff;
+  border-width: 0 3rpx 3rpx 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* Selected bar */
+.selected-bar {
+  background: #FFFBEB;
+  border: 2rpx solid #FDE68A;
+  border-radius: 12rpx;
+  padding: 16rpx 24rpx;
+  margin-bottom: 16rpx;
+  text-align: center;
+}
+.selected-bar-text {
+  font-size: 26rpx;
+  color: #92400E;
+  font-weight: 600;
 }
 </style>

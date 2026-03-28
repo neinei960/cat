@@ -185,7 +185,12 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 		return
 	}
 
-	if req.RechargeAmount < tpl.MinRecharge {
+	if tpl.CardType == 2 {
+		// 次卡：使用固定售价
+		if req.RechargeAmount <= 0 {
+			req.RechargeAmount = tpl.TimesPrice
+		}
+	} else if req.RechargeAmount < tpl.MinRecharge {
 		response.Error(c, http.StatusBadRequest, "充值金额不能低于门槛"+strconv.FormatFloat(tpl.MinRecharge, 'f', 0, 64)+"元")
 		return
 	}
@@ -205,10 +210,13 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 		CustomerID:    uint(customerID),
 		TemplateID:    req.TemplateID,
 		CardName:      tpl.Name,
+		CardType:      tpl.CardType,
 		Balance:       req.RechargeAmount,
 		TotalRecharge: req.RechargeAmount,
 		DiscountRate:        tpl.DiscountRate,
 		ProductDiscountRate: tpl.ProductDiscountRate,
+		TotalTimes:    tpl.TotalTimes,
+		UsedTimes:     0,
 		ExpireAt:      expireAt,
 		Status:        1,
 	}
@@ -297,6 +305,9 @@ func (h *MemberCardHandler) GetCard(c *gin.Context) {
 	if err := database.DB.Preload("Template").Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
 		response.Success(c, nil) // No card, not an error
 		return
+	}
+	if card.CardType == 2 {
+		card.RemainingTimes = card.TotalTimes - card.UsedTimes
 	}
 	response.Success(c, card)
 }
@@ -397,4 +408,102 @@ func BalancePayment(shopID, customerID, orderID uint, amount float64, staffID ui
 
 	database.DB.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance)
 	return nil
+}
+
+// ========== Edit Recharge Record (admin only) ==========
+
+type updateRecordReq struct {
+	Amount *float64 `json:"amount"`
+	Remark string   `json:"remark"`
+}
+
+func (h *MemberCardHandler) UpdateRecord(c *gin.Context) {
+	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var req updateRecordReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	var record model.RechargeRecord
+	if err := database.DB.First(&record, recordID).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "记录不存在")
+		return
+	}
+
+	tx := database.DB.Begin()
+
+	// 如果修改了金额，需要调整会员卡余额
+	if req.Amount != nil && *req.Amount != record.Amount {
+		diff := *req.Amount - record.Amount
+
+		var card model.MemberCard
+		if err := tx.First(&card, record.CardID).Error; err != nil {
+			tx.Rollback()
+			response.Error(c, http.StatusNotFound, "会员卡不存在")
+			return
+		}
+
+		newBalance := card.Balance + diff
+		if newBalance < 0 {
+			tx.Rollback()
+			response.Error(c, http.StatusBadRequest, fmt.Sprintf("修改后余额为负数(%.2f)，不允许", newBalance))
+			return
+		}
+
+		card.Balance = newBalance
+		tx.Save(&card)
+		tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", newBalance)
+
+		record.Amount = *req.Amount
+		record.BalanceAfter = record.BalanceAfter + diff
+	}
+
+	if req.Remark != "" {
+		record.Remark = req.Remark
+	}
+
+	tx.Save(&record)
+	tx.Commit()
+	response.Success(c, record)
+}
+
+// ========== Delete Recharge Record (admin only) ==========
+
+func (h *MemberCardHandler) DeleteRecord(c *gin.Context) {
+	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var record model.RechargeRecord
+	if err := database.DB.First(&record, recordID).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "记录不存在")
+		return
+	}
+
+	tx := database.DB.Begin()
+
+	// 回退余额：充值/正调整 → 扣回；消费/负调整 → 加回
+	var card model.MemberCard
+	if err := tx.First(&card, record.CardID).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusNotFound, "会员卡不存在")
+		return
+	}
+
+	// 回退余额：type 1(充值)/3(退款)/4(调整) → amount 是实际变动值，减去即可
+	//           type 2(消费) → amount 是消费金额（正数），删除时要加回
+	if record.Type == 2 {
+		card.Balance += record.Amount
+	} else {
+		card.Balance -= record.Amount
+	}
+
+	tx.Save(&card)
+	tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", card.Balance)
+
+	// 软删除记录
+	tx.Delete(&record)
+
+	tx.Commit()
+	response.Success(c, nil)
 }

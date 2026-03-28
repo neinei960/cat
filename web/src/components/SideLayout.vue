@@ -138,6 +138,7 @@ const allMenuItems = [
 const menuItems = computed(() => allMenuItems.filter(m => !m.adminOnly || isAdmin.value))
 
 const tabItems = [
+  { icon: '🏠', label: '工作台', path: '/pages/index/index' },
   { icon: '🧾', label: '开单', path: '/pages/order/create' },
   { icon: '📅', label: '预约', path: '/pages/appointment/calendar' },
   { icon: '🐱', label: '猫咪', path: '/pages/pet/list' },
@@ -145,7 +146,6 @@ const tabItems = [
 ]
 
 const allMoreItems = [
-  { icon: '🏠', label: '工作台', path: '/pages/index/index' },
   { icon: '📋', label: '预约列表', path: '/pages/appointment/list' },
   { icon: '👥', label: '客户管理', path: '/pages/customer/list' },
   { icon: '✂️', label: '服务管理', path: '/pages/service/list', adminOnly: true },
@@ -299,7 +299,7 @@ function handleLogout() {
 
 .app-content {
   flex: 1;
-  padding-bottom: 50px;
+  padding-bottom: calc(50px + env(safe-area-inset-bottom));
   background-color: #F5F6FA;
 }
 
@@ -308,8 +308,11 @@ function handleLogout() {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 50px;
-  background-color: #FFFFFF;
+  height: calc(50px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -394,6 +397,14 @@ function handleLogout() {
   flex-direction: column;
   align-items: center;
   padding: 12px 0;
+  border-radius: 12px;
+  transition: background-color 0.15s, transform 0.1s;
+  cursor: pointer;
+}
+
+.more-item:active {
+  background-color: #EEF2FF;
+  transform: scale(0.94);
 }
 
 .more-icon {

@@ -24,7 +24,9 @@ type createServiceReq struct {
 	CategoryID        *uint   `json:"category_id"`
 	Description       string  `json:"description"`
 	BasePrice         float64 `json:"base_price" binding:"required"`
-	Duration          int     `json:"duration" binding:"required"`
+	Duration          int     `json:"duration"`
+	PricingType       int     `json:"pricing_type"`
+	HolidayPrice      float64 `json:"holiday_price"`
 	ApplicableSpecies string  `json:"applicable_species"`
 	ApplicableSizes   string  `json:"applicable_sizes"`
 	SortOrder         int     `json:"sort_order"`
@@ -37,6 +39,10 @@ func (h *ServiceHandler) Create(c *gin.Context) {
 		return
 	}
 
+	pricingType := req.PricingType
+	if pricingType == 0 {
+		pricingType = 1
+	}
 	svc := &model.Service{
 		ShopID:            c.GetUint("shop_id"),
 		Name:              req.Name,
@@ -45,6 +51,8 @@ func (h *ServiceHandler) Create(c *gin.Context) {
 		Description:       req.Description,
 		BasePrice:         req.BasePrice,
 		Duration:          req.Duration,
+		PricingType:       pricingType,
+		HolidayPrice:      req.HolidayPrice,
 		ApplicableSpecies: req.ApplicableSpecies,
 		ApplicableSizes:   req.ApplicableSizes,
 		SortOrder:         req.SortOrder,
@@ -100,6 +108,10 @@ func (h *ServiceHandler) Update(c *gin.Context) {
 	svc.Description = req.Description
 	svc.BasePrice = req.BasePrice
 	svc.Duration = req.Duration
+	if req.PricingType > 0 {
+		svc.PricingType = req.PricingType
+	}
+	svc.HolidayPrice = req.HolidayPrice
 	svc.ApplicableSpecies = req.ApplicableSpecies
 	svc.ApplicableSizes = req.ApplicableSizes
 	svc.SortOrder = req.SortOrder
@@ -169,6 +181,59 @@ func (h *ServiceHandler) GetPriceRules(c *gin.Context) {
 func (h *ServiceHandler) DeletePriceRule(c *gin.Context) {
 	ruleID, _ := strconv.ParseUint(c.Param("rule_id"), 10, 64)
 	if err := h.serviceService.DeletePriceRule(uint(ruleID)); err != nil {
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
+	response.Success(c, nil)
+}
+
+// Discounts
+
+type createDiscountReq struct {
+	Type          int     `json:"type" binding:"required"`
+	MinDays       int     `json:"min_days" binding:"required"`
+	DiscountPrice float64 `json:"discount_price"`
+	FreeDays      int     `json:"free_days"`
+	IsHoliday     bool    `json:"is_holiday"`
+}
+
+func (h *ServiceHandler) CreateDiscount(c *gin.Context) {
+	serviceID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req createDiscountReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	d := &model.ServiceDiscount{
+		ServiceID:     uint(serviceID),
+		Type:          req.Type,
+		MinDays:       req.MinDays,
+		DiscountPrice: req.DiscountPrice,
+		FreeDays:      req.FreeDays,
+		IsHoliday:     req.IsHoliday,
+	}
+
+	if err := h.serviceService.CreateDiscount(d); err != nil {
+		response.Error(c, http.StatusInternalServerError, "创建失败")
+		return
+	}
+	response.Success(c, d)
+}
+
+func (h *ServiceHandler) GetDiscounts(c *gin.Context) {
+	serviceID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	discounts, err := h.serviceService.GetDiscounts(uint(serviceID))
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, discounts)
+}
+
+func (h *ServiceHandler) DeleteDiscount(c *gin.Context) {
+	discountID, _ := strconv.ParseUint(c.Param("discount_id"), 10, 64)
+	if err := h.serviceService.DeleteDiscount(uint(discountID)); err != nil {
 		response.Error(c, http.StatusInternalServerError, "删除失败")
 		return
 	}

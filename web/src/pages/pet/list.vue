@@ -278,7 +278,7 @@ onReachBottom(loadMore)
    ===================== */
 .page {
   padding: 32rpx 32rpx 48rpx;
-  background: #FDFBF7;
+  background: #F5F6FA;
   min-height: 100vh;
 }
 
@@ -300,14 +300,14 @@ onReachBottom(loadMore)
 .title {
   font-size: 40rpx;
   font-weight: 600;
-  color: #4A3F2F;
+  color: #1F2937;
   line-height: 1.2;
   letter-spacing: -0.5rpx;
 }
 
 .subtitle {
   font-size: 22rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
   margin-top: 4rpx;
 }
 
@@ -315,10 +315,10 @@ onReachBottom(loadMore)
   display: flex;
   align-items: center;
   gap: 6rpx;
-  background: linear-gradient(135deg, #D4B06A, #C4A35A);
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
   padding: 16rpx 28rpx;
   border-radius: 999rpx;
-  box-shadow: 0 4rpx 16rpx rgba(196, 163, 90, 0.35);
+  box-shadow: 0 4rpx 16rpx rgba(99, 102, 241, 0.35);
   transition: opacity 0.2s, transform 0.15s;
 }
 
@@ -347,12 +347,12 @@ onReachBottom(loadMore)
   position: relative;
   display: flex;
   align-items: center;
-  background: #FAF5E8;
+  background: #F3F4F6;
   border-radius: 20rpx;
   padding: 0 24rpx;
   margin-bottom: 28rpx;
-  box-shadow: 0 2rpx 10rpx rgba(196, 163, 90, 0.08);
-  border: 1.5rpx solid #E8D9B5;
+  box-shadow: 0 2rpx 10rpx rgba(99, 102, 241, 0.06);
+  border: 1.5rpx solid #E5E7EB;
 }
 
 .search-icon {
@@ -365,13 +365,13 @@ onReachBottom(loadMore)
   flex: 1;
   height: 80rpx;
   font-size: 26rpx;
-  color: #4A3F2F;
+  color: #1F2937;
   background: transparent;
 }
 
 .search-clear {
   font-size: 24rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
   padding: 8rpx;
   flex-shrink: 0;
 }
@@ -394,7 +394,7 @@ onReachBottom(loadMore)
 
 .loading-text {
   font-size: 26rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
 }
 
 @keyframes bounce {
@@ -417,12 +417,12 @@ onReachBottom(loadMore)
 .empty-title {
   font-size: 30rpx;
   font-weight: 500;
-  color: #4A3F2F;
+  color: #1F2937;
 }
 
 .empty-desc {
   font-size: 24rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
   text-align: center;
 }
 
@@ -437,39 +437,39 @@ onReachBottom(loadMore)
 .group-header {
   display: flex;
   align-items: center;
-  background: #FAF5E8;
+  background: #F9FAFB;
   border-radius: 20rpx 20rpx 0 0;
   padding: 20rpx 24rpx 20rpx 0;
   margin-bottom: 3rpx;
-  box-shadow: 0 2rpx 8rpx rgba(196, 163, 90, 0.08);
+  box-shadow: 0 2rpx 8rpx rgba(99, 102, 241, 0.06);
   transition: background 0.15s;
   overflow: hidden;
-  border: 1.5rpx solid #E8D9B5;
+  border: 1.5rpx solid #E5E7EB;
   border-bottom: none;
 }
 
 .group-header:active {
-  background: #F5EDD8;
+  background: #EEF2FF;
 }
 
 .group-accent {
   width: 8rpx;
   height: 60rpx;
-  background: linear-gradient(180deg, #D4B06A, #C4A35A);
+  background: linear-gradient(180deg, #6366F1, #4F46E5);
   border-radius: 0 4rpx 4rpx 0;
   margin-right: 20rpx;
   flex-shrink: 0;
 }
 
 .group-accent-none {
-  background: #DED0AA;
+  background: #C7D2FE;
 }
 
 .group-avatar {
   width: 64rpx;
   height: 64rpx;
   border-radius: 50%;
-  background: linear-gradient(135deg, #FEF3C7, #E8D9B5);
+  background: linear-gradient(135deg, #EEF2FF, #C7D2FE);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -480,7 +480,7 @@ onReachBottom(loadMore)
 .group-avatar-text {
   font-size: 28rpx;
   font-weight: 600;
-  color: #C4A35A;
+  color: #4F46E5;
 }
 
 .group-info {
@@ -498,17 +498,17 @@ onReachBottom(loadMore)
 .group-name {
   font-size: 28rpx;
   font-weight: 600;
-  color: #4A3F2F;
+  color: #1F2937;
 }
 
 .group-count-badge {
   font-size: 20rpx;
   font-weight: 500;
-  color: #C4A35A;
-  background: #FEF3C7;
+  color: #4F46E5;
+  background: #EEF2FF;
   padding: 2rpx 12rpx;
   border-radius: 999rpx;
-  border: 1rpx solid #E8D9B5;
+  border: 1rpx solid #C7D2FE;
 }
 
 .owner-tags {
@@ -525,24 +525,26 @@ onReachBottom(loadMore)
 }
 
 .owner-tag-card {
-  background: #FEF3C7;
-  color: #8A7A62;
-  border: 1rpx solid #E8D9B5;
+  background: #EEF2FF;
+  color: #4338CA;
+  border: 1rpx solid #C7D2FE;
 }
 
 .owner-tag-balance {
-  background: #FEF3C7;
-  color: #92400E;
+  background: #F0FDF4;
+  color: #065F46;
+  border: 1rpx solid #BBF7D0;
 }
 
 .owner-tag-visit {
-  background: #F5EDD8;
-  color: #8A7A62;
+  background: #F9FAFB;
+  color: #6B7280;
+  border: 1rpx solid #E5E7EB;
 }
 
 .group-arrow {
   font-size: 40rpx;
-  color: #DED0AA;
+  color: #C7D2FE;
   font-weight: 300;
   margin-left: 8rpx;
   flex-shrink: 0;
@@ -555,7 +557,7 @@ onReachBottom(loadMore)
 
 .group-name-none {
   font-size: 24rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
   font-weight: 400;
 }
 
@@ -569,17 +571,17 @@ onReachBottom(loadMore)
   display: flex;
   align-items: flex-start;
   gap: 20rpx;
-  border-left: 1.5rpx solid #E8D9B5;
-  border-right: 1.5rpx solid #E8D9B5;
-  box-shadow: 0 1rpx 4rpx rgba(196, 163, 90, 0.06);
+  border-left: 1.5rpx solid #E5E7EB;
+  border-right: 1.5rpx solid #E5E7EB;
+  box-shadow: 0 1rpx 4rpx rgba(99, 102, 241, 0.04);
   transition: background 0.15s, transform 0.15s;
 }
 
 .card:last-child {
   border-radius: 0 0 20rpx 20rpx;
   margin-bottom: 0;
-  border-bottom: 1.5rpx solid #E8D9B5;
-  box-shadow: 0 4rpx 16rpx rgba(196, 163, 90, 0.1);
+  border-bottom: 1.5rpx solid #E5E7EB;
+  box-shadow: 0 4rpx 16rpx rgba(99, 102, 241, 0.08);
 }
 
 .card:only-child {
@@ -587,7 +589,7 @@ onReachBottom(loadMore)
 }
 
 .card:active {
-  background: #FDFBF7;
+  background: #F5F6FA;
   transform: scale(0.99);
 }
 
@@ -615,8 +617,8 @@ onReachBottom(loadMore)
   border-radius: 50%;
   object-fit: cover;
   background: #F5F5F5;
-  border: 1.5rpx solid #E8D9B5;
-  box-shadow: 0 4rpx 12rpx rgba(196, 163, 90, 0.16);
+  border: 1.5rpx solid #E5E7EB;
+  box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.12);
 }
 
 .avatar-cat {
@@ -633,13 +635,13 @@ onReachBottom(loadMore)
 
 .avatar-weight {
   font-size: 20rpx;
-  color: #8A7A62;
-  background: #FAF5E8;
+  color: #6B7280;
+  background: #F3F4F6;
   padding: 2rpx 10rpx;
   border-radius: 999rpx;
   font-weight: 500;
   white-space: nowrap;
-  border: 1rpx solid #E8D9B5;
+  border: 1rpx solid #E5E7EB;
 }
 
 /* 右侧信息列 */
@@ -659,7 +661,7 @@ onReachBottom(loadMore)
 .pet-name {
   font-size: 32rpx;
   font-weight: 600;
-  color: #4A3F2F;
+  color: #1F2937;
   letter-spacing: -0.3rpx;
 }
 
@@ -678,7 +680,7 @@ onReachBottom(loadMore)
 
 .pet-breed {
   font-size: 24rpx;
-  color: #8A7A62;
+  color: #6B7280;
   display: block;
   margin-bottom: 14rpx;
 }
@@ -699,9 +701,9 @@ onReachBottom(loadMore)
 }
 
 .tag-fur {
-  background: #FAF5E8;
-  color: #8A7A62;
-  border: 1rpx solid #DED0AA;
+  background: #F3F4F6;
+  color: #6B7280;
+  border: 1rpx solid #E5E7EB;
 }
 
 .tag-neutered {
@@ -724,25 +726,25 @@ onReachBottom(loadMore)
   display: flex;
   align-items: flex-start;
   gap: 10rpx;
-  background: #FFFBEB;
+  background: #F0F4FF;
   border-radius: 12rpx;
   padding: 12rpx 16rpx;
   margin-top: 4rpx;
-  border: 1rpx solid #F0E2B0;
+  border: 1rpx solid #C7D2FE;
 }
 
 .care-notes-bar {
   width: 6rpx;
   min-height: 32rpx;
   align-self: stretch;
-  background: linear-gradient(180deg, #D4B06A, #C4A35A);
+  background: linear-gradient(180deg, #6366F1, #4F46E5);
   border-radius: 999rpx;
   flex-shrink: 0;
 }
 
 .care-notes-text {
   font-size: 24rpx;
-  color: #8A6A30;
+  color: #4338CA;
   line-height: 1.6;
   flex: 1;
 }
@@ -754,11 +756,11 @@ onReachBottom(loadMore)
 
 .load-more-text {
   font-size: 24rpx;
-  color: #B8A88A;
+  color: #9CA3AF;
 }
 
 .load-more-done {
   font-size: 22rpx;
-  color: #CCC0A0;
+  color: #D1D5DB;
 }
 </style>
