@@ -9,6 +9,9 @@ export function getDashboardOverview(startDate?: string, endDate?: string) {
     today_revenue: number
     today_order_count: number
     today_appointment_count: number
+    today_service_completed_count: number
+    today_pending_settlement_count: number
+    today_refunded_order_count: number
     today_new_customers: number
     pending_appointments: number
     total_customers: number

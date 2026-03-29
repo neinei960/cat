@@ -158,6 +158,14 @@
       </view>
     </view>
 
+    <view v-if="id" class="report-entry" @click="goBathReportPage">
+      <view>
+        <text class="report-entry-title">洗浴报告管理</text>
+        <text class="report-entry-desc">查看历史报告、上传新报告图片</text>
+      </view>
+      <text class="report-entry-arrow">查看 ›</text>
+    </view>
+
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id" @click="onDelete">删除猫咪</button>
 
@@ -506,6 +514,11 @@ function chooseAvatar() {
   input.click()
 }
 
+function goBathReportPage() {
+  if (!id.value) return
+  uni.navigateTo({ url: `/pages/pet/report?id=${id.value}` })
+}
+
 async function onCropConfirm(blob: Blob) {
   showCropper.value = false
   // 清理裁剪源
@@ -765,6 +778,20 @@ async function onDelete() {
 .color-opt-text { font-size: 22rpx; color: #fff; font-weight: 600; }
 
 /* 按钮 */
+.report-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-bottom: 12rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: linear-gradient(135deg, #ffffff 0%, #eef2ff 100%);
+  box-shadow: 0 10rpx 24rpx rgba(79, 70, 229, 0.06);
+}
+.report-entry-title { display: block; font-size: 30rpx; font-weight: 700; color: #1F2937; }
+.report-entry-desc { display: block; margin-top: 8rpx; font-size: 24rpx; color: #6B7280; }
+.report-entry-arrow { font-size: 26rpx; color: #4F46E5; font-weight: 600; }
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 8rpx; }
 .btn-delete { background: #fff; color: #DC2626; border: 1rpx solid #DC2626; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 

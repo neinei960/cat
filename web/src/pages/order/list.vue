@@ -28,7 +28,7 @@
     <view class="tabs">
       <view :class="['tab', filter.status === -1 ? 'active' : '']" @click="filter.status = -1; loadData()">全部</view>
       <view :class="['tab', filter.status === 0 ? 'active' : '']" @click="filter.status = 0; loadData()">待付款</view>
-      <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已完成</view>
+      <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已支付</view>
       <view :class="['tab', filter.status === 3 ? 'active' : '']" @click="filter.status = 3; loadData()">已退款</view>
       <view class="tab-sep"></view>
       <view :class="['tab tab-meituan', filter.payMethod === 'meituan' ? 'active' : '']" @click="toggleMeituan">美团</view>
@@ -104,12 +104,12 @@ const showFilter = ref(false)
 const staffList = ref<any[]>([])
 const categories = ref<any[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-const statusMap: Record<number, string> = { 0: '待付款', 1: '已完成', 2: '已取消', 3: '已退款' }
+const statusMap: Record<number, string> = { 0: '待付款', 1: '已支付', 2: '已取消', 3: '已退款' }
 const payMethodMap: Record<string, string> = { wechat: '扫码', alipay: '扫码', cash: '现金', meituan: '美团', card: '会员卡', balance: '余额' }
 
 const orderStatusOptions = [
   { value: 0, label: '待付款' },
-  { value: 1, label: '已完成' },
+  { value: 1, label: '已支付' },
   { value: 2, label: '已取消' },
   { value: 3, label: '已退款' },
 ]

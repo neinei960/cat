@@ -335,35 +335,59 @@
         <text class="empty-text">该日期暂无可用起始时间</text>
       </view>
 
-      <view v-for="ss in staffSlots" :key="ss.staff.ID" class="card">
-        <view class="staff-name">
-          <text class="staff-icon">💇</text>
-          <text>{{ ss.staff.name }}</text>
-        </view>
-        <text class="time-section-label">开始时间</text>
-        <view class="slots-grid">
-          <view
-            v-for="slot in ss.slots" :key="slot.start_time"
-            :class="['slot', form.staff_id === ss.staff.ID && form.start_time === slot.start_time ? 'selected' : '']"
-            @click="selectStartSlot(ss.staff.ID, slot.start_time)"
-          >
-            {{ slot.start_time }}
-          </view>
-        </view>
-
-        <view v-if="form.staff_id === ss.staff.ID && form.start_time" class="end-time-panel">
-          <text class="time-section-label">结束时间</text>
-          <view class="slots-grid" v-if="getEndTimeOptions(ss.staff.ID).length > 0">
+      <view v-if="staffSlots.length > 0" class="card staff-time-card">
+        <text class="time-section-label">选择员工</text>
+        <scroll-view scroll-x class="staff-tabs-scroll" show-scrollbar="false">
+          <view class="staff-tabs">
             <view
-              v-for="endTime in getEndTimeOptions(ss.staff.ID)"
-              :key="endTime"
-              :class="['slot', form.end_time === endTime ? 'selected' : '']"
-              @click="selectEndTime(endTime)"
+              v-for="ss in staffSlots"
+              :key="ss.staff.ID"
+              :class="['staff-tab', isStaffPanelOpen(ss.staff.ID) ? 'active' : '']"
+              @click="toggleStaffPanel(ss.staff.ID)"
             >
-              {{ endTime }}
+              <text class="staff-tab-name">{{ ss.staff.name }}</text>
+              <text class="staff-tab-meta">{{ ss.slots?.length || 0 }}个时间</text>
             </view>
           </view>
-          <text v-else class="end-time-empty">当前开始时间之后没有连续可用区间，请重新选择开始时间。</text>
+        </scroll-view>
+
+        <view v-if="currentStaffSlot" class="staff-panel">
+          <view class="staff-panel-head">
+            <view class="staff-name">
+              <text class="staff-icon">💇</text>
+              <text>{{ currentStaffSlot.staff.name }}</text>
+            </view>
+            <text class="staff-meta">
+              {{ currentStaffSlot.slots?.length || 0 }} 个可约开始时间
+              <text v-if="form.staff_id === currentStaffSlot.staff.ID && form.start_time"> · 已选 {{ form.start_time }}</text>
+            </text>
+          </view>
+
+          <text class="time-section-label">开始时间</text>
+          <view class="slots-grid">
+            <view
+              v-for="slot in currentStaffSlot.slots" :key="slot.start_time"
+              :class="['slot', form.staff_id === currentStaffSlot.staff.ID && form.start_time === slot.start_time ? 'selected' : '']"
+              @click="selectStartSlot(currentStaffSlot.staff.ID, slot.start_time)"
+            >
+              {{ slot.start_time }}
+            </view>
+          </view>
+
+          <view v-if="form.staff_id === currentStaffSlot.staff.ID && form.start_time" class="end-time-panel">
+            <text class="time-section-label">结束时间</text>
+            <view class="slots-grid" v-if="getEndTimeOptions(currentStaffSlot.staff.ID).length > 0">
+              <view
+                v-for="endTime in getEndTimeOptions(currentStaffSlot.staff.ID)"
+                :key="endTime"
+                :class="['slot', form.end_time === endTime ? 'selected' : '']"
+                @click="selectEndTime(endTime)"
+              >
+                {{ endTime }}
+              </view>
+            </view>
+            <text v-else class="end-time-empty">当前开始时间之后没有连续可用区间，请重新选择开始时间。</text>
+          </view>
         </view>
       </view>
 
@@ -520,6 +544,7 @@ import { getCategoryTree } from '@/api/service-category'
 import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
 import { safeBack } from '@/utils/navigate'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+import { compareStaffRole } from '@/utils/staff-role'
 
 interface CustomerSuggestion {
   key: string
@@ -597,6 +622,7 @@ const activeSubCategoryId = ref<number>(0)
 const showServicePicker = ref(false)
 const pickerPetId = ref(0)
 const staffSlots = ref<any[]>([])
+const expandedStaffId = ref(0)
 const searchingCustomers = ref(false)
 const customerSuggestionOpen = ref(false)
 let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
@@ -700,6 +726,9 @@ const selectedStaffName = computed(() => {
   }
   return '待分配'
 })
+const currentStaffSlot = computed(() =>
+  staffSlots.value.find(item => item.staff?.ID === expandedStaffId.value) || staffSlots.value[0] || null
+)
 
 const totalAmount = computed(() =>
   form.value.pets.reduce((sum, petItem) => (
@@ -954,6 +983,7 @@ async function onDateChange(e: any) {
   form.value.start_time = ''
   form.value.end_time = ''
   form.value.staff_id = 0
+  expandedStaffId.value = 0
   if (totalDuration.value > 0) {
     await loadSlots()
   }
@@ -976,6 +1006,11 @@ async function loadSlots() {
     })
     staffSlots.value = sortStaffSlots(res.data || [])
     mergeCurrentEditSlotIntoStaffSlots()
+    if (form.value.staff_id && staffSlots.value.some(item => item.staff?.ID === form.value.staff_id)) {
+      expandedStaffId.value = form.value.staff_id
+    } else {
+      expandedStaffId.value = staffSlots.value[0]?.staff?.ID || 0
+    }
     if (!isCurrentSlotAvailable()) {
       form.value.staff_id = 0
       form.value.start_time = ''
@@ -1073,9 +1108,18 @@ function getEndTimeOptions(staffId: number) {
   return options
 }
 
+function isStaffPanelOpen(staffId: number) {
+  return expandedStaffId.value === staffId
+}
+
+function toggleStaffPanel(staffId: number) {
+  expandedStaffId.value = expandedStaffId.value === staffId ? 0 : staffId
+}
+
 function selectStartSlot(staffId: number, startTime: string) {
   const staffChanged = form.value.staff_id !== staffId
   const startChanged = form.value.start_time !== startTime
+  expandedStaffId.value = staffId
   form.value.staff_id = staffId
   form.value.start_time = startTime
   if (staffChanged || startChanged || !isCurrentEndTimeValid()) {
@@ -1100,7 +1144,7 @@ function minutesToTime(totalMinutes: number) {
 
 function sortStaffSlots(list: any[]) {
   return [...list].sort((a, b) => {
-    const roleDiff = Number(a.staff?.role === 'admin') - Number(b.staff?.role === 'admin')
+    const roleDiff = compareStaffRole(a.staff?.role, b.staff?.role)
     if (roleDiff !== 0) return roleDiff
     return (a.staff?.ID || 0) - (b.staff?.ID || 0)
   })
@@ -1857,17 +1901,85 @@ async function onSubmit() {
 }
 
 /* ========== Staff & Slots ========== */
+.staff-card {
+  padding-bottom: 22rpx;
+}
+.staff-time-card {
+  padding-bottom: 24rpx;
+}
+.staff-tabs-scroll {
+  width: 100%;
+  margin-bottom: 20rpx;
+}
+.staff-tabs {
+  display: flex;
+  gap: 14rpx;
+  width: max-content;
+}
+.staff-tab {
+  min-width: 148rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 2rpx solid #E5E7EB;
+  box-sizing: border-box;
+}
+.staff-tab.active {
+  background: linear-gradient(135deg, #EEF2FF, #E0E7FF);
+  border-color: #818CF8;
+  box-shadow: 0 6rpx 18rpx rgba(99, 102, 241, 0.14);
+}
+.staff-tab-name {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #1F2937;
+}
+.staff-tab-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #94A3B8;
+}
+.staff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+.staff-header-main {
+  flex: 1;
+  min-width: 0;
+}
 .staff-name {
   font-size: 30rpx;
   font-weight: 700;
   color: #1E1B4B;
-  margin-bottom: 16rpx;
   display: flex;
   align-items: center;
   gap: 10rpx;
 }
 .staff-icon {
   font-size: 28rpx;
+}
+.staff-meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #94A3B8;
+  line-height: 1.5;
+}
+.staff-arrow {
+  flex-shrink: 0;
+  font-size: 34rpx;
+  color: #A5B4FC;
+  font-weight: 700;
+}
+.staff-panel {
+  padding-top: 4rpx;
+}
+.staff-panel-head {
+  margin-bottom: 18rpx;
 }
 .slots-grid {
   display: flex;

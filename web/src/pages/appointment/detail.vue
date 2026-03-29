@@ -133,6 +133,7 @@ import { getAppointment, updateAppointmentStatus, assignStaff } from '@/api/appo
 import { getStaffList } from '@/api/staff'
 import { getAppointmentStatusBarStyle, getAppointmentStatusLabel } from '@/utils/appointment-status'
 import { request } from '@/api/request'
+import { compareStaffRole } from '@/utils/staff-role'
 
 const appt = ref<any>(null)
 const apptId = ref(0)
@@ -241,7 +242,7 @@ async function loadAppointmentDetail() {
 
 function sortStaffList(list: Staff[]) {
   return [...list].sort((a, b) => {
-    const roleDiff = Number(a.role === 'admin') - Number(b.role === 'admin')
+    const roleDiff = compareStaffRole(a.role, b.role)
     if (roleDiff !== 0) return roleDiff
     return a.ID - b.ID
   })

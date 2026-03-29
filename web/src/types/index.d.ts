@@ -32,6 +32,8 @@ interface Staff {
   role: string
   status: number
   commission_rate: number
+  product_commission_rate?: number
+  feeding_commission_rate?: number
   last_login_at: string
 }
 
@@ -160,6 +162,14 @@ interface Pet {
   CreatedAt: string
 }
 
+interface PetBathReport {
+  ID: number
+  pet_id: number
+  shop_id: number
+  image_url: string
+  CreatedAt: string
+}
+
 // Service Category
 interface ServiceCategory {
   ID: number
@@ -225,4 +235,5 @@ interface StaffSchedule {
   break_end: string
   max_capacity: number
   is_day_off: boolean
+  staff?: Staff
 }

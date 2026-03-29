@@ -300,6 +300,7 @@ import { getCustomerTags } from '@/api/customer-tag'
 import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords, updateRechargeRecord, deleteRechargeRecord } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
 function withAlpha(color: string, alpha: number) {
   const hex = color.replace('#', '')
@@ -350,7 +351,7 @@ const records = ref<RechargeRecord[]>([])
 const templates = ref<MemberCardTemplate[]>([])
 
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
+const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 
 const showOpenCardModal = ref(false)
 const showRechargeModal = ref(false)

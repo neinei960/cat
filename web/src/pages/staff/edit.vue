@@ -10,6 +10,12 @@
         <text class="label">手机号 *</text>
         <input v-model="form.phone" type="number" placeholder="请输入手机号" class="input" :disabled="!!id && !isAdmin" />
       </view>
+      <view class="form-item" v-if="isAdmin">
+        <text class="label">角色</text>
+        <picker :range="roleList" :range-key="'label'" :value="roleIndex" @change="onRoleChange">
+          <view class="picker">{{ roleList[roleIndex].label }}</view>
+        </picker>
+      </view>
       <!-- 创建时设置初始密码 -->
       <view class="form-item" v-if="!id && isAdmin">
         <text class="label">初始密码</text>
@@ -37,7 +43,7 @@
     </view>
 
     <!-- 重置密码区域 (编辑模式, 仅 admin) -->
-    <view class="section" v-if="id && isAdmin">
+    <view class="section" v-if="id && canManageSchedule">
       <view class="section-header">
         <text class="section-title">密码管理</text>
       </view>
@@ -63,6 +69,7 @@
           <input v-model="day.start_time" placeholder="12:00" class="time-input" maxlength="5" />
           <text class="time-sep">-</text>
           <input v-model="day.end_time" placeholder="22:00" class="time-input" maxlength="5" />
+          <input v-model="day.max_capacity" type="number" placeholder="并发" class="cap-input" maxlength="2" />
           <view class="btn-day-off" @click="day.is_day_off = true">休</view>
         </view>
       </view>
@@ -72,7 +79,7 @@
       </view>
     </view>
 
-    <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
+    <button v-if="isAdmin" class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id && isAdmin" @click="onDelete">删除员工</button>
   </view>
   </SideLayout>
@@ -85,14 +92,17 @@ import SideLayout from '@/components/SideLayout.vue'
 import { getStaff, createStaff, updateStaff, deleteStaff, resetStaffPassword, getStaffSchedule, batchSetSchedule } from '@/api/staff'
 import { safeBack } from '@/utils/navigate'
 import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast, staffRoleLabel } from '@/utils/staff-role'
 
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
+const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'admin'))
+const canManageSchedule = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 
 const id = ref(0)
 const submitting = ref(false)
 const newPassword = ref('')
-const form = ref({ name: '', phone: '', password: '', commission_rate: 0, product_commission_rate: 0, feeding_commission_rate: 0, status: 1 })
+const form = ref({ name: '', phone: '', password: '', role: 'staff', commission_rate: 0, product_commission_rate: 0, feeding_commission_rate: 0, status: 1 })
+const roleList = ['staff', 'manager', 'admin'].map((value) => ({ label: staffRoleLabel(value), value }))
 const statusList = [
   { label: '在职', value: 1 },
   { label: '离职', value: 2 },
@@ -100,6 +110,8 @@ const statusList = [
 
 const statusIndex = computed(() => statusList.findIndex(s => s.value === form.value.status) || 0)
 function onStatusChange(e: any) { form.value.status = statusList[e.detail.value].value }
+const roleIndex = computed(() => Math.max(roleList.findIndex(s => s.value === form.value.role), 0))
+function onRoleChange(e: any) { form.value.role = roleList[e.detail.value].value }
 
 // 排班
 interface DaySchedule {
@@ -107,6 +119,7 @@ interface DaySchedule {
   start_time: string
   end_time: string
   is_day_off: boolean
+  max_capacity: number
 }
 const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const weekSchedule = ref<DaySchedule[]>([])
@@ -125,7 +138,7 @@ function getWeekDates(): string[] {
 
 function initWeekSchedule() {
   weekSchedule.value = getWeekDates().map(date => ({
-    date, start_time: '12:00', end_time: '22:00', is_day_off: false,
+    date, start_time: '12:00', end_time: '22:00', is_day_off: false, max_capacity: 1,
   }))
 }
 
@@ -137,8 +150,8 @@ async function loadSchedule() {
     weekSchedule.value = dates.map(date => {
       const found = existing.find((s: any) => s.date === date)
       return found
-        ? { date, start_time: found.start_time, end_time: found.end_time, is_day_off: found.is_day_off }
-        : { date, start_time: '12:00', end_time: '22:00', is_day_off: false }
+        ? { date, start_time: found.start_time, end_time: found.end_time, is_day_off: found.is_day_off, max_capacity: found.max_capacity || 1 }
+        : { date, start_time: '12:00', end_time: '22:00', is_day_off: false, max_capacity: 1 }
     })
   } catch {
     initWeekSchedule()
@@ -153,6 +166,7 @@ function copyToAll() {
       day.start_time = first.start_time
       day.end_time = first.end_time
       day.is_day_off = first.is_day_off
+      day.max_capacity = first.max_capacity
     }
   })
 }
@@ -164,7 +178,7 @@ async function saveSchedule() {
       start_time: d.is_day_off ? '' : d.start_time,
       end_time: d.is_day_off ? '' : d.end_time,
       is_day_off: d.is_day_off,
-      max_capacity: 1,
+      max_capacity: Math.max(1, Number(d.max_capacity) || 1),
     })))
     uni.showToast({ title: '排班已保存', icon: 'success' })
   } catch (e: any) {
@@ -176,7 +190,7 @@ onLoad((query) => {
   if (query?.id) {
     id.value = parseInt(query.id)
     loadData()
-    if (isAdmin.value) loadSchedule()
+    if (canManageSchedule.value) loadSchedule()
   }
 })
 
@@ -186,6 +200,7 @@ async function loadData() {
     name: res.data.name,
     phone: res.data.phone,
     password: '',
+    role: res.data.role || 'staff',
     commission_rate: res.data.commission_rate,
     product_commission_rate: res.data.product_commission_rate || 0,
     feeding_commission_rate: res.data.feeding_commission_rate || 0,
@@ -206,6 +221,7 @@ async function onSubmit() {
       commission_rate: toNumber(form.value.commission_rate),
       product_commission_rate: toNumber(form.value.product_commission_rate),
       feeding_commission_rate: toNumber(form.value.feeding_commission_rate),
+      role: form.value.role,
       status: form.value.status,
     }
     if (id.value) {
@@ -215,6 +231,7 @@ async function onSubmit() {
         phone: payload.phone,
         name: payload.name,
         password: form.value.password || undefined,
+        role: payload.role,
         commission_rate: payload.commission_rate,
         product_commission_rate: payload.product_commission_rate,
         feeding_commission_rate: payload.feeding_commission_rate,
@@ -292,6 +309,7 @@ async function onDelete() {
 .day-date { font-size: 20rpx; color: #9CA3AF; }
 .time-inputs { display: flex; align-items: center; gap: 8rpx; flex: 1; }
 .time-input { width: 120rpx; text-align: center; font-size: 26rpx; color: #1F2937; background: #F9FAFB; border-radius: 8rpx; height: 56rpx; }
+.cap-input { width: 96rpx; text-align: center; font-size: 24rpx; color: #1F2937; background: #EEF2FF; border-radius: 8rpx; height: 56rpx; }
 .time-sep { font-size: 24rpx; color: #9CA3AF; }
 .btn-day-off { font-size: 22rpx; color: #9CA3AF; padding: 8rpx 16rpx; background: #F3F4F6; border-radius: 8rpx; }
 .day-off-tag { font-size: 24rpx; color: #9CA3AF; background: #F3F4F6; padding: 8rpx 24rpx; border-radius: 8rpx; flex: 1; text-align: center; }

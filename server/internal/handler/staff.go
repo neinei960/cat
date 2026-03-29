@@ -39,13 +39,11 @@ func (h *StaffHandler) Create(c *gin.Context) {
 		ShopID:                c.GetUint("shop_id"),
 		Phone:                 req.Phone,
 		Name:                  req.Name,
-		Role:                  req.Role,
+		Role:                  model.NormalizeStaffRole(req.Role),
 		CommissionRate:        req.CommissionRate,
 		ProductCommissionRate: req.ProductCommissionRate,
 		FeedingCommissionRate: req.FeedingCommissionRate,
 	}
-	// 只允许创建 staff 角色
-	staff.Role = "staff"
 
 	password := req.Password
 	if password == "" {
@@ -114,6 +112,10 @@ func (h *StaffHandler) Update(c *gin.Context) {
 		staff.Phone = req.Phone
 	}
 	if req.Role != "" {
+		if !model.IsValidStaffRole(req.Role) {
+			response.Error(c, http.StatusBadRequest, "员工角色无效")
+			return
+		}
 		staff.Role = req.Role
 	}
 	if req.Status != 0 {

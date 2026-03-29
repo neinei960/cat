@@ -45,16 +45,19 @@ func (r *StatsRepository) GetRevenueTrendRealtime(shopID uint, startDate, endDat
 }
 
 type OverviewStats struct {
-	TodayRevenue          float64 `json:"today_revenue"`
-	TodayOrderCount       int     `json:"today_order_count"`
-	TodayAppointmentCount int     `json:"today_appointment_count"`
-	TodayNewCustomers     int     `json:"today_new_customers"`
-	PendingAppointments   int64   `json:"pending_appointments"`
-	TotalCustomers        int64   `json:"total_customers"`
-	AvgOrderValue         float64 `json:"avg_order_value"`
-	NoShowRate            float64 `json:"no_show_rate"`
-	NoShowCount           int64   `json:"no_show_count"`
-	TotalAppointments     int64   `json:"total_appointments"`
+	TodayRevenue            float64 `json:"today_revenue"`
+	TodayOrderCount         int     `json:"today_order_count"`
+	TodayAppointmentCount   int     `json:"today_appointment_count"`
+	TodayServiceCompleted   int     `json:"today_service_completed_count"`
+	TodayPendingSettlement  int     `json:"today_pending_settlement_count"`
+	TodayRefundedOrderCount int     `json:"today_refunded_order_count"`
+	TodayNewCustomers       int     `json:"today_new_customers"`
+	PendingAppointments     int64   `json:"pending_appointments"`
+	TotalCustomers          int64   `json:"total_customers"`
+	AvgOrderValue           float64 `json:"avg_order_value"`
+	NoShowRate              float64 `json:"no_show_rate"`
+	NoShowCount             int64   `json:"no_show_count"`
+	TotalAppointments       int64   `json:"total_appointments"`
 }
 
 type MemberTemplateStat struct {
@@ -64,13 +67,13 @@ type MemberTemplateStat struct {
 }
 
 type MemberStats struct {
-	ActiveMembers      int64                `json:"active_members"`
-	FrozenMembers      int64                `json:"frozen_members"`
-	TotalBalance       float64              `json:"total_balance"`
-	TotalMemberSpent   float64              `json:"total_member_spent"`
-	RangeRecharge      float64              `json:"range_recharge"`
-	RangeConsumption   float64              `json:"range_consumption"`
-	TemplateBreakdown  []MemberTemplateStat `json:"template_breakdown"`
+	ActiveMembers     int64                `json:"active_members"`
+	FrozenMembers     int64                `json:"frozen_members"`
+	TotalBalance      float64              `json:"total_balance"`
+	TotalMemberSpent  float64              `json:"total_member_spent"`
+	RangeRecharge     float64              `json:"range_recharge"`
+	RangeConsumption  float64              `json:"range_consumption"`
+	TemplateBreakdown []MemberTemplateStat `json:"template_breakdown"`
 }
 
 func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats, error) {
@@ -94,6 +97,25 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 	database.DB.Model(&model.Appointment{}).
 		Where("shop_id = ? AND date = ?", shopID, today).Count(&apptCount)
 	stats.TodayAppointmentCount = int(apptCount)
+
+	var completedCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date = ? AND status = 3", shopID, today).
+		Count(&completedCount)
+	stats.TodayServiceCompleted = int(completedCount)
+
+	var pendingSettlementCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date = ? AND status = 3 AND paid_amount + 0.0001 < total_amount", shopID, today).
+		Count(&pendingSettlementCount)
+	stats.TodayPendingSettlement = int(pendingSettlementCount)
+
+	var refundedCount int64
+	database.DB.Model(&model.Order{}).
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 3 AND COALESCE(appointments.date, DATE(orders.created_at)) = ?", shopID, today).
+		Count(&refundedCount)
+	stats.TodayRefundedOrderCount = int(refundedCount)
 
 	// Today's new customers
 	var newCustCount int64
@@ -151,6 +173,25 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 	database.DB.Model(&model.Appointment{}).
 		Where("shop_id = ? AND date >= ? AND date <= ?", shopID, startDate, endDate).Count(&apptCount)
 	stats.TodayAppointmentCount = int(apptCount)
+
+	var completedCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= ? AND date <= ? AND status = 3", shopID, startDate, endDate).
+		Count(&completedCount)
+	stats.TodayServiceCompleted = int(completedCount)
+
+	var pendingSettlementCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= ? AND date <= ? AND status = 3 AND paid_amount + 0.0001 < total_amount", shopID, startDate, endDate).
+		Count(&pendingSettlementCount)
+	stats.TodayPendingSettlement = int(pendingSettlementCount)
+
+	var refundedCount int64
+	database.DB.Model(&model.Order{}).
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 3 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
+		Count(&refundedCount)
+	stats.TodayRefundedOrderCount = int(refundedCount)
 
 	var newCustCount int64
 	database.DB.Model(&model.Customer{}).
@@ -235,12 +276,23 @@ type ServiceRanking struct {
 
 func (r *StatsRepository) GetServiceRanking(shopID uint, startDate, endDate string) ([]ServiceRanking, error) {
 	var rankings []ServiceRanking
-	err := database.DB.Table("appointment_services").
-		Select("appointment_services.service_name, COUNT(*) as count, SUM(appointment_services.price) as revenue").
-		Joins("JOIN appointments ON appointments.id = appointment_services.appointment_id").
-		Where("appointments.shop_id = ? AND appointments.date >= ? AND appointments.date <= ? AND appointments.status = 3 AND appointments.deleted_at IS NULL AND appointment_services.deleted_at IS NULL",
+	serviceNameExpr := `
+		COALESCE(
+			NULLIF(services.name, ''),
+			CASE
+				WHEN order_items.name LIKE '% · %' THEN SUBSTRING_INDEX(order_items.name, ' · ', -1)
+				ELSE order_items.name
+			END
+		)
+	`
+	err := database.DB.Table("order_items").
+		Select(serviceNameExpr+" as service_name, COUNT(*) as count, SUM(order_items.amount) as revenue").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Joins("LEFT JOIN services ON services.id = order_items.item_id AND order_items.item_type = 1 AND services.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND order_items.item_type = 1 AND orders.deleted_at IS NULL AND order_items.deleted_at IS NULL",
 			shopID, startDate, endDate).
-		Group("appointment_services.service_name").
+		Group(serviceNameExpr).
 		Order("count DESC").
 		Limit(10).
 		Find(&rankings).Error
@@ -267,6 +319,19 @@ func (r *StatsRepository) GetCategoryStats(shopID uint, startDate, endDate strin
 	`
 	furLevelExpr := `
 		COALESCE(
+			NULLIF((
+				SELECT pets_inner.fur_level
+				FROM appointment_pets ap_inner
+				JOIN pets pets_inner ON pets_inner.id = ap_inner.pet_id AND pets_inner.deleted_at IS NULL
+				WHERE ap_inner.appointment_id = orders.appointment_id
+					AND ap_inner.deleted_at IS NULL
+					AND (
+						order_items.name NOT LIKE '% · %'
+						OR pets_inner.name = SUBSTRING_INDEX(order_items.name, ' · ', 1)
+					)
+				ORDER BY ap_inner.sort_order ASC, ap_inner.id ASC
+				LIMIT 1
+			), ''),
 			NULLIF(pets.fur_level, ''),
 			NULLIF(service_price_rules.name, ''),
 			NULLIF(service_price_rules.fur_level, ''),
@@ -299,12 +364,13 @@ type StaffPerformance struct {
 
 func (r *StatsRepository) GetStaffPerformance(shopID uint, startDate, endDate string) ([]StaffPerformance, error) {
 	var perfs []StaffPerformance
-	err := database.DB.Table("appointments").
-		Select("appointments.staff_id, staffs.name as staff_name, staffs.commission_rate, COUNT(*) as appt_count, SUM(appointments.total_amount) as revenue").
-		Joins("JOIN staffs ON staffs.id = appointments.staff_id").
-		Where("appointments.shop_id = ? AND appointments.date >= ? AND appointments.date <= ? AND appointments.status = 3 AND appointments.deleted_at IS NULL",
+	err := database.DB.Table("orders").
+		Select("orders.staff_id, staffs.name as staff_name, staffs.commission_rate, COUNT(*) as appt_count, SUM(orders.pay_amount) as revenue").
+		Joins("JOIN staffs ON staffs.id = orders.staff_id").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND orders.staff_id IS NOT NULL AND orders.deleted_at IS NULL",
 			shopID, startDate, endDate).
-		Group("appointments.staff_id, staffs.name, staffs.commission_rate").
+		Group("orders.staff_id, staffs.name, staffs.commission_rate").
 		Order("revenue DESC").
 		Find(&perfs).Error
 	// Calculate commission

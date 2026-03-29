@@ -125,3 +125,9 @@ func (r *OrderRepository) CountByAppointment(appointmentID uint) (int64, error) 
 	err := database.DB.Model(&model.Order{}).Where("appointment_id = ?", appointmentID).Count(&count).Error
 	return count, err
 }
+
+func (r *OrderRepository) FindByAppointment(appointmentID uint) ([]model.Order, error) {
+	var orders []model.Order
+	err := database.DB.Where("appointment_id = ?", appointmentID).Order("id ASC").Find(&orders).Error
+	return orders, err
+}

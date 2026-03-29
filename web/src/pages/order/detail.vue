@@ -181,28 +181,41 @@
 
     <!-- Pay modal -->
     <view class="modal-mask" v-if="showPayModal" @click="showPayModal = false">
-      <view class="modal" @click.stop>
-        <text class="modal-title">选择收款方式</text>
-        <text class="modal-amount">应收：¥{{ order.pay_amount }}</text>
+      <view class="pay-modal" @click.stop>
+        <view class="pay-modal-header">
+          <view>
+            <text class="modal-title">选择收款方式</text>
+            <text class="pay-modal-subtitle">确认金额后直接完成收款</text>
+          </view>
+          <text class="pay-modal-close" @click="showPayModal = false">✕</text>
+        </view>
+
+        <view class="pay-amount-panel">
+          <text class="pay-amount-label">本单应收</text>
+          <text class="modal-amount">¥{{ order.pay_amount }}</text>
+        </view>
 
         <view class="pay-grid">
-          <view class="pay-card" @click="doPay('cash')">
-            <text class="pay-card-icon">💵</text>
+          <view class="pay-card cash" @click="doPay('cash')">
+            <view class="pay-card-badge">现</view>
             <text class="pay-card-label">现金</text>
+            <text class="pay-card-sub">当面收款</text>
           </view>
-          <view class="pay-card" @click="doPay('wechat')">
-            <text class="pay-card-icon">📱</text>
+          <view class="pay-card qrcode" @click="doPay('wechat')">
+            <view class="pay-card-badge">码</view>
             <text class="pay-card-label">扫码</text>
+            <text class="pay-card-sub">微信 / 支付宝</text>
           </view>
-          <view class="pay-card" @click="doPay('meituan')">
-            <text class="pay-card-icon">🟠</text>
+          <view class="pay-card meituan" @click="doPay('meituan')">
+            <view class="pay-card-badge">团</view>
             <text class="pay-card-label">美团</text>
+            <text class="pay-card-sub">平台核销订单</text>
           </view>
-          <view :class="['pay-card', memberBalance <= 0 ? 'pay-card-disabled' : '']" @click="payWithBalance">
-            <text class="pay-card-icon">💳</text>
+          <view :class="['pay-card', 'balance', memberBalance <= 0 ? 'pay-card-disabled' : '']" @click="payWithBalance">
+            <view class="pay-card-badge">卡</view>
             <text class="pay-card-label">会员余额</text>
-            <text class="pay-card-sub" v-if="memberBalance > 0">余额¥{{ memberBalance.toFixed(2) }}</text>
-            <text class="pay-card-sub warn" v-else>未开卡</text>
+            <text class="pay-card-sub" v-if="memberBalance > 0">可用 ¥{{ memberBalance.toFixed(2) }}</text>
+            <text class="pay-card-sub warn" v-else>未开卡 / 无余额</text>
           </view>
         </view>
       </view>
@@ -220,9 +233,10 @@ import { getShop } from '@/api/shop'
 import { getCustomerCard } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import html2canvas from 'html2canvas'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
+const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const order = ref<any>(null)
 const showPayModal = ref(false)
 const showReceipt = ref(false)
@@ -326,7 +340,7 @@ function closeReceipt() {
   receiptImageUrl.value = ''
   showReceipt.value = false
 }
-const statusMap: Record<number, string> = { 0: '待付款', 1: '已完成', 2: '已取消', 3: '已退款' }
+const statusMap: Record<number, string> = { 0: '待付款', 1: '已支付', 2: '已取消', 3: '已退款' }
 const payMethodMap: Record<string, string> = { wechat: '扫码', alipay: '扫码', cash: '现金', meituan: '美团', balance: '会员余额' }
 
 onLoad(async (query) => {
@@ -465,21 +479,101 @@ async function doRefund() {
 
 /* Pay modal */
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; }
-.modal { background: #fff; border-radius: 20rpx; padding: 40rpx; width: 80%; }
-.modal-title { font-size: 32rpx; font-weight: bold; display: block; text-align: center; }
-.modal-amount { font-size: 48rpx; font-weight: 800; color: #4F46E5; display: block; text-align: center; margin: 16rpx 0 28rpx; }
-
-.pay-grid { display: flex; flex-wrap: wrap; gap: 20rpx; }
-.pay-card {
-  width: calc(50% - 10rpx); display: flex; flex-direction: column; align-items: center;
-  padding: 28rpx 16rpx; border-radius: 16rpx; background: #F9FAFB;
-  border: 2rpx solid #E5E7EB; gap: 6rpx;
+.pay-modal {
+  width: 86%;
+  max-width: 680rpx;
+  background: linear-gradient(180deg, #FFFFFF, #FBFCFF);
+  border-radius: 28rpx;
+  padding: 28rpx;
+  box-shadow: 0 24rpx 60rpx rgba(15, 23, 42, 0.24);
 }
-.pay-card:active { border-color: #4F46E5; background: #EEF2FF; }
-.pay-card-disabled { opacity: 0.5; }
-.pay-card-icon { font-size: 40rpx; }
-.pay-card-label { font-size: 28rpx; color: #374151; font-weight: 600; }
-.pay-card-sub { font-size: 22rpx; color: #059669; }
+.pay-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+.modal-title {
+  font-size: 32rpx;
+  font-weight: 800;
+  color: #111827;
+  display: block;
+}
+.pay-modal-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #94A3B8;
+}
+.pay-modal-close {
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #F3F4F6;
+  color: #6B7280;
+  font-size: 24rpx;
+  flex-shrink: 0;
+}
+.pay-amount-panel {
+  margin: 24rpx 0 26rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, #EEF2FF, #F8FAFF);
+  border: 1rpx solid #C7D2FE;
+}
+.pay-amount-label {
+  display: block;
+  font-size: 22rpx;
+  color: #6366F1;
+  letter-spacing: 1rpx;
+}
+.modal-amount {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 56rpx;
+  line-height: 1;
+  font-weight: 900;
+  color: #4338CA;
+}
+
+.pay-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18rpx; }
+.pay-card {
+  min-height: 172rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22rpx 20rpx;
+  border-radius: 22rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E7EB;
+  box-sizing: border-box;
+  box-shadow: 0 8rpx 20rpx rgba(15, 23, 42, 0.05);
+  gap: 10rpx;
+}
+.pay-card:active { transform: scale(0.98); }
+.pay-card.cash { border-color: #FDE68A; background: linear-gradient(180deg, #FFFDF3, #FFFFFF); }
+.pay-card.qrcode { border-color: #BFDBFE; background: linear-gradient(180deg, #F8FBFF, #FFFFFF); }
+.pay-card.meituan { border-color: #FED7AA; background: linear-gradient(180deg, #FFF7ED, #FFFFFF); }
+.pay-card.balance { border-color: #C7D2FE; background: linear-gradient(180deg, #F8FAFF, #FFFFFF); }
+.pay-card-disabled { opacity: 0.55; }
+.pay-card-badge {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #111827;
+  background: rgba(255,255,255,0.85);
+  border: 1rpx solid rgba(148, 163, 184, 0.22);
+}
+.pay-card-label { font-size: 30rpx; color: #111827; font-weight: 700; }
+.pay-card-sub { font-size: 22rpx; color: #059669; line-height: 1.45; }
 .pay-card-sub.warn { color: #DC2626; }
 
 /* Receipt button */

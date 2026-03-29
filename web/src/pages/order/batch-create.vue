@@ -50,7 +50,9 @@
         <text class="notes-text">{{ appt.notes }}</text>
       </view>
 
-      <button class="submit-btn" :loading="submitting" @click="submitBatch">确认生成 {{ drafts.length }} 张订单</button>
+      <view class="submit-bar">
+        <button class="submit-btn" :loading="submitting" @click="submitBatch">确认生成 {{ drafts.length }} 张订单</button>
+      </view>
 
       <!-- 修改价格弹窗 -->
       <view v-if="editingPrice" class="modal-mask" @click="editingPrice = null">
@@ -391,7 +393,7 @@ onLoad((query) => {
 </script>
 
 <style scoped>
-.page { padding: 24rpx; padding-bottom: calc(120rpx + env(safe-area-inset-bottom)); }
+.page { padding: 24rpx; padding-bottom: calc(220rpx + env(safe-area-inset-bottom)); }
 .state { text-align: center; padding: 120rpx 0; color: #9CA3AF; font-size: 28rpx; }
 .summary-card, .draft-card, .notes-card { background: #fff; border-radius: 18rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 4rpx 18rpx rgba(15, 23, 42, 0.06); }
 .summary-title { font-size: 32rpx; font-weight: 700; color: #111827; display: block; margin-bottom: 12rpx; }
@@ -423,7 +425,26 @@ onLoad((query) => {
 
 .notes-title { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 10rpx; }
 .notes-text { font-size: 24rpx; color: #6B7280; line-height: 1.6; }
-.submit-btn { position: fixed; bottom: 0; left: 0; right: 0; margin: 0; background: #4F46E5; color: #fff; border-radius: 0; font-size: 30rpx; padding: 20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom)); z-index: 100; }
+.submit-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(50px + env(safe-area-inset-bottom));
+  padding: 20rpx 24rpx 28rpx;
+  background: linear-gradient(180deg, rgba(245, 246, 250, 0), rgba(245, 246, 250, 0.92) 26%, #F5F6FA 100%);
+  z-index: 100;
+}
+
+.submit-btn {
+  margin: 0;
+  background: #4F46E5;
+  color: #fff;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+  line-height: 1.2;
+  padding: 22rpx 32rpx;
+  box-shadow: 0 12rpx 28rpx rgba(79, 70, 229, 0.24);
+}
 
 /* 弹窗 */
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999; display: flex; align-items: center; justify-content: center; }

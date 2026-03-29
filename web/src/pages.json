@@ -128,6 +128,12 @@
 			}
 		},
 		{
+			"path": "pages/pet/report",
+			"style": {
+				"navigationBarTitleText": "洗浴报告管理"
+			}
+		},
+		{
 			"path": "pages/order/list",
 			"style": {
 				"navigationBarTitleText": "订单管理"

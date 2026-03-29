@@ -133,9 +133,9 @@ async function handleLogin() {
 .login-page {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(244, 114, 182, 0.16), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.12), transparent 28%),
-    linear-gradient(160deg, #FFF7ED 0%, #F8FAFC 48%, #EEF2FF 100%);
+    radial-gradient(circle at top left, rgba(79, 70, 229, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(238, 242, 255, 0.6), transparent 32%),
+    linear-gradient(160deg, #F8FAFC 0%, #F5F6FA 60%, #EEF2FF 100%);
   padding: 44rpx;
   box-sizing: border-box;
 }
@@ -156,8 +156,8 @@ async function handleLogin() {
 
 .brand-panel {
   background:
-    linear-gradient(155deg, rgba(24, 24, 27, 0.96), rgba(39, 39, 42, 0.92)),
-    linear-gradient(135deg, #0F172A, #1F2937);
+    linear-gradient(155deg, rgba(79, 70, 229, 0.96), rgba(67, 56, 202, 0.92)),
+    linear-gradient(135deg, #4F46E5, #374151);
   color: #FFFFFF;
   padding: 72rpx 56rpx;
   display: flex;
@@ -205,6 +205,12 @@ async function handleLogin() {
   border-radius: 24rpx;
   background: rgba(255, 255, 255, 0.08);
   border: 1rpx solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-4rpx);
+  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.12);
 }
 
 .metric-label {

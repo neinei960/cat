@@ -44,6 +44,11 @@ type StaffSlots struct {
 	Slots []TimeSlot   `json:"slots"`
 }
 
+type timeInterval struct {
+	start int
+	end   int
+}
+
 type AppointmentPetSelection struct {
 	PetID      uint   `json:"pet_id"`
 	ServiceIDs []uint `json:"service_ids"`
@@ -132,11 +137,14 @@ func (s *AppointmentService) calculateSlots(schedule model.StaffSchedule, appts 
 	endMin := timeToMinutes(schedule.EndTime)
 	breakStartMin := timeToMinutes(schedule.BreakStart)
 	breakEndMin := timeToMinutes(schedule.BreakEnd)
+	maxCapacity := schedule.MaxCapacity
+	if maxCapacity <= 0 {
+		maxCapacity = 1
+	}
 
-	type interval struct{ start, end int }
-	var occupied []interval
+	var occupied []timeInterval
 	for _, a := range appts {
-		occupied = append(occupied, interval{timeToMinutes(a.StartTime), timeToMinutes(a.EndTime)})
+		occupied = append(occupied, timeInterval{timeToMinutes(a.StartTime), timeToMinutes(a.EndTime)})
 	}
 
 	var slots []TimeSlot
@@ -147,14 +155,7 @@ func (s *AppointmentService) calculateSlots(schedule model.StaffSchedule, appts 
 			continue
 		}
 
-		conflict := false
-		for _, o := range occupied {
-			if t < o.end && slotEnd > o.start {
-				conflict = true
-				break
-			}
-		}
-		if conflict {
+		if hasIntervalCapacityConflict(occupied, t, slotEnd, maxCapacity) {
 			continue
 		}
 
@@ -165,6 +166,28 @@ func (s *AppointmentService) calculateSlots(schedule model.StaffSchedule, appts 
 	}
 
 	return slots
+}
+
+func hasIntervalCapacityConflict(occupied []timeInterval, startMin, endMin, maxCapacity int) bool {
+	if maxCapacity <= 0 {
+		maxCapacity = 1
+	}
+	for segmentStart := startMin; segmentStart < endMin; segmentStart += 30 {
+		segmentEnd := segmentStart + 30
+		if segmentEnd > endMin {
+			segmentEnd = endMin
+		}
+		active := 0
+		for _, o := range occupied {
+			if segmentStart < o.end && segmentEnd > o.start {
+				active++
+			}
+		}
+		if active >= maxCapacity {
+			return true
+		}
+	}
+	return false
 }
 
 func timeToMinutes(t string) int {
@@ -329,12 +352,8 @@ func (s *AppointmentService) buildMultiPayload(appt *model.Appointment, petSelec
 	appt.PetID = petSelections[0].PetID
 
 	if appt.StaffID != nil && *appt.StaffID > 0 {
-		conflict, err := s.apptRepo.HasConflict(*appt.StaffID, appt.Date, appt.StartTime, appt.EndTime, excludeAppointmentID)
-		if err != nil {
+		if err := s.ensureStaffAvailability(*appt.StaffID, appt.Date, appt.StartTime, appt.EndTime, excludeAppointmentID); err != nil {
 			return nil, err
-		}
-		if conflict {
-			return nil, errors.New("该时段技师已有预约，存在时间冲突")
 		}
 	}
 
@@ -437,7 +456,11 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 
 func (s *AppointmentService) getQualifiedStaffIDs(shopID uint, serviceIDs []uint) ([]uint, error) {
 	var allStaff []model.Staff
-	if err := database.DB.Where("shop_id = ? AND status = 1 AND role = 'staff'", shopID).Find(&allStaff).Error; err != nil {
+	if err := database.DB.Where("shop_id = ? AND status = 1 AND role IN ?", shopID, []string{
+		model.StaffRoleStaff,
+		model.StaffRoleManager,
+		model.StaffRoleAdmin,
+	}).Find(&allStaff).Error; err != nil {
 		return nil, err
 	}
 	if len(allStaff) == 0 {
@@ -584,12 +607,8 @@ func (s *AppointmentService) AssignStaff(apptID, staffID uint) error {
 		return errors.New("预约不存在")
 	}
 
-	conflict, err := s.apptRepo.HasConflict(staffID, appt.Date, appt.StartTime, appt.EndTime, apptID)
-	if err != nil {
+	if err := s.ensureStaffAvailability(staffID, appt.Date, appt.StartTime, appt.EndTime, apptID); err != nil {
 		return err
-	}
-	if conflict {
-		return errors.New("该时段技师已有预约，存在时间冲突")
 	}
 
 	appt.StaffID = &staffID
@@ -610,12 +629,8 @@ func (s *AppointmentService) Reschedule(apptID uint, newDate, newStartTime strin
 	newEndTime := minutesToTime(timeToMinutes(newStartTime) + oldDuration)
 
 	if appt.StaffID != nil && *appt.StaffID > 0 {
-		conflict, err := s.apptRepo.HasConflict(*appt.StaffID, newDate, newStartTime, newEndTime, apptID)
-		if err != nil {
+		if err := s.ensureStaffAvailability(*appt.StaffID, newDate, newStartTime, newEndTime, apptID); err != nil {
 			return err
-		}
-		if conflict {
-			return errors.New("新时段存在冲突")
 		}
 	}
 
@@ -623,4 +638,78 @@ func (s *AppointmentService) Reschedule(apptID uint, newDate, newStartTime strin
 	appt.StartTime = newStartTime
 	appt.EndTime = newEndTime
 	return s.apptRepo.Update(appt)
+}
+
+func (s *AppointmentService) ensureStaffAvailability(staffID uint, date, startTime, endTime string, excludeAppointmentID uint) error {
+	schedule, err := s.getScheduleForStaffDate(staffID, date)
+	if err != nil {
+		return err
+	}
+	if schedule.IsDayOff {
+		return errors.New("该员工当天休息，无法安排预约")
+	}
+
+	startMin := timeToMinutes(startTime)
+	endMin := timeToMinutes(endTime)
+	if endMin <= startMin {
+		return errors.New("结束时间必须晚于开始时间")
+	}
+	if (endMin-startMin)%30 != 0 {
+		return errors.New("预约时间必须按30分钟粒度选择")
+	}
+
+	scheduleStart := timeToMinutes(schedule.StartTime)
+	scheduleEnd := timeToMinutes(schedule.EndTime)
+	if startMin < scheduleStart || endMin > scheduleEnd {
+		return errors.New("预约时间超出员工排班范围")
+	}
+
+	breakStart := timeToMinutes(schedule.BreakStart)
+	breakEnd := timeToMinutes(schedule.BreakEnd)
+	if breakStart > 0 && breakEnd > 0 && startMin < breakEnd && endMin > breakStart {
+		return errors.New("预约时间与员工休息时间冲突")
+	}
+
+	appts, err := s.apptRepo.FindByStaffAndDate(staffID, date)
+	if err != nil {
+		return err
+	}
+	appts = filterAppointmentsByID(appts, excludeAppointmentID)
+
+	occupied := make([]timeInterval, 0, len(appts))
+	for _, appt := range appts {
+		occupied = append(occupied, timeInterval{
+			start: timeToMinutes(appt.StartTime),
+			end:   timeToMinutes(appt.EndTime),
+		})
+	}
+
+	maxCapacity := schedule.MaxCapacity
+	if maxCapacity <= 0 {
+		maxCapacity = 1
+	}
+	if hasIntervalCapacityConflict(occupied, startMin, endMin, maxCapacity) {
+		return errors.New("该时段已达到员工接单上限")
+	}
+
+	return nil
+}
+
+func (s *AppointmentService) getScheduleForStaffDate(staffID uint, date string) (model.StaffSchedule, error) {
+	schedules, err := s.scheduleRepo.FindByStaffAndDateRange(staffID, date, date)
+	if err == nil && len(schedules) > 0 {
+		schedule := schedules[0]
+		if schedule.MaxCapacity <= 0 {
+			schedule.MaxCapacity = 1
+		}
+		return schedule, nil
+	}
+
+	return model.StaffSchedule{
+		StaffID:     staffID,
+		Date:        date,
+		StartTime:   "10:00",
+		EndTime:     "22:00",
+		MaxCapacity: 1,
+	}, nil
 }

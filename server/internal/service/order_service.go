@@ -92,7 +92,11 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 		}
 	}
 
-	return order, tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	_ = s.syncAppointmentSettlement(appointmentID)
+	return order, nil
 }
 
 type ServiceOverride struct {
@@ -200,6 +204,7 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides 
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
+	_ = s.syncAppointmentSettlement(appointmentID)
 	return orders, nil
 }
 
@@ -291,6 +296,8 @@ func (s *OrderService) MarkPaid(id uint, payMethod, transactionID string) error 
 			})
 	}
 
+	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+
 	return nil
 }
 
@@ -307,7 +314,11 @@ func (s *OrderService) Refund(id uint, remark string) error {
 	order.PayStatus = 2
 	order.Status = 3
 	order.Remark = remark
-	return s.orderRepo.Update(order)
+	if err := s.orderRepo.Update(order); err != nil {
+		return err
+	}
+	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+	return nil
 }
 
 // Cancel cancels an unpaid order
@@ -321,5 +332,34 @@ func (s *OrderService) Cancel(id uint) error {
 	}
 
 	order.Status = 2
-	return s.orderRepo.Update(order)
+	if err := s.orderRepo.Update(order); err != nil {
+		return err
+	}
+	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+	return nil
+}
+
+func (s *OrderService) syncAppointmentSettlementPtr(appointmentID *uint) error {
+	if appointmentID == nil || *appointmentID == 0 {
+		return nil
+	}
+	return s.syncAppointmentSettlement(*appointmentID)
+}
+
+func (s *OrderService) syncAppointmentSettlement(appointmentID uint) error {
+	orders, err := s.orderRepo.FindByAppointment(appointmentID)
+	if err != nil {
+		return err
+	}
+
+	var paidAmount float64
+	for _, order := range orders {
+		if order.Status == 1 && order.PayStatus == 1 {
+			paidAmount += order.PayAmount
+		}
+	}
+
+	return database.DB.Model(&model.Appointment{}).
+		Where("id = ?", appointmentID).
+		Update("paid_amount", paidAmount).Error
 }

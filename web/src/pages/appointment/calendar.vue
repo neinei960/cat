@@ -246,6 +246,7 @@ import { getStaffList, getStaffSchedule } from '@/api/staff'
 import { getCategoryTree } from '@/api/service-category'
 import { getShop } from '@/api/shop'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+import { compareStaffRole } from '@/utils/staff-role'
 import {
   APPOINTMENT_STATUS_META,
   getAppointmentStatusBadgeStyle,
@@ -414,7 +415,7 @@ const unassignedCount = computed(() => unassignedAppts.value.length)
 
 function sortStaffList(list: Staff[]) {
   return [...list].sort((a, b) => {
-    const roleDiff = Number(a.role === 'admin') - Number(b.role === 'admin')
+    const roleDiff = compareStaffRole(a.role, b.role)
     if (roleDiff !== 0) return roleDiff
     return a.ID - b.ID
   })

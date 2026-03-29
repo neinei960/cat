@@ -3,7 +3,7 @@
   <view class="page">
     <view class="header">
       <text class="title">员工管理</text>
-      <view class="btn-add" v-if="isAdmin" @click="goAdd">+ 新增员工</view>
+      <view class="btn-add" v-if="canCreateStaff" @click="goAdd">+ 新增员工</view>
     </view>
 
     <view v-if="loading" class="loading">加载中...</view>
@@ -16,7 +16,7 @@
           <view class="avatar">{{ item.name.charAt(0) }}</view>
           <view class="info">
             <text class="name">{{ item.name }}</text>
-            <text class="role">{{ roleMap[item.role] || item.role }}</text>
+            <text class="role">{{ staffRoleLabel(item.role) }}</text>
           </view>
           <view :class="['status', item.status === 1 ? 'active' : 'inactive']">
             {{ item.status === 1 ? '在职' : '离职' }}
@@ -41,19 +41,23 @@ import SideLayout from '@/components/SideLayout.vue'
 import { ref, computed, onMounted } from 'vue'
 import { getStaffList } from '@/api/staff'
 import { useAuthStore } from '@/store/auth'
+import { compareStaffRole, hasStaffRoleAtLeast, staffRoleLabel } from '@/utils/staff-role'
 
 const authStore = useAuthStore()
-const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
+const canCreateStaff = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'admin'))
 
 const list = ref<Staff[]>([])
 const loading = ref(true)
-const roleMap: Record<string, string> = { admin: '店主', manager: '经理', staff: '洗护师' }
 
 async function loadData() {
   loading.value = true
   try {
     const res = await getStaffList({ page: 1, page_size: 100 })
-    list.value = res.data.list || []
+    list.value = (res.data.list || []).slice().sort((a, b) => {
+      const roleDiff = compareStaffRole(a.role, b.role)
+      if (roleDiff !== 0) return roleDiff
+      return a.ID - b.ID
+    })
   } finally {
     loading.value = false
   }

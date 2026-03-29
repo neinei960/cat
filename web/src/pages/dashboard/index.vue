@@ -38,9 +38,9 @@
           <text class="kpi-foot">平均每笔订单收入</text>
         </view>
         <view class="kpi-card">
-          <text class="kpi-label">订单数</text>
+          <text class="kpi-label">已支付订单</text>
           <text class="kpi-value">{{ overview.today_order_count }}</text>
-          <text class="kpi-foot">已完成结算订单</text>
+          <text class="kpi-foot">当前时间区间已支付订单数</text>
         </view>
         <view class="kpi-card" :class="{ warn: (overview.no_show_rate || 0) > 0.1 }">
           <text class="kpi-label">爽约率</text>
@@ -94,6 +94,18 @@
             <view class="summary-row">
               <text class="summary-label">预约数</text>
               <text class="summary-value">{{ overview.today_appointment_count }}</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-label">服务完成</text>
+              <text class="summary-value">{{ overview.today_service_completed_count }}</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-label">待结算</text>
+              <text class="summary-value">{{ overview.today_pending_settlement_count }}</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-label">已退款订单</text>
+              <text class="summary-value">{{ overview.today_refunded_order_count }}</text>
             </view>
             <view class="summary-row">
               <text class="summary-label">待处理预约</text>
@@ -163,7 +175,7 @@
           <view class="section-header">
             <view>
               <text class="section-title">服务项目营业额</text>
-              <text class="section-subtitle">看哪个项目带来更多营收与频次。</text>
+              <text class="section-subtitle">按已支付订单统计项目营收与频次。</text>
             </view>
           </view>
           <view class="rank-list">
@@ -192,7 +204,7 @@
           <view class="section-header">
             <view>
               <text class="section-title">员工业绩与提成</text>
-              <text class="section-subtitle">先看接单量，再看营收与提成差异。</text>
+              <text class="section-subtitle">按已支付订单统计业绩和提成，避免和待结算混在一起。</text>
             </view>
           </view>
           <view class="rank-list">
@@ -229,12 +241,12 @@
           </view>
         </view>
         <view class="rank-list">
-          <view class="rank-item header" v-if="categoryStats.length > 0">
-            <text class="rank-name">服务</text>
-            <text class="rank-fur">毛发等级</text>
-            <text class="rank-count">次数</text>
-            <text class="rank-revenue">营收</text>
-          </view>
+        <view class="rank-item header" v-if="categoryStats.length > 0">
+          <text class="rank-name">服务</text>
+          <text class="rank-fur">规格</text>
+          <text class="rank-count">次数</text>
+          <text class="rank-revenue">营收</text>
+        </view>
           <view class="rank-item" v-for="(s, i) in categoryStats" :key="i">
             <text class="rank-name">{{ s.service_name }}</text>
             <text class="rank-fur">{{ s.fur_level || '-' }}</text>
@@ -287,6 +299,7 @@ function setQuickDate(type: string) {
 
 const overview = ref({
   today_revenue: 0, today_order_count: 0, today_appointment_count: 0,
+  today_service_completed_count: 0, today_pending_settlement_count: 0, today_refunded_order_count: 0,
   today_new_customers: 0, pending_appointments: 0, total_customers: 0,
   avg_order_value: 0, no_show_rate: 0, no_show_count: 0, total_appointments: 0,
 })

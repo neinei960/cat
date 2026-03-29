@@ -2,6 +2,7 @@ package router
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/config"
@@ -94,19 +95,19 @@ func Setup(mode string) *gin.Engine {
 
 		// Shop
 		b.GET("/shop", shopHandler.Get)
-		b.PUT("/shop", middleware.RequireRole("admin"), shopHandler.Update)
+		b.PUT("/shop", middleware.RequireRole(model.StaffRoleAdmin), shopHandler.Update)
 
 		// Staff
-		b.POST("/staffs", middleware.RequireRole("admin"), staffHandler.Create)
+		b.POST("/staffs", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Create)
 		b.GET("/staffs", staffHandler.List)
 		b.GET("/staffs/:id", staffHandler.Get)
-		b.PUT("/staffs/:id", middleware.RequireRole("admin"), staffHandler.Update)
-		b.DELETE("/staffs/:id", middleware.RequireRole("admin"), staffHandler.Delete)
-		b.PUT("/staffs/:id/password", middleware.RequireRole("admin"), staffHandler.ResetPassword)
-		b.PUT("/staffs/:id/schedule", middleware.RequireRole("admin"), staffHandler.SetSchedule)
-		b.PUT("/staffs/:id/schedule/batch", middleware.RequireRole("admin"), staffHandler.BatchSetSchedule)
+		b.PUT("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Update)
+		b.DELETE("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Delete)
+		b.PUT("/staffs/:id/password", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.ResetPassword)
+		b.PUT("/staffs/:id/schedule", middleware.RequireMinRole(model.StaffRoleManager), staffHandler.SetSchedule)
+		b.PUT("/staffs/:id/schedule/batch", middleware.RequireMinRole(model.StaffRoleManager), staffHandler.BatchSetSchedule)
 		b.GET("/staffs/:id/schedule", staffHandler.GetSchedule)
-		b.PUT("/staffs/:id/services", middleware.RequireRole("admin"), staffHandler.SetServices)
+		b.PUT("/staffs/:id/services", middleware.RequireMinRole(model.StaffRoleManager), staffHandler.SetServices)
 		b.GET("/staffs/:id/services", staffHandler.GetServices)
 
 		// Service Categories
@@ -139,10 +140,10 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/customers/:id/pets", customerHandler.GetPets)
 
 		// Customer Tags
-		b.POST("/customer-tags", middleware.RequireRole("admin"), customerTagHandler.Create)
+		b.POST("/customer-tags", middleware.RequireRole(model.StaffRoleAdmin), customerTagHandler.Create)
 		b.GET("/customer-tags", customerTagHandler.List)
-		b.PUT("/customer-tags/:id", middleware.RequireRole("admin"), customerTagHandler.Update)
-		b.DELETE("/customer-tags/:id", middleware.RequireRole("admin"), customerTagHandler.Delete)
+		b.PUT("/customer-tags/:id", middleware.RequireRole(model.StaffRoleAdmin), customerTagHandler.Update)
+		b.DELETE("/customer-tags/:id", middleware.RequireRole(model.StaffRoleAdmin), customerTagHandler.Delete)
 
 		// Pets
 		b.POST("/pets", petHandler.Create)
@@ -162,10 +163,10 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/customers/:id/member-card", memberCardHandler.OpenCard)
 		b.POST("/customers/:id/recharge", memberCardHandler.Recharge)
 		b.GET("/customers/:id/member-card", memberCardHandler.GetCard)
-		b.PUT("/customers/:id/adjust-balance", middleware.RequireRole("admin"), memberCardHandler.AdjustBalance)
+		b.PUT("/customers/:id/adjust-balance", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.AdjustBalance)
 		b.GET("/customers/:id/recharge-records", memberCardHandler.GetRecords)
-		b.PUT("/recharge-records/:id", middleware.RequireRole("admin"), memberCardHandler.UpdateRecord)
-		b.DELETE("/recharge-records/:id", middleware.RequireRole("admin"), memberCardHandler.DeleteRecord)
+		b.PUT("/recharge-records/:id", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.UpdateRecord)
+		b.DELETE("/recharge-records/:id", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.DeleteRecord)
 
 		// Service Addons
 		b.POST("/addons", middleware.RequireRole("admin"), addonHandler.Create)
@@ -201,11 +202,12 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/appointments/:id", apptHandler.Get)
 		b.PUT("/appointments/:id", apptHandler.Update)
 		b.PUT("/appointments/:id/status", apptHandler.UpdateStatus)
-		b.PUT("/appointments/:id/assign", middleware.RequireRole("admin"), apptHandler.AssignStaff)
-		b.PUT("/appointments/:id/reschedule", middleware.RequireRole("admin"), apptHandler.Reschedule)
+		b.PUT("/appointments/:id/assign", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.AssignStaff)
+		b.PUT("/appointments/:id/reschedule", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.Reschedule)
 
 		// Service Records
 		svcRecordRepo := repository.NewServiceRecordRepository()
+		petBathReportRepo := repository.NewPetBathReportRepository()
 		b.POST("/service-records", func(c *gin.Context) {
 			var req struct {
 				AppointmentID uint   `json:"appointment_id" binding:"required"`
@@ -251,6 +253,103 @@ func Setup(mode string) *gin.Engine {
 			}
 		})
 
+		// Pet Bath Reports
+		b.GET("/pets/:id/bath-reports", func(c *gin.Context) {
+			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || petID == 0 {
+				response.Error(c, 400, "宠物ID错误")
+				return
+			}
+			reports, err := petBathReportRepo.FindByPet(c.GetUint("shop_id"), uint(petID))
+			if err != nil {
+				response.Error(c, 500, "查询失败")
+				return
+			}
+			response.Success(c, reports)
+		})
+		b.POST("/pets/:id/bath-reports", func(c *gin.Context) {
+			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || petID == 0 {
+				response.Error(c, 400, "宠物ID错误")
+				return
+			}
+			var req struct {
+				ImageURL string `json:"image_url" binding:"required"`
+				BathDate string `json:"bath_date"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			now := time.Now()
+			bathDate := &now
+			if req.BathDate != "" {
+				parsed, err := time.Parse("2006-01-02", req.BathDate)
+				if err != nil {
+					response.Error(c, 400, "洗浴日期格式错误")
+					return
+				}
+				bathDate = &parsed
+			}
+			report := &model.PetBathReport{
+				ShopID:   c.GetUint("shop_id"),
+				PetID:    uint(petID),
+				ImageURL: req.ImageURL,
+				BathDate: bathDate,
+			}
+			if err := petBathReportRepo.Create(report); err != nil {
+				response.Error(c, 500, "保存失败")
+				return
+			}
+			response.Success(c, report)
+		})
+		b.PUT("/pets/:id/bath-reports/:report_id", func(c *gin.Context) {
+			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || petID == 0 {
+				response.Error(c, 400, "宠物ID错误")
+				return
+			}
+			reportID, err := strconv.ParseUint(c.Param("report_id"), 10, 64)
+			if err != nil || reportID == 0 {
+				response.Error(c, 400, "报告ID错误")
+				return
+			}
+			var req struct {
+				BathDate string `json:"bath_date" binding:"required"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			parsed, err := time.Parse("2006-01-02", req.BathDate)
+			if err != nil {
+				response.Error(c, 400, "洗浴日期格式错误")
+				return
+			}
+			if err := petBathReportRepo.UpdateBathDate(c.GetUint("shop_id"), uint(petID), uint(reportID), &parsed); err != nil {
+				response.Error(c, 500, "更新失败")
+				return
+			}
+			response.Success(c, gin.H{"updated": true, "bath_date": req.BathDate})
+		})
+		b.DELETE("/pets/:id/bath-reports/:report_id", func(c *gin.Context) {
+			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || petID == 0 {
+				response.Error(c, 400, "宠物ID错误")
+				return
+			}
+			reportID, err := strconv.ParseUint(c.Param("report_id"), 10, 64)
+			if err != nil || reportID == 0 {
+				response.Error(c, 400, "报告ID错误")
+				return
+			}
+			if err := petBathReportRepo.Delete(c.GetUint("shop_id"), uint(petID), uint(reportID)); err != nil {
+				response.Error(c, 500, "删除失败")
+				return
+			}
+			response.Success(c, gin.H{"deleted": true})
+		})
+
 		// Orders
 		b.POST("/orders", orderHandler.Create)
 		b.POST("/orders/from-appointment", orderHandler.CreateFromAppointment)
@@ -259,17 +358,17 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/orders/price-lookup", orderHandler.PriceLookup)
 		b.GET("/orders/:id", orderHandler.Get)
 		b.PUT("/orders/:id/pay", orderHandler.Pay)
-		b.PUT("/orders/:id/refund", middleware.RequireRole("admin"), orderHandler.Refund)
-		b.PUT("/orders/:id/cancel", middleware.RequireRole("admin"), orderHandler.Cancel)
+		b.PUT("/orders/:id/refund", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Refund)
+		b.PUT("/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Cancel)
 
 		// Dashboard
 		b.GET("/dashboard/overview", dashHandler.Overview)
-		b.GET("/dashboard/revenue", middleware.RequireRole("admin"), dashHandler.Revenue)
+		b.GET("/dashboard/revenue", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Revenue)
 		b.GET("/dashboard/services", dashHandler.ServiceRanking)
-		b.GET("/dashboard/staff", middleware.RequireRole("admin"), dashHandler.StaffPerformance)
+		b.GET("/dashboard/staff", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.StaffPerformance)
 		b.GET("/dashboard/category", dashHandler.CategoryStats)
 		b.GET("/dashboard/members", dashHandler.MemberStats)
-		b.POST("/dashboard/aggregate", middleware.RequireRole("admin"), dashHandler.Aggregate)
+		b.POST("/dashboard/aggregate", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Aggregate)
 	}
 
 	// C-end routes (WeChat auth)

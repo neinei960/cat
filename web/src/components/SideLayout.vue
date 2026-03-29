@@ -86,10 +86,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
 const authStore = useAuthStore()
 const staffName = computed(() => authStore.staffInfo?.name || '员工')
-const isAdmin = computed(() => authStore.staffInfo?.role === 'admin')
+const currentRole = computed(() => authStore.staffInfo?.role || 'staff')
 const showMoreMenu = ref(false)
 
 const screenWidth = ref(800)
@@ -131,14 +132,14 @@ const allMenuItems = [
   { icon: '🐱', label: '猫咪管理', path: '/pages/pet/list' },
   { icon: '👥', label: '客户管理', path: '/pages/customer/list' },
   { icon: '📋', label: '订单管理', path: '/pages/order/list' },
-  { icon: '✂️', label: '服务管理', path: '/pages/service/list', adminOnly: true },
+  { icon: '✂️', label: '服务管理', path: '/pages/service/list', minRole: 'admin' },
   { icon: '📦', label: '商品管理', path: '/pages/product/list' },
-  { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', adminOnly: true },
-  { icon: '📊', label: '数据看板', path: '/pages/dashboard/index', adminOnly: true },
-  { icon: '💳', label: '会员卡', path: '/pages/setting/member-card', adminOnly: true },
-  { icon: '⚙️', label: '店铺设置', path: '/pages/shop/settings', adminOnly: true },
+  { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', minRole: 'manager' },
+  { icon: '📊', label: '数据看板', path: '/pages/dashboard/index', minRole: 'manager' },
+  { icon: '💳', label: '会员卡', path: '/pages/setting/member-card', minRole: 'manager' },
+  { icon: '⚙️', label: '店铺设置', path: '/pages/shop/settings', minRole: 'admin' },
 ]
-const menuItems = computed(() => allMenuItems.filter(m => !m.adminOnly || isAdmin.value))
+const menuItems = computed(() => allMenuItems.filter(m => !m.minRole || hasStaffRoleAtLeast(currentRole.value, m.minRole as any)))
 
 const tabItems = [
   { icon: '🏠', label: '工作台', path: '/pages/index/index' },
@@ -151,14 +152,14 @@ const tabItems = [
 const allMoreItems = [
   { icon: '📋', label: '预约列表', path: '/pages/appointment/list' },
   { icon: '👥', label: '客户管理', path: '/pages/customer/list' },
-  { icon: '✂️', label: '服务管理', path: '/pages/service/list', adminOnly: true },
+  { icon: '✂️', label: '服务管理', path: '/pages/service/list', minRole: 'admin' },
   { icon: '📦', label: '商品管理', path: '/pages/product/list' },
-  { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', adminOnly: true },
-  { icon: '📊', label: '数据看板', path: '/pages/dashboard/index', adminOnly: true },
-  { icon: '💳', label: '会员卡', path: '/pages/setting/member-card', adminOnly: true },
-  { icon: '⚙️', label: '店铺设置', path: '/pages/shop/settings', adminOnly: true },
+  { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', minRole: 'manager' },
+  { icon: '📊', label: '数据看板', path: '/pages/dashboard/index', minRole: 'manager' },
+  { icon: '💳', label: '会员卡', path: '/pages/setting/member-card', minRole: 'manager' },
+  { icon: '⚙️', label: '店铺设置', path: '/pages/shop/settings', minRole: 'admin' },
 ]
-const moreItems = computed(() => allMoreItems.filter(m => !m.adminOnly || isAdmin.value))
+const moreItems = computed(() => allMoreItems.filter(m => !m.minRole || hasStaffRoleAtLeast(currentRole.value, m.minRole as any)))
 
 function isActive(path: string): boolean {
   const pages = getCurrentPages()
@@ -241,14 +242,37 @@ function handleLogout() {
 }
 
 .menu-item.active {
+  background-color: #EEF2FF;
+  border-radius: 8px;
+  margin: 0 8px;
+  position: relative;
+}
+.menu-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 60%;
   background-color: #4F46E5;
+  border-radius: 2px;
 }
 
 .menu-icon {
   font-size: 16px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.1);
   margin-right: 10px;
-  width: 24px;
-  text-align: center;
+}
+
+.menu-item.active .menu-icon {
+  background-color: #4F46E5;
 }
 
 .menu-label {
@@ -257,8 +281,8 @@ function handleLogout() {
 }
 
 .menu-item.active .menu-label {
-  color: #FFFFFF;
-  font-weight: 500;
+  color: #1F2937;
+  font-weight: 600;
 }
 
 .sidebar-footer {
@@ -335,6 +359,21 @@ function handleLogout() {
 .tab-icon {
   font-size: 18px;
   line-height: 1;
+  width: 38rpx;
+  height: 38rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8rpx;
+  background-color: #F1F5F9;
+}
+
+.tab-item.active .tab-icon {
+  background-color: #EEF2FF;
+}
+
+.tab-icon-highlight .tab-icon {
+  background: none;
 }
 
 .tab-label {
@@ -416,7 +455,7 @@ function handleLogout() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 0;
+  padding: 10px 0;
   border-radius: 12px;
   transition: background-color 0.15s, transform 0.1s;
   cursor: pointer;

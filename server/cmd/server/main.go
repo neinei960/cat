@@ -54,6 +54,7 @@ func main() {
 		&model.ProductSKU{},
 		&model.ProductCategory{},
 		&model.ServiceRecord{},
+		&model.PetBathReport{},
 	); err != nil {
 		log.Fatalf("Failed to auto migrate: %v", err)
 	}

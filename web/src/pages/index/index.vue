@@ -26,9 +26,9 @@
           <text class="ops-desc">查看全天到店与排班节奏</text>
         </view>
         <view class="ops-card neutral">
-          <text class="ops-label">今日订单</text>
+          <text class="ops-label">今日已支付</text>
           <text class="ops-value">{{ overview.today_order_count }}</text>
-          <text class="ops-desc">结算笔数与开单进度</text>
+          <text class="ops-desc">已完成收款的订单数</text>
         </view>
         <view class="ops-card neutral">
           <text class="ops-label">今日新客</text>
@@ -44,36 +44,38 @@
             <text class="section-subtitle">高频动作放在最前面，避免切页找入口。</text>
           </view>
         </view>
-        <view class="quick-actions">
-          <view class="action-item action-primary" @click="go('/pages/order/create')">
-            <view class="action-icon">🧾</view>
-            <view class="action-copy">
-              <text class="action-title">立即开单</text>
-              <text class="action-desc">到店后快速记录服务与商品</text>
+        <scroll-view scroll-x class="quick-actions-scroll" show-scrollbar="false">
+          <view class="quick-actions">
+            <view class="action-item action-primary" @click="go('/pages/order/create')">
+              <view class="action-icon">🧾</view>
+              <view class="action-copy">
+                <text class="action-title">立即开单</text>
+                <text class="action-desc">快速记服务</text>
+              </view>
+            </view>
+            <view class="action-item" @click="go('/pages/appointment/create')">
+              <view class="action-icon">📅</view>
+              <view class="action-copy">
+                <text class="action-title">新建预约</text>
+                <text class="action-desc">补录或现场约</text>
+              </view>
+            </view>
+            <view class="action-item" @click="go('/pages/customer/list')">
+              <view class="action-icon">👥</view>
+              <view class="action-copy">
+                <text class="action-title">客户管理</text>
+                <text class="action-desc">会员与余额</text>
+              </view>
+            </view>
+            <view class="action-item" @click="go('/pages/pet/list')">
+              <view class="action-icon">🐱</view>
+              <view class="action-copy">
+                <text class="action-title">猫咪档案</text>
+                <text class="action-desc">资料与偏好</text>
+              </view>
             </view>
           </view>
-          <view class="action-item" @click="go('/pages/appointment/create')">
-            <view class="action-icon">📅</view>
-            <view class="action-copy">
-              <text class="action-title">新建预约</text>
-              <text class="action-desc">补录电话预约或现场预约</text>
-            </view>
-          </view>
-          <view class="action-item" @click="go('/pages/customer/list')">
-            <view class="action-icon">👥</view>
-            <view class="action-copy">
-              <text class="action-title">客户管理</text>
-              <text class="action-desc">查看会员卡、余额和标签信息</text>
-            </view>
-          </view>
-          <view class="action-item" @click="go('/pages/pet/list')">
-            <view class="action-icon">🐱</view>
-            <view class="action-copy">
-              <text class="action-title">猫咪档案</text>
-              <text class="action-desc">快速查找宠物资料与偏好</text>
-            </view>
-          </view>
-        </view>
+        </scroll-view>
       </view>
 
       <view class="content-grid">
@@ -130,8 +132,12 @@
               <text class="summary-value">{{ overview.today_new_customers }}</text>
             </view>
             <view class="summary-row">
-              <text class="summary-label">今日订单</text>
+              <text class="summary-label">今日已支付</text>
               <text class="summary-value">{{ overview.today_order_count }}</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-label">待结算</text>
+              <text class="summary-value">{{ overview.today_pending_settlement_count }}</text>
             </view>
           </view>
           <view class="side-tip">
@@ -172,6 +178,7 @@ const statusText: Record<number, string> = {
 
 const overview = ref({
   today_revenue: 0, today_order_count: 0, today_appointment_count: 0,
+  today_service_completed_count: 0, today_pending_settlement_count: 0, today_refunded_order_count: 0,
   today_new_customers: 0, pending_appointments: 0, total_customers: 0,
 })
 const todayAppts = ref<any[]>([])
@@ -379,17 +386,23 @@ onShow(loadData)
   white-space: nowrap;
 }
 
+.quick-actions-scroll {
+  width: 100%;
+}
+
 .quick-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
   gap: 16rpx;
+  width: max-content;
 }
 
 .action-item {
+  width: 180rpx;
   background: #FFFFFF;
   border: 1rpx solid #E5E7EB;
   border-radius: 22rpx;
-  padding: 22rpx;
+  padding: 20rpx 18rpx;
+  box-sizing: border-box;
 }
 
 .action-primary {
@@ -398,33 +411,33 @@ onShow(loadData)
 }
 
 .action-icon {
-  width: 76rpx;
-  height: 76rpx;
-  border-radius: 20rpx;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 18rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #111827, #374151);
-  font-size: 34rpx;
+  font-size: 30rpx;
 }
 
 .action-copy {
-  margin-top: 18rpx;
+  margin-top: 14rpx;
 }
 
 .action-title {
   display: block;
   color: #111827;
-  font-size: 26rpx;
+  font-size: 25rpx;
   font-weight: 700;
 }
 
 .action-desc {
   display: block;
-  margin-top: 8rpx;
+  margin-top: 6rpx;
   color: #94A3B8;
-  font-size: 22rpx;
-  line-height: 1.5;
+  font-size: 20rpx;
+  line-height: 1.4;
 }
 
 .content-grid {
@@ -574,10 +587,96 @@ onShow(loadData)
 
 @media (max-width: 900px) {
   .hero-panel,
-  .content-grid,
-  .quick-actions,
-  .ops-grid {
+  .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero-copy,
+  .hero-main-card,
+  .section {
+    padding: 24rpx;
+  }
+
+  .hero-subtitle {
+    margin-top: 12rpx;
+    font-size: 24rpx;
+    line-height: 1.55;
+  }
+
+  .hero-main-value {
+    margin-top: 10rpx;
+    font-size: 52rpx;
+  }
+
+  .hero-main-foot {
+    margin-top: 12rpx;
+    font-size: 20rpx;
+  }
+
+  .ops-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14rpx;
+  }
+
+  .ops-card {
+    padding: 20rpx 18rpx;
+    border-radius: 20rpx;
+    min-height: 160rpx;
+    box-sizing: border-box;
+  }
+
+  .ops-label {
+    font-size: 21rpx;
+  }
+
+  .ops-value {
+    margin-top: 8rpx;
+    font-size: 38rpx;
+  }
+
+  .ops-desc {
+    margin-top: 8rpx;
+    font-size: 20rpx;
+    line-height: 1.4;
+  }
+
+  .section-header {
+    margin-bottom: 16rpx;
+  }
+
+  .summary-list {
+    gap: 10rpx;
+  }
+
+  .summary-row {
+    padding: 14rpx 16rpx;
+  }
+
+  .side-tip {
+    margin-top: 14rpx;
+    padding: 18rpx;
+  }
+}
+
+@media (max-width: 520px) {
+  .workstation {
+    padding: 20rpx 24rpx 40rpx;
+  }
+
+  .hero-copy {
+    padding-bottom: 22rpx;
+  }
+
+  .hero-title {
+    font-size: 42rpx;
+  }
+
+  .ops-card {
+    min-height: 148rpx;
+  }
+
+  .ops-desc {
+    font-size: 19rpx;
   }
 }
 </style>
