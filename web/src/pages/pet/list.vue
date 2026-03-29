@@ -151,8 +151,8 @@
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
-import { ref, computed, onMounted } from 'vue'
-import { onShow, onReachBottom } from '@dcloudio/uni-app'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { onShow, onHide, onReachBottom } from '@dcloudio/uni-app'
 import { getPetList } from '@/api/pet'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
 
@@ -267,8 +267,36 @@ function formatDate(dateStr: string): string {
   return `${m}/${day}`
 }
 
+let savedScrollTop = 0
+let isFirstLoad = true
+
 onMounted(loadData)
-onShow(loadData)
+onShow(async () => {
+  if (isFirstLoad) {
+    isFirstLoad = false
+    return // onMounted already loaded
+  }
+  // 静默刷新数据但不重置滚动位置
+  try {
+    const params: any = { page: 1, page_size: currentPage.value * PAGE_SIZE }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    const res = await getPetList(params)
+    list.value = res.data.list || []
+    total.value = res.data.total || list.value.length
+    hasMore.value = list.value.length < total.value
+  } catch {}
+  // 恢复滚动位置
+  await nextTick()
+  if (savedScrollTop > 0) {
+    uni.pageScrollTo({ scrollTop: savedScrollTop, duration: 0 })
+  }
+})
+onHide(() => {
+  // 离开页面时保存滚动位置
+  const pages = getCurrentPages()
+  const page = pages[pages.length - 1] as any
+  savedScrollTop = page?.$page?.scrollTop || page?.scrollTop || 0
+})
 onReachBottom(loadMore)
 </script>
 

@@ -1,0 +1,26 @@
+server:
+  port: 8080
+  mode: debug # debug / release
+
+database:
+  host: localhost
+  port: 3306
+  user: petshop_user
+  password: CHANGE_ME
+  name: petshop
+  charset: utf8mb4
+
+jwt:
+  secret: CHANGE_ME_USE_RANDOM_32_CHARS
+  expire_hour: 72
+
+wechat:
+  appid: ""
+  app_secret: ""
+  mch_id: ""
+  api_key: ""
+
+upload:
+  path: "./uploads"
+  max_size: 2097152 # 2MB
+  allowed_types: "jpg,jpeg,png,gif,webp"

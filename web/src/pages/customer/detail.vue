@@ -150,6 +150,23 @@
       </view>
     </view>
 
+    <!-- 服务历史 -->
+    <view class="section" v-if="serviceHistory.length > 0">
+      <view class="section-header">
+        <text class="section-title">服务历史</text>
+        <text class="section-count">近{{ serviceHistory.length }}条</text>
+      </view>
+      <view class="history-item" v-for="item in serviceHistory" :key="item.ID" @click="goApptDetail(item.ID)">
+        <view class="history-top">
+          <text class="history-date">{{ item.date }} {{ item.start_time }}</text>
+          <text class="history-status" :style="getHistoryStatusStyle(item.status)">{{ getHistoryStatusLabel(item.status) }}</text>
+        </view>
+        <text class="history-pets">{{ getHistoryPets(item) }}</text>
+        <text class="history-services">{{ getHistoryServices(item) }}</text>
+        <text class="history-staff" v-if="item.staff">洗护师: {{ item.staff.name }}</text>
+      </view>
+    </view>
+
     <view class="section remark-section" v-if="customer">
       <view class="section-header">
         <text class="remark-title">备注</text>
@@ -277,6 +294,8 @@ import { ref, computed } from 'vue'
 import SideLayout from '@/components/SideLayout.vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerPets, updateCustomer } from '@/api/customer'
+import { getAppointmentList } from '@/api/appointment'
+import { getAppointmentStatusLabel, getAppointmentStatusBadgeStyle } from '@/utils/appointment-status'
 import { getCustomerTags } from '@/api/customer-tag'
 import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords, updateRechargeRecord, deleteRechargeRecord } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
@@ -303,6 +322,28 @@ function calcAge(birthDate: string): string {
 
 const id = ref(0)
 const customer = ref<Customer | null>(null)
+const serviceHistory = ref<any[]>([])
+
+function getHistoryStatusLabel(status: number) { return getAppointmentStatusLabel(status) }
+function getHistoryStatusStyle(status: number) { return getAppointmentStatusBadgeStyle(status) }
+function getHistoryPets(item: any) {
+  if (Array.isArray(item?.pets) && item.pets.length > 0) {
+    return item.pets.map((p: any) => p.pet?.name).filter(Boolean).join('、')
+  }
+  return item?.pet?.name || '-'
+}
+function getHistoryServices(item: any) {
+  const svcs: string[] = []
+  if (Array.isArray(item?.pets)) {
+    for (const p of item.pets) {
+      for (const s of p.services || []) svcs.push(s.service_name)
+    }
+  } else if (Array.isArray(item?.services)) {
+    for (const s of item.services) svcs.push(s.service_name)
+  }
+  return svcs.join('、') || '-'
+}
+function goApptDetail(id: number) { uni.navigateTo({ url: `/pages/appointment/detail?id=${id}` }) }
 const pets = ref<Pet[]>([])
 const memberCard = ref<MemberCard | null>(null)
 const records = ref<RechargeRecord[]>([])
@@ -366,6 +407,12 @@ async function loadAll() {
   records.value = recordRes.data || []
   templates.value = (tplRes.data || []).filter((t: MemberCardTemplate) => t.status === 1)
   selectedTagIDs.value = (cRes.data.customer_tags || []).map(tag => tag.ID)
+
+  // 加载服务历史
+  try {
+    const histRes = await getAppointmentList({ page: 1, page_size: 20, customer_id: id.value } as any)
+    serviceHistory.value = histRes.data?.list || []
+  } catch { serviceHistory.value = [] }
 }
 
 async function loadTagOptions() {
@@ -647,4 +694,15 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .modal-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 12rpx; font-size: 28rpx; }
 .cancel { background: #F3F4F6; color: #6B7280; }
 .confirm { background: #4F46E5; color: #fff; }
+
+/* Service history */
+.section-count { font-size: 22rpx; color: #9CA3AF; }
+.history-item { padding: 16rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.history-item:last-child { border-bottom: none; }
+.history-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6rpx; }
+.history-date { font-size: 24rpx; color: #374151; font-weight: 500; }
+.history-status { font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 16rpx; }
+.history-pets { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; }
+.history-services { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
+.history-staff { font-size: 22rpx; color: #9CA3AF; display: block; margin-top: 2rpx; }
 </style>

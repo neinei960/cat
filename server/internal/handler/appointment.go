@@ -201,6 +201,18 @@ func (h *AppointmentHandler) List(c *gin.Context) {
 		status = &v
 	}
 
+	// Support customer_id filter
+	customerID, _ := strconv.ParseUint(c.Query("customer_id"), 10, 64)
+	if customerID > 0 {
+		list, total, err := h.apptService.ListByCustomer(uint(customerID), page, pageSize)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "查询失败")
+			return
+		}
+		response.Success(c, gin.H{"list": list, "total": total})
+		return
+	}
+
 	list, total, err := h.apptService.ListPaged(shopID, status, dateFrom, dateTo, uint(staffID), page, pageSize)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")

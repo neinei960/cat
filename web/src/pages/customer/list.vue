@@ -129,8 +129,8 @@
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
-import { ref } from 'vue'
-import { onShow, onReachBottom } from '@dcloudio/uni-app'
+import { ref, nextTick } from 'vue'
+import { onShow, onHide, onReachBottom } from '@dcloudio/uni-app'
 import { getCustomerList, deleteCustomer } from '@/api/customer'
 import { getCustomerTags } from '@/api/customer-tag'
 import { getCardTemplates } from '@/api/member-card'
@@ -305,10 +305,34 @@ function onLongPress(item: any) {
   })
 }
 
+let savedScrollTop = 0
+
 onShow(async () => {
   await loadTemplates()
   await loadTagFilters()
-  await loadData()
+  // 静默刷新但保留当前已加载的数量
+  const totalLoaded = currentPage.value * PAGE_SIZE
+  loading.value = true
+  try {
+    const params: any = { page: 1, page_size: Math.max(totalLoaded, PAGE_SIZE) }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    if (activeTemplateId.value) params.member_card_template_id = activeTemplateId.value
+    if (activeTagId.value) params.customer_tag_id = activeTagId.value
+    const res = await getCustomerList(params)
+    list.value = res.data.list || []
+    total.value = res.data.total || 0
+    hasMore.value = list.value.length < total.value
+  } finally { loading.value = false }
+  // 恢复滚动位置
+  await nextTick()
+  if (savedScrollTop > 0) {
+    uni.pageScrollTo({ scrollTop: savedScrollTop, duration: 0 })
+  }
+})
+onHide(() => {
+  const pages = getCurrentPages()
+  const page = pages[pages.length - 1] as any
+  savedScrollTop = page?.$page?.scrollTop || page?.scrollTop || 0
 })
 onReachBottom(loadMore)
 </script>

@@ -31,12 +31,14 @@ type RevenueTrendItem struct {
 }
 
 // GetRevenueTrendRealtime queries orders table directly for daily revenue (no dependency on daily_stats)
+// Uses appointment date when order is from an appointment, falls back to order created_at for walk-ins
 func (r *StatsRepository) GetRevenueTrendRealtime(shopID uint, startDate, endDate string) ([]RevenueTrendItem, error) {
 	var items []RevenueTrendItem
 	err := database.DB.Model(&model.Order{}).
-		Select("DATE(created_at) as date, COALESCE(SUM(pay_amount), 0) as revenue, COUNT(*) as order_count").
-		Where("shop_id = ? AND status = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
-		Group("DATE(created_at)").
+		Select("COALESCE(appointments.date, DATE(orders.created_at)) as date, COALESCE(SUM(orders.pay_amount), 0) as revenue, COUNT(*) as order_count").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
+		Group("COALESCE(appointments.date, DATE(orders.created_at))").
 		Order("date ASC").
 		Find(&items).Error
 	return items, err
@@ -80,8 +82,9 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 		Count int64
 	}
 	database.DB.Model(&model.Order{}).
-		Select("COALESCE(SUM(pay_amount), 0) as total, COUNT(*) as count").
-		Where("shop_id = ? AND status = 1 AND DATE(created_at) = ?", shopID, today).
+		Select("COALESCE(SUM(orders.pay_amount), 0) as total, COUNT(*) as count").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) = ?", shopID, today).
 		Scan(&revenueResult)
 	stats.TodayRevenue = revenueResult.Total
 	stats.TodayOrderCount = int(revenueResult.Count)
@@ -137,8 +140,9 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		Count int64
 	}
 	database.DB.Model(&model.Order{}).
-		Select("COALESCE(SUM(pay_amount), 0) as total, COUNT(*) as count").
-		Where("shop_id = ? AND status = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Select("COALESCE(SUM(orders.pay_amount), 0) as total, COUNT(*) as count").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
 		Scan(&revenueResult)
 	stats.TodayRevenue = revenueResult.Total
 	stats.TodayOrderCount = int(revenueResult.Count)
@@ -161,8 +165,9 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 	// AOV for range
 	var aovResult struct{ Avg float64 }
 	database.DB.Model(&model.Order{}).
-		Select("COALESCE(AVG(pay_amount), 0) as avg").
-		Where("shop_id = ? AND status = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Select("COALESCE(AVG(orders.pay_amount), 0) as avg").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
 		Scan(&aovResult)
 	stats.AvgOrderValue = aovResult.Avg
 
@@ -251,14 +256,34 @@ type CategoryStat struct {
 
 func (r *StatsRepository) GetCategoryStats(shopID uint, startDate, endDate string) ([]CategoryStat, error) {
 	var stats []CategoryStat
+	serviceNameExpr := `
+		COALESCE(
+			NULLIF(services.name, ''),
+			CASE
+				WHEN order_items.name LIKE '% · %' THEN SUBSTRING_INDEX(order_items.name, ' · ', -1)
+				ELSE order_items.name
+			END
+		)
+	`
+	furLevelExpr := `
+		COALESCE(
+			NULLIF(pets.fur_level, ''),
+			NULLIF(service_price_rules.name, ''),
+			NULLIF(service_price_rules.fur_level, ''),
+			'-'
+		)
+	`
 	err := database.DB.Table("order_items").
-		Select("order_items.name as service_name, pets.fur_level, COUNT(*) as count, SUM(order_items.amount) as revenue").
+		Select(serviceNameExpr+" as service_name, "+furLevelExpr+" as fur_level, COUNT(*) as count, SUM(order_items.amount) as revenue").
 		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("LEFT JOIN services ON services.id = order_items.item_id AND order_items.item_type = 1 AND services.deleted_at IS NULL").
+		Joins("LEFT JOIN service_price_rules ON service_price_rules.service_id = order_items.item_id AND service_price_rules.price = order_items.unit_price AND service_price_rules.deleted_at IS NULL").
 		Joins("LEFT JOIN pets ON pets.id = orders.pet_id").
-		Where("orders.shop_id = ? AND DATE(orders.created_at) >= ? AND DATE(orders.created_at) <= ? AND orders.status = 1 AND order_items.item_type = 1 AND orders.deleted_at IS NULL AND order_items.deleted_at IS NULL",
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND order_items.item_type = 1 AND orders.deleted_at IS NULL AND order_items.deleted_at IS NULL",
 			shopID, startDate, endDate).
-		Group("order_items.name, pets.fur_level").
-		Order("order_items.name ASC, pets.fur_level ASC").
+		Group(serviceNameExpr + ", " + furLevelExpr).
+		Order("revenue DESC, service_name ASC, fur_level ASC").
 		Find(&stats).Error
 	return stats, err
 }

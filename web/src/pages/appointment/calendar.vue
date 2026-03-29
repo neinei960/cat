@@ -4,9 +4,7 @@
     <!-- Date navigation -->
     <view class="date-nav">
       <view class="nav-btn" @click="prevDay">&lt;</view>
-      <picker mode="date" :value="currentDate" @change="onDatePick">
-        <view class="date-display">{{ currentDate }}</view>
-      </picker>
+      <view class="date-display" @click="showCalPicker = true">{{ formatDateDisplay(currentDate) }}</view>
       <view class="nav-btn" @click="nextDay">&gt;</view>
       <view class="quick-date-group">
         <view
@@ -222,12 +220,23 @@
     <view class="fab" @click="goCreate">
       <text class="fab-icon">+</text>
     </view>
+
+    <!-- 日历选择器 -->
+    <CalendarPicker
+      :visible="showCalPicker"
+      :value="currentDate"
+      :appointment-dates="calendarMarkedDates"
+      @select="onCalSelect"
+      @month-change="onCalendarMonthChange"
+      @close="showCalPicker = false"
+    />
   </view>
   </SideLayout>
 </template>
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
+import CalendarPicker from '@/components/CalendarPicker.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import FilterPanel from '@/components/FilterPanel.vue'
@@ -347,6 +356,8 @@ const staffScheduleMap = ref<Record<number, { start: string; end: string; dayOff
 const shopOpenTime = ref('10:00')
 const shopCloseTime = ref('22:00')
 const showDatePicker = ref(false)
+const showCalPicker = ref(false)
+const calendarMarkedDates = ref<string[]>([])
 const quickDateOptions = computed(() => [
   { label: '今天', value: offsetDateStr(0) },
   { label: '明天', value: offsetDateStr(1) },
@@ -429,6 +440,32 @@ function setCurrentDate(date: string) {
 
 function onDatePick(e: any) {
   setCurrentDate(e.detail.value)
+}
+
+function onCalSelect(date: string) {
+  showCalPicker.value = false
+  setCurrentDate(date)
+}
+
+async function onCalendarMonthChange(payload: { startDate: string; endDate: string }) {
+  try {
+    const res = await getAppointmentCalendar(payload.startDate, payload.endDate)
+    const dates = Array.isArray(res.data)
+      ? [...new Set(res.data.map((item: any) => item?.date).filter(Boolean))]
+      : []
+    calendarMarkedDates.value = dates
+  } catch {
+    calendarMarkedDates.value = []
+  }
+}
+
+const weekDayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+function formatDateDisplay(dateStr: string) {
+  const d = new Date(dateStr + 'T12:00:00')
+  const m = d.getMonth() + 1
+  const day = d.getDate()
+  const wd = weekDayNames[d.getDay()]
+  return `${m}月${day}日 ${wd}`
 }
 
 function getAppointmentsAt(staffId: number, timeSlot: string): any[] {

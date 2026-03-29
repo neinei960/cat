@@ -23,11 +23,13 @@ e2e/tests/screenshots/
 # Build artifacts
 bin/
 
-# Environment
+# Environment & secrets
 .env
 .env.local
 !.env.example
 !.env.production
+server/config/config.yaml
+!server/config/config.yaml.example
 
 # IDE
 .idea/

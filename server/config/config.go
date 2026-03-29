@@ -61,6 +61,27 @@ func Load() error {
 
 	viper.AutomaticEnv()
 
+	// Bind environment variables to override config.yaml values
+	// Database
+	viper.BindEnv("database.host", "DATABASE_HOST")
+	viper.BindEnv("database.port", "DATABASE_PORT")
+	viper.BindEnv("database.user", "DATABASE_USER")
+	viper.BindEnv("database.password", "DATABASE_PASSWORD")
+	viper.BindEnv("database.name", "DATABASE_NAME")
+	// JWT
+	viper.BindEnv("jwt.secret", "JWT_SECRET")
+	viper.BindEnv("jwt.expire_hour", "JWT_EXPIRE_HOUR")
+	// Server
+	viper.BindEnv("server.port", "SERVER_PORT")
+	viper.BindEnv("server.mode", "SERVER_MODE")
+	// WeChat
+	viper.BindEnv("wechat.appid", "WECHAT_APPID")
+	viper.BindEnv("wechat.app_secret", "WECHAT_APP_SECRET")
+	viper.BindEnv("wechat.mch_id", "WECHAT_MCH_ID")
+	viper.BindEnv("wechat.api_key", "WECHAT_API_KEY")
+	// Upload
+	viper.BindEnv("upload.path", "UPLOAD_PATH")
+
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
