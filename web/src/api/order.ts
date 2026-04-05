@@ -28,15 +28,19 @@ export function createOrder(data: CreateOrderReq) {
   return request<any>({ url: '/b/orders', method: 'POST', data })
 }
 
+export function updateOrder(id: number, data: CreateOrderReq) {
+  return request<any>({ url: `/b/orders/${id}`, method: 'PUT', data })
+}
+
 export function createOrderFromAppointment(appointmentId: number) {
   return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId } })
 }
 
 export function createBatchOrdersFromAppointment(appointmentId: number, extra?: any) {
-  return request<any[]>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
+  return request<Order>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
 }
 
-export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string }) {
+export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string }) {
   return request<PageResult<any>>({ url: '/b/orders', data: params })
 }
 
@@ -44,8 +48,12 @@ export function getOrder(id: number) {
   return request<any>({ url: `/b/orders/${id}` })
 }
 
-export function payOrder(id: number, payMethod: string, transactionId?: string) {
-  return request({ url: `/b/orders/${id}/pay`, method: 'PUT', data: { pay_method: payMethod, transaction_id: transactionId } })
+export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string) {
+  return request({ url: `/b/orders/${id}/pay`, method: 'PUT', data: { pay_method: payMethod, transaction_id: transactionId, remark } })
+}
+
+export function updateOrderRemark(id: number, remark: string) {
+  return request({ url: `/b/orders/${id}/remark`, method: 'PUT', data: { remark } })
 }
 
 export function refundOrder(id: number, remark?: string) {
@@ -54,4 +62,8 @@ export function refundOrder(id: number, remark?: string) {
 
 export function cancelOrder(id: number) {
   return request({ url: `/b/orders/${id}/cancel`, method: 'PUT' })
+}
+
+export function deleteOrder(id: number) {
+  return request({ url: `/b/orders/${id}`, method: 'DELETE' })
 }

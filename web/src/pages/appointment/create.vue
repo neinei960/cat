@@ -37,7 +37,7 @@
       </view>
 
       <!-- 熟客 Tab -->
-      <view v-if="customerMode === 'regular'">
+      <view v-if="showRegularCustomerPicker">
         <view class="card">
           <view class="section-title">
             <text class="section-icon">👤</text>
@@ -83,15 +83,8 @@
               没有匹配的客户或猫咪
             </view>
           </view>
-          <view v-if="!customerKeyword.trim()" class="option-list">
-            <view
-              v-for="c in customerList" :key="c.ID"
-              :class="['option', form.customer_id === c.ID ? 'selected' : '']"
-              @click="selectCustomer(c)"
-            >
-              <text class="option-icon">{{ form.customer_id === c.ID ? '💜' : '🤍' }}</text>
-              <text>{{ c.nickname || c.phone }}</text>
-            </view>
+          <view v-if="!customerKeyword.trim() && !form.customer_id" class="search-empty">
+            请输入客户名、手机号或猫咪名后再搜索
           </view>
         </view>
 
@@ -118,11 +111,11 @@
       </view>
 
       <!-- 新客 Tab -->
-      <view v-if="customerMode === 'new'">
+      <view v-if="showNewCustomerEditor">
         <view class="card">
           <view class="section-title">
             <text class="section-icon">📝</text>
-            <text>客户信息（选填）</text>
+            <text>{{ isEditNewCustomer ? '客户信息' : '客户信息（选填）' }}</text>
           </view>
           <view class="form-row">
             <text class="form-label">👤 姓名</text>
@@ -134,78 +127,135 @@
           </view>
         </view>
 
-        <view class="card">
-          <view class="section-title">
-            <text class="section-icon">📋</text>
-            <text>粘贴宝贝信息</text>
+        <view class="card card-pet-builder">
+          <view class="section-title section-title-between">
+            <view class="section-title-main">
+              <text class="section-icon">📋</text>
+              <text>猫咪信息</text>
+            </view>
+            <view v-if="!isEditNewCustomer" class="pet-add-btn" @click="addDraftPet">
+              <text class="pet-add-plus">＋</text>
+              <text>再加一只</text>
+            </view>
           </view>
-          <view class="textarea-wrapper">
-            <textarea v-model="templateText" placeholder="将宝贝洗护小调查的内容粘贴到这里，系统会自动解析..." class="template-textarea" />
+          <text class="pet-builder-tip">{{ isEditNewCustomer ? '新客预约支持重新粘贴问卷并修正备注，保存后会同步更新预约和猫咪档案。' : '每只猫单独粘贴一段资料，智能解析后再一起进入选项目。' }}</text>
+
+          <scroll-view scroll-x class="pet-draft-tabs" show-scrollbar="false">
+            <view class="pet-draft-tabs-row">
+              <view
+                v-for="(draft, index) in newPetDrafts"
+                :key="draft.id"
+                :class="['pet-draft-tab', activeDraftId === draft.id ? 'active' : '', draft.showParsed ? 'parsed' : '']"
+                @click="selectDraftPet(draft.id)"
+              >
+                <text class="pet-draft-tab-index">猫咪{{ index + 1 }}</text>
+                <text class="pet-draft-tab-name">{{ getDraftDisplayName(draft, index) }}</text>
+              </view>
+            </view>
+          </scroll-view>
+
+          <view
+            v-if="activeDraft"
+            :class="['pet-draft-card', activeDraft.showParsed ? 'parsed' : '']"
+          >
+            <view class="pet-draft-head">
+              <view class="pet-draft-title">
+                <text class="pet-draft-badge">猫咪 {{ activeDraftIndex + 1 }}</text>
+                <text class="pet-draft-name">{{ getDraftDisplayName(activeDraft, activeDraftIndex) }}</text>
+              </view>
+              <view v-if="!isEditNewCustomer && newPetDrafts.length > 1" class="pet-draft-remove" @click="removeDraftPet(activeDraft.id)">删除</view>
+            </view>
+
+            <view class="textarea-wrapper">
+              <textarea
+                v-model="activeDraft.templateText"
+                placeholder="将这只猫的洗护小调查内容粘贴到这里，系统会自动解析..."
+                class="template-textarea"
+                :maxlength="300"
+              />
+            </view>
+            <button class="btn-secondary draft-parse-btn" @click="parseTemplate(activeDraft.id)">
+              ✨ 智能解析这只猫
+            </button>
+
+            <view v-if="activeDraft.showParsed" class="draft-result">
+              <view class="draft-result-head">
+                <text class="draft-result-title">解析结果（点击可编辑）</text>
+                <text class="draft-result-summary">{{ getDraftSummary(activeDraft) }}</text>
+              </view>
+              <view class="parsed-grid">
+                <view class="parsed-item" v-if="activeDraft.parsed.name" @click="editField(activeDraft.id, 'name', '大名')">
+                  <text class="parsed-label">🐱 大名</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.name }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.breed" @click="editField(activeDraft.id, 'breed', '品种')">
+                  <text class="parsed-label">🏷️ 品种</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.breed }}</text>
+                </view>
+                <view class="parsed-item" @click="editField(activeDraft.id, 'gender', '性别')">
+                  <text class="parsed-label">⚧ 性别</text>
+                  <text class="parsed-value">{{ ['未知','公','母'][activeDraft.parsed.gender] }}</text>
+                </view>
+                <view class="parsed-item" @click="editField(activeDraft.id, 'neutered', '绝育')">
+                  <text class="parsed-label">💉 绝育</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.neutered ? '是' : '否' }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.birthDate" @click="editField(activeDraft.id, 'birthDate', '出生日期')">
+                  <text class="parsed-label">📅 出生日期</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.birthDate }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.age" @click="editField(activeDraft.id, 'age', '年龄')">
+                  <text class="parsed-label">🎂 年龄</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.age }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.dailyDiet" @click="editField(activeDraft.id, 'dailyDiet', '日常饮食')">
+                  <text class="parsed-label">🍽️ 日常饮食</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.dailyDiet }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.furMatted" @click="editField(activeDraft.id, 'furMatted', '毛发打结')">
+                  <text class="parsed-label">🧶 打结</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.furMatted }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.lastBathTime" @click="editField(activeDraft.id, 'lastBathTime', '上次洗澡')">
+                  <text class="parsed-label">🛁 上次洗澡</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.lastBathTime }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.vaccination" @click="editField(activeDraft.id, 'vaccination', '疫苗')">
+                  <text class="parsed-label">💉 疫苗</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.vaccination }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.healthHistory" @click="editField(activeDraft.id, 'healthHistory', '疾病史')">
+                  <text class="parsed-label">🏥 疾病史</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.healthHistory }}</text>
+                </view>
+                <view class="parsed-item" v-if="activeDraft.parsed.personality" @click="editField(activeDraft.id, 'personality', '性格')">
+                  <text class="parsed-label">😸 性格</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.personality }}</text>
+                </view>
+                <view class="parsed-item full-width" v-if="activeDraft.parsed.reactions" @click="editField(activeDraft.id, 'reactions', '特殊反应')">
+                  <text class="parsed-label">⚡ 特殊反应</text>
+                  <text class="parsed-value">{{ activeDraft.parsed.reactions }}</text>
+                </view>
+                <view class="parsed-item full-width" v-if="activeDraft.remarkText || buildAppointmentRemarkPreview(activeDraft.parsed)">
+                  <text class="parsed-label">📝 备注预览</text>
+                  <textarea
+                    v-model="activeDraft.remarkText"
+                    class="parsed-note-editor"
+                    placeholder="这里可以手动修改备注"
+                    :maxlength="300"
+                    @input="markDraftRemarkTouched(activeDraft.id)"
+                  />
+                  <view class="parsed-note-actions">
+                    <text class="parsed-note-tip">提交新客后，这段备注会自动带到预约里。</text>
+                    <text class="parsed-note-reset" @click="resetDraftRemark(activeDraft.id)">恢复解析结果</text>
+                  </view>
+                </view>
+              </view>
+            </view>
           </view>
-          <button class="btn-secondary" @click="parseTemplate">
-            ✨ 智能解析
-          </button>
         </view>
 
-        <!-- 解析结果预览 -->
-        <view v-if="showParsed" class="card card-highlight">
-          <view class="section-title">
-            <text class="section-icon">🎉</text>
-            <text>解析结果（点击可编辑）</text>
-          </view>
-          <view class="parsed-grid">
-            <view class="parsed-item" v-if="parsed.name" @click="editField('name', '大名')">
-              <text class="parsed-label">🐱 大名</text>
-              <text class="parsed-value">{{ parsed.name }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.breed" @click="editField('breed', '品种')">
-              <text class="parsed-label">🏷️ 品种</text>
-              <text class="parsed-value">{{ parsed.breed }}</text>
-            </view>
-            <view class="parsed-item" @click="editField('gender', '性别')">
-              <text class="parsed-label">⚧ 性别</text>
-              <text class="parsed-value">{{ ['未知','公','母'][parsed.gender] }}</text>
-            </view>
-            <view class="parsed-item">
-              <text class="parsed-label">💉 绝育</text>
-              <text class="parsed-value">{{ parsed.neutered ? '是' : '否' }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.age" @click="editField('age', '年龄')">
-              <text class="parsed-label">🎂 年龄</text>
-              <text class="parsed-value">{{ parsed.age }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.furMatted" @click="editField('furMatted', '毛发打结')">
-              <text class="parsed-label">🧶 打结</text>
-              <text class="parsed-value">{{ parsed.furMatted }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.lastBathTime" @click="editField('lastBathTime', '上次洗澡')">
-              <text class="parsed-label">🛁 上次洗澡</text>
-              <text class="parsed-value">{{ parsed.lastBathTime }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.vaccination" @click="editField('vaccination', '疫苗')">
-              <text class="parsed-label">💉 疫苗</text>
-              <text class="parsed-value">{{ parsed.vaccination }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.healthHistory" @click="editField('healthHistory', '疾病史')">
-              <text class="parsed-label">🏥 疾病史</text>
-              <text class="parsed-value">{{ parsed.healthHistory }}</text>
-            </view>
-            <view class="parsed-item" v-if="parsed.personality" @click="editField('personality', '性格')">
-              <text class="parsed-label">😸 性格</text>
-              <text class="parsed-value">{{ parsed.personality }}</text>
-            </view>
-            <view class="parsed-item full-width" v-if="parsed.reactions" @click="editField('reactions', '特殊反应')">
-              <text class="parsed-label">⚡ 特殊反应</text>
-              <text class="parsed-value">{{ parsed.reactions }}</text>
-            </view>
-            <view class="parsed-item full-width" v-if="parsed.source">
-              <text class="parsed-label">📍 来源</text>
-              <text class="parsed-value">{{ parsed.source }}</text>
-            </view>
-          </view>
-        </view>
-
-        <button class="btn-primary" @click="submitNewCustomer" :disabled="!canSubmitNew" :loading="newSubmitting">
+        <button class="btn-primary" @click="handleNewCustomerStep" :loading="newSubmitting">
           下一步 →
         </button>
       </view>
@@ -406,11 +456,11 @@
         </view>
         <view class="confirm-row">
           <text class="label">👤 客户</text>
-          <text class="value">{{ selectedCustomer?.nickname || selectedCustomer?.phone || newCustomer.nickname || newCustomer.phone || '散客' }}</text>
+        <text class="value">{{ selectedCustomer?.nickname || selectedCustomer?.phone || newCustomer.nickname || newCustomer.phone || '新客' }}</text>
         </view>
         <view class="confirm-row">
           <text class="label">🐱 宠物</text>
-          <text class="value">{{ confirmPetNames || parsed.name }}</text>
+        <text class="value">{{ confirmPetNames || '新咪' }}</text>
         </view>
         <view class="confirm-row">
           <text class="label">📅 日期</text>
@@ -519,7 +569,7 @@
         <view class="form-row" style="margin-bottom: 0;">
           <text class="form-label">📝 备注</text>
           <view class="input-wrapper">
-            <textarea v-model="form.notes" placeholder="有什么需要特别注意的吗？" class="textarea" />
+            <textarea v-model="form.notes" placeholder="有什么需要特别注意的吗？" class="textarea" :maxlength="300" />
           </view>
         </view>
       </view>
@@ -534,16 +584,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { getCustomerList, getCustomerPets, createCustomer } from '@/api/customer'
-import { createPet } from '@/api/pet'
+import { getCustomerList, getCustomerPets, createCustomer, updateCustomer } from '@/api/customer'
+import { createPet, updatePet } from '@/api/pet'
 import { getServiceList } from '@/api/service'
+import { getServiceRanking } from '@/api/dashboard'
 import { getCategoryTree } from '@/api/service-category'
 import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
-import { safeBack } from '@/utils/navigate'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+import {
+  createEmptyParsedPet,
+  parsePetTemplate,
+  buildCareNotes,
+  buildAppointmentRemarkParts,
+  buildAppointmentRemarkPreview,
+  type ParsedPetInfo,
+} from '@/utils/pet-template-parser'
 import { compareStaffRole } from '@/utils/staff-role'
 
 interface CustomerSuggestion {
@@ -616,6 +674,7 @@ const customerKeyword = ref('')
 const customerList = ref<Customer[]>([])
 const petList = ref<Pet[]>([])
 const serviceList = ref<ServiceItem[]>([])
+const serviceRankingMap = ref<Record<string, number>>({})
 const categoryTree = ref<any[]>([])
 const activeCategoryId = ref<number>(0)
 const activeSubCategoryId = ref<number>(0)
@@ -627,36 +686,42 @@ const searchingCustomers = ref(false)
 const customerSuggestionOpen = ref(false)
 let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
 
-// New customer fields
-const newCustomer = ref({ nickname: '', phone: '' })
-const templateText = ref('')
-const newSubmitting = ref(false)
-
-interface ParsedPetInfo {
-  name: string
-  age: string
-  breed: string
-  gender: number
-  neutered: boolean
-  furMatted: string
-  lastBathTime: string
-  vaccination: string
-  healthHistory: string
-  personality: string
-  reactions: string
-  source: string  // 来源，如"树街の猫"
+interface NewPetDraft {
+  id: number
+  templateText: string
+  showParsed: boolean
+  parsed: ParsedPetInfo
+  remarkText: string
+  remarkTouched: boolean
 }
 
-const showParsed = ref(false)
-const parseKey = ref(0)
-const parsed = reactive<ParsedPetInfo>({
-  name: '', age: '', breed: '', gender: 0, neutered: false,
-  furMatted: '', lastBathTime: '', vaccination: '',
-  healthHistory: '', personality: '', reactions: '', source: '',
-})
+let newPetDraftSeed = 1
+function createNewPetDraft(): NewPetDraft {
+  return {
+    id: newPetDraftSeed++,
+    templateText: '',
+    showParsed: false,
+    parsed: createEmptyParsedPet(),
+    remarkText: '',
+    remarkTouched: false,
+  }
+}
 
-const canSubmitNew = computed(() => showParsed.value && parsed.name.trim() !== '')
+// New customer fields
+const newCustomer = ref({ nickname: '', phone: '' })
+const newPetDrafts = ref<NewPetDraft[]>([createNewPetDraft()])
+const activeDraftId = ref(newPetDrafts.value[0].id)
+const newSubmitting = ref(false)
+
 const isEditMode = computed(() => editAppointmentId.value > 0)
+const isEditNewCustomer = computed(() => {
+  if (!isEditMode.value || !editingAppointment.value) return false
+  const customer = editingAppointment.value.customer || {}
+  const name = String(customer.nickname || '')
+  return name.startsWith('散客') || !customer.phone
+})
+const showNewCustomerEditor = computed(() => customerMode.value === 'new' || isEditNewCustomer.value)
+const showRegularCustomerPicker = computed(() => !showNewCustomerEditor.value)
 
 const selectedCustomer = computed(() => customerList.value.find(c => c.ID === form.value.customer_id))
 const showCustomerSuggestions = computed(() =>
@@ -768,7 +833,14 @@ const filteredServices = computed(() => {
       list = list.filter(s => s.category_id && subIds.includes(s.category_id))
     }
   }
-  return list
+  if (activeSubCategoryId.value !== 0) return list
+
+  const serviceOrderIndex = new Map(serviceList.value.map((service, index) => [service.ID, index]))
+  return [...list].sort((a, b) => {
+    const countDiff = (serviceRankingMap.value[b.name] || 0) - (serviceRankingMap.value[a.name] || 0)
+    if (countDiff !== 0) return countDiff
+    return (serviceOrderIndex.get(a.ID) || 0) - (serviceOrderIndex.get(b.ID) || 0)
+  })
 })
 const canProceedServices = computed(() =>
   form.value.pets.length > 0 && form.value.pets.every(petItem => petItem.service_ids.length > 0)
@@ -790,14 +862,18 @@ onLoad(async (query) => {
   if (query?.staff_id) form.value.staff_id = parseInt(query.staff_id)
   if (query?.time) form.value.start_time = query.time
 
-  const [cRes, sRes, catRes] = await Promise.all([
+  const [cRes, sRes, catRes, rankingRes] = await Promise.all([
     getCustomerList({ page: 1, page_size: 100 }),
-    getServiceList({ page: 1, page_size: 100 }),
+    getServiceList({ page: 1, page_size: 100, order_by: 'monthly_usage' }),
     getCategoryTree(),
+    getServiceRanking(getMonthStart(), getMonthEnd()).catch(() => ({ data: [] as Array<{ service_name: string; count: number }> })),
   ])
   customerList.value = cRes.data.list || []
   serviceList.value = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
   categoryTree.value = (catRes.data || []).filter((c: any) => c.status === 1)
+  serviceRankingMap.value = Object.fromEntries(
+    (rankingRes.data || []).map((item) => [item.service_name, item.count || 0]),
+  )
   if (categoryTree.value.length > 0) {
     activeCategoryId.value = categoryTree.value[0].ID
   }
@@ -807,6 +883,16 @@ onLoad(async (query) => {
   }
 })
 
+function getMonthStart(date = new Date()) {
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1)
+  return `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-${String(monthStart.getDate()).padStart(2, '0')}`
+}
+
+function getMonthEnd(date = new Date()) {
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0)
+  return `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, '0')}-${String(monthEnd.getDate()).padStart(2, '0')}`
+}
+
 function upsertCustomerOption(customer?: Customer | null) {
   if (!customer?.ID) return
   const idx = customerList.value.findIndex(item => item.ID === customer.ID)
@@ -814,6 +900,61 @@ function upsertCustomerOption(customer?: Customer | null) {
     customerList.value[idx] = { ...customerList.value[idx], ...customer }
   } else {
     customerList.value.unshift(customer)
+  }
+}
+
+function getDraftById(id: number) {
+  return newPetDrafts.value.find(item => item.id === id)
+}
+const activeDraft = computed(() => getDraftById(activeDraftId.value) || newPetDrafts.value[0] || null)
+const activeDraftIndex = computed(() => {
+  const idx = newPetDrafts.value.findIndex(item => item.id === activeDraftId.value)
+  return idx >= 0 ? idx : 0
+})
+
+function getDraftDisplayName(draft: NewPetDraft, index: number) {
+  return draft.parsed.name.trim() || `待解析的猫咪 ${index + 1}`
+}
+
+function getDraftSummary(draft: NewPetDraft) {
+  const parts = [draft.parsed.breed, draft.parsed.personality].filter(Boolean)
+  return parts.join(' · ') || '已生成可编辑资料'
+}
+
+function syncDraftRemark(draft: NewPetDraft, force = false) {
+  if (!draft) return
+  if (force || !draft.remarkTouched) {
+    draft.remarkText = buildAppointmentRemarkPreview(draft.parsed)
+  }
+}
+
+function addDraftPet() {
+  const draft = createNewPetDraft()
+  newPetDrafts.value.push(draft)
+  activeDraftId.value = draft.id
+}
+
+function selectDraftPet(id: number) {
+  activeDraftId.value = id
+}
+
+function removeDraftPet(id: number) {
+  if (newPetDrafts.value.length <= 1) {
+    const draft = getDraftById(id)
+    if (!draft) return
+    draft.templateText = ''
+    draft.showParsed = false
+    draft.parsed = createEmptyParsedPet()
+    draft.remarkText = ''
+    draft.remarkTouched = false
+    activeDraftId.value = draft.id
+    return
+  }
+  const idx = newPetDrafts.value.findIndex(item => item.id === id)
+  newPetDrafts.value = newPetDrafts.value.filter(item => item.id !== id)
+  if (activeDraftId.value === id) {
+    const fallback = newPetDrafts.value[Math.max(0, idx - 1)] || newPetDrafts.value[0]
+    if (fallback) activeDraftId.value = fallback.id
   }
 }
 
@@ -839,6 +980,71 @@ function normalizeAppointmentPets(appointment: any): AppointmentPetFormItem[] {
   return []
 }
 
+function buildAppointmentPetNoteMap(text?: string): Record<string, string> {
+  const noteMap: Record<string, string[]> = {}
+  const petNames = form.value.pets
+    .map((item, index) => petList.value.find((pet) => pet.ID === item.pet_id)?.name || `猫咪${index + 1}`)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+
+  String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const matchedName = petNames.find((name) => line.startsWith(`${name}：`) || line.startsWith(`${name}:`))
+      if (!matchedName) return
+      const content = line.slice(matchedName.length + 1).trim()
+      if (!content) return
+      if (!noteMap[matchedName]) noteMap[matchedName] = []
+      noteMap[matchedName].push(
+        ...content
+          .split(/[；;]+/)
+          .map((segment) => segment.trim())
+          .filter(Boolean),
+      )
+    })
+
+  return Object.fromEntries(Object.entries(noteMap).map(([name, lines]) => [name, lines.join('\n')]))
+}
+
+function createDraftFromExistingPet(pet: any, remarkText = ''): NewPetDraft {
+  const draft = createNewPetDraft()
+  draft.showParsed = true
+  draft.parsed = {
+    ...createEmptyParsedPet(),
+    name: pet?.name || '',
+    breed: pet?.breed || '',
+    gender: Number(pet?.gender || 0) as 0 | 1 | 2,
+    birthDate: pet?.birth_date || '',
+    neutered: !!pet?.neutered,
+    personality: pet?.personality || '',
+    reactions: pet?.behavior_notes || '',
+  }
+  draft.remarkTouched = !!remarkText
+  draft.remarkText = remarkText || buildAppointmentRemarkPreview(draft.parsed)
+  return draft
+}
+
+function hydrateEditNewCustomerDrafts(appointment: any) {
+  newCustomer.value = {
+    nickname: appointment?.customer?.nickname || '',
+    phone: appointment?.customer?.phone || '',
+  }
+  const noteMap = buildAppointmentPetNoteMap(appointment?.notes)
+  const drafts = form.value.pets.map((item, index) => {
+    const pet =
+      petList.value.find((entry) => entry.ID === item.pet_id) ||
+      appointment?.pets?.find((petItem: any) => Number(petItem.pet_id) === Number(item.pet_id))?.pet ||
+      null
+    const fallbackName = pet?.name || `猫咪${index + 1}`
+    return createDraftFromExistingPet(pet, noteMap[fallbackName] || '')
+  })
+  newPetDrafts.value = drafts.length > 0 ? drafts : [createNewPetDraft()]
+  activeDraftId.value = newPetDrafts.value[0].id
+}
+
 async function loadAppointmentForEdit(id: number) {
   const res = await getAppointment(id)
   const appointment = res.data
@@ -861,6 +1067,10 @@ async function loadAppointmentForEdit(id: number) {
     notes: appointment.notes || '',
   }
   customerKeyword.value = appointment.customer?.nickname || appointment.customer?.phone || ''
+
+  if (isEditNewCustomer.value) {
+    hydrateEditNewCustomerDrafts(appointment)
+  }
 
   if (form.value.date && selectedServiceIds.value.length > 0) {
     await loadSlots()
@@ -1180,79 +1390,118 @@ async function nextStep() {
   step.value++
 }
 
-// --- Template parsing ---
-
-function parsePetTemplate(text: string): ParsedPetInfo {
-  const result: ParsedPetInfo = {
-    name: '', age: '', breed: '', gender: 0, neutered: false,
-    furMatted: '', lastBathTime: '', vaccination: '',
-    healthHistory: '', personality: '', reactions: '', source: '',
-  }
-
-  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean)
-
-  // Extract source from first line (e.g. "树街の猫|宝贝洗护小调查" → "树街の猫")
-  if (lines.length > 0 && lines[0].includes('|')) {
-    result.source = lines[0].split('|')[0].trim()
-  }
-  const sectionHeaders = ['基本信息', '健康情况', '性格小秘密']
-
-  for (const line of lines) {
-    if (sectionHeaders.includes(line)) continue
-
-    // Split by ：or :
-    const match = line.match(/^(.+?)[：:](.+)$/)
-    if (!match) continue
-
-    const key = match[1].trim()
-    const val = match[2].trim()
-
-    if (key.includes('大名') || key === '名字' || key === '姓名') {
-      result.name = val
-    } else if (key.includes('年龄')) {
-      result.age = val
-    } else if (key.includes('品种')) {
-      result.breed = val
-    } else if (key.includes('性别')) {
-      if (val.includes('公')) result.gender = 1
-      else if (val.includes('母')) result.gender = 2
-      else result.gender = 0
-    } else if (key.includes('绝育')) {
-      result.neutered = val.includes('是') || val === '已绝育'
-    } else if (key.includes('打结') || key.includes('毛发')) {
-      result.furMatted = val
-    } else if (key.includes('洗澡')) {
-      result.lastBathTime = val
-    } else if (key.includes('疫苗')) {
-      result.vaccination = val
-    } else if (key.includes('疾病') || key.includes('健康')) {
-      result.healthHistory = val
-    } else if (key.includes('i猫') || key.includes('e猫') || key.includes('性格')) {
-      result.personality = val
-    } else if (key.includes('反应') || key.includes('对水')) {
-      result.reactions = val
-    }
-  }
-
-  return result
-}
-
-function parseTemplate() {
-  if (!templateText.value.trim()) {
+function parseTemplate(draftId: number) {
+  const draft = getDraftById(draftId)
+  if (!draft) return
+  if (!draft.templateText.trim()) {
     uni.showToast({ title: '请先粘贴模版内容', icon: 'none' })
     return
   }
-  const result = parsePetTemplate(templateText.value)
-  // Hide, assign new values, bump key to force DOM recreation
-  showParsed.value = false
-  Object.assign(parsed, result)
-  parseKey.value++
+  const result = parsePetTemplate(draft.templateText)
+  draft.showParsed = false
+  draft.parsed = result
+  draft.remarkTouched = false
+  syncDraftRemark(draft, true)
   nextTick(() => {
-    showParsed.value = true
+    draft.showParsed = true
   })
   if (!result.name) {
     uni.showToast({ title: '未识别到猫咪名字，请手动填写', icon: 'none' })
   }
+}
+
+function markDraftRemarkTouched(draftId: number) {
+  const draft = getDraftById(draftId)
+  if (!draft) return
+  draft.remarkTouched = true
+}
+
+function resetDraftRemark(draftId: number) {
+  const draft = getDraftById(draftId)
+  if (!draft) return
+  draft.remarkTouched = false
+  syncDraftRemark(draft, true)
+}
+
+function normalizeDraftRemarkForNotes(text: string) {
+  return String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('；')
+}
+
+function applyDraftsToEditNewCustomerState() {
+  if (!isEditNewCustomer.value) return
+  const notesParts: string[] = []
+
+  form.value.pets.forEach((selection, index) => {
+    const draft = newPetDrafts.value[index]
+    if (!draft) return
+    const pet = petList.value.find((item) => item.ID === selection.pet_id)
+    const nextName = draft.parsed.name.trim() || pet?.name || `猫咪${index + 1}`
+
+    if (pet) {
+      pet.name = nextName
+      pet.breed = draft.parsed.breed || ''
+      pet.gender = draft.parsed.gender
+      pet.neutered = draft.parsed.neutered
+      pet.birth_date = draft.parsed.birthDate || pet.birth_date
+      pet.personality = draft.parsed.personality || ''
+      pet.behavior_notes = draft.parsed.reactions || ''
+      pet.care_notes = buildCareNotes(draft.parsed)
+    }
+
+    const remarkText = normalizeDraftRemarkForNotes(draft.remarkText)
+    if (remarkText) {
+      notesParts.push(`${nextName}：${remarkText}`)
+    }
+  })
+
+  form.value.notes = notesParts.join('\n')
+}
+
+async function persistEditNewCustomerEntities() {
+  if (!isEditNewCustomer.value || !form.value.customer_id) return
+
+  const nickname = newCustomer.value.nickname.trim() || '新客'
+  const phone = newCustomer.value.phone.trim()
+  await updateCustomer(form.value.customer_id, { nickname, phone })
+  upsertCustomerOption({
+    ...(selectedCustomer.value || { ID: form.value.customer_id }),
+    ID: form.value.customer_id,
+    nickname,
+    phone,
+  } as Customer)
+
+  for (let index = 0; index < form.value.pets.length; index++) {
+    const selection = form.value.pets[index]
+    const draft = newPetDrafts.value[index]
+    if (!draft) continue
+    const existingPet = petList.value.find((item) => item.ID === selection.pet_id)
+    const birthDate = draft.parsed.birthDate || ageToBirthDate(draft.parsed.age)
+    const payload: Partial<Pet> = {
+      name: draft.parsed.name.trim() || existingPet?.name || `猫咪${index + 1}`,
+      breed: draft.parsed.breed || '',
+      gender: draft.parsed.gender,
+      neutered: draft.parsed.neutered,
+      personality: draft.parsed.personality || '',
+      behavior_notes: draft.parsed.reactions || '',
+      care_notes: buildCareNotes(draft.parsed),
+    }
+    if (birthDate) payload.birth_date = birthDate
+    await updatePet(selection.pet_id, payload)
+  }
+}
+
+function handleNewCustomerStep() {
+  if (isEditNewCustomer.value) {
+    applyDraftsToEditNewCustomerState()
+    step.value = 2
+    return
+  }
+  submitNewCustomer()
 }
 
 function ageToBirthDate(age: string): string | undefined {
@@ -1270,39 +1519,41 @@ function ageToBirthDate(age: string): string | undefined {
   return now.toISOString().split('T')[0]
 }
 
-function editField(field: string, label: string) {
-  const current = (parsed as any)[field] || ''
+function editField(draftId: number, field: keyof ParsedPetInfo | 'neutered', label: string) {
+  const draft = getDraftById(draftId)
+  if (!draft) return
+  const current = (draft.parsed as any)[field]
   uni.showModal({
     title: `修改${label}`,
     editable: true,
     placeholderText: `请输入${label}`,
-    content: String(current),
+    content: field === 'neutered' ? (current ? '是' : '否') : String(current || ''),
     success: (res) => {
       if (res.confirm && res.content !== undefined) {
-        (parsed as any)[field] = res.content
+        if (field === 'gender') {
+          if (res.content.includes('公')) draft.parsed.gender = 1
+          else if (res.content.includes('母')) draft.parsed.gender = 2
+          else draft.parsed.gender = 0
+          syncDraftRemark(draft)
+          return
+        }
+        if (field === 'neutered') {
+          draft.parsed.neutered = res.content.includes('是') || res.content === '已绝育'
+          syncDraftRemark(draft)
+          return
+        }
+        ;(draft.parsed as any)[field] = res.content
+        syncDraftRemark(draft)
       }
     }
   })
 }
 
-function buildCareNotes(p: ParsedPetInfo): string {
-  const parts: string[] = []
-  if (p.furMatted) parts.push(`毛发打结：${p.furMatted}`)
-  if (p.lastBathTime) parts.push(`上次洗澡：${p.lastBathTime}`)
-  if (p.vaccination) parts.push(`疫苗：${p.vaccination}`)
-  if (p.healthHistory) parts.push(`疾病史：${p.healthHistory}`)
-  return parts.join('\n')
-}
-
 async function submitNewCustomer() {
   const phone = newCustomer.value.phone.trim()
   const nickname = newCustomer.value.nickname.trim()
-  const hasPetInfo = showParsed.value && parsed.name.trim() !== ''
-
-  if (!phone && !nickname && !hasPetInfo) {
-    uni.showToast({ title: '请至少填写手机号或姓名', icon: 'none' })
-    return
-  }
+  const customerName = nickname || '新客'
+  const normalizedDrafts = newPetDrafts.value.length > 0 ? newPetDrafts.value : [createNewPetDraft()]
 
   newSubmitting.value = true
   try {
@@ -1316,48 +1567,64 @@ async function submitNewCustomer() {
         customerId = existing.ID
         uni.showToast({ title: '该客户已存在，已自动关联', icon: 'none' })
       } else {
-        const cRes = await createCustomer({ phone, nickname: nickname || phone })
+        const cRes = await createCustomer({ phone, nickname: nickname || customerName })
         customerId = cRes.data.ID
+        upsertCustomerOption(cRes.data)
       }
     } else {
-      const cRes = await createCustomer({ nickname: nickname || `散客-${parsed.name || '未命名'}` })
+      const cRes = await createCustomer({ nickname: customerName })
       customerId = cRes.data.ID
+      upsertCustomerOption(cRes.data)
     }
 
     form.value.customer_id = customerId
 
-    // Step 2: Create pet (only if we have pet info from parsing)
-    if (hasPetInfo) {
+    const createdPets: Pet[] = []
+    const appointmentPets: AppointmentPetFormItem[] = []
+    const notesParts: string[] = []
+
+    for (let index = 0; index < normalizedDrafts.length; index++) {
+      const draft = normalizedDrafts[index]
+      const petName = draft.parsed.name.trim() || (index === 0 ? '新咪' : `新咪${index + 1}`)
       const petData: Partial<Pet> = {
         customer_id: customerId,
-        name: parsed.name,
+        name: petName,
         species: '猫',
-        breed: parsed.breed || '',
-        gender: parsed.gender,
-        neutered: parsed.neutered,
-        personality: parsed.personality || '',
-        behavior_notes: parsed.reactions || '',
-        care_notes: buildCareNotes(parsed),
+        breed: draft.parsed.breed || '',
+        gender: draft.parsed.gender,
+        neutered: draft.parsed.neutered,
+        personality: draft.parsed.personality || '',
+        behavior_notes: draft.parsed.reactions || '',
+        care_notes: buildCareNotes(draft.parsed),
       }
 
-      const birthDate = ageToBirthDate(parsed.age)
+      const birthDate = draft.parsed.birthDate || ageToBirthDate(draft.parsed.age)
       if (birthDate) {
         petData.birth_date = birthDate
       }
 
       const petRes = await createPet(petData)
-      form.value.pets = [{ pet_id: petRes.data.ID, service_ids: [] }]
-      petList.value = [petRes.data]
+      createdPets.push(petRes.data)
+      appointmentPets.push({ pet_id: petRes.data.ID, service_ids: [] })
+
+      const remarkText = draft.remarkText.trim()
+      if (remarkText) {
+        notesParts.push(`${petName}：${remarkText.replace(/\n+/g, '；')}`)
+      } else {
+        const petNotes = buildAppointmentRemarkParts(draft.parsed)
+        if (petNotes.length > 0) {
+          notesParts.push(`${petName}：${petNotes.join('；')}`)
+        }
+      }
     }
 
-    // Auto-fill appointment notes with key info for the groomer
-    const notesParts: string[] = []
-    if (parsed.source) notesParts.push(`来源：${parsed.source}`)
-    if (parsed.furMatted && parsed.furMatted !== '否' && parsed.furMatted !== '无') notesParts.push(`毛发打结：${parsed.furMatted}`)
-    if (parsed.lastBathTime) notesParts.push(`上次洗澡：${parsed.lastBathTime}`)
-    if (parsed.reactions) notesParts.push(`注意：${parsed.reactions}`)
-    if (parsed.personality) notesParts.push(`性格：${parsed.personality}`)
-    if (notesParts.length) form.value.notes = notesParts.join('\n')
+    form.value.pets = appointmentPets
+    petList.value = createdPets
+    if (notesParts.length > 0) {
+      form.value.notes = notesParts.join('\n')
+    } else {
+      form.value.notes = `客户信息未填写，系统自动创建${customerName}/${createdPets.map((pet, index) => pet.name || (index === 0 ? '新咪' : `新咪${index + 1}`)).join('、')}`
+    }
 
     step.value = 2
   } catch (e: any) {
@@ -1371,7 +1638,7 @@ async function onSubmit() {
   submitting.value = true
   try {
     // 提交前校验：重新获取服务列表，确保选中的服务仍然有效（防止服务被删除/下架后仍提交旧ID）
-    const sRes = await getServiceList({ page: 1, page_size: 100 })
+    const sRes = await getServiceList({ page: 1, page_size: 100, order_by: 'monthly_usage' })
     const freshServices = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
     const freshIds = new Set(freshServices.map(s => s.ID))
     let hasInvalid = false
@@ -1405,13 +1672,19 @@ async function onSubmit() {
     }
 
     if (isEditMode.value) {
+      applyDraftsToEditNewCustomerState()
+      await persistEditNewCustomerEntities()
       await updateAppointment(editAppointmentId.value, payload)
       uni.showToast({ title: '修改成功', icon: 'success' })
-      setTimeout(() => safeBack(), 500)
+      setTimeout(() => {
+        uni.redirectTo({ url: `/pages/appointment/calendar?date=${encodeURIComponent(form.value.date)}` })
+      }, 500)
     } else {
       await createAppointment(payload)
       uni.showToast({ title: '预约成功', icon: 'success' })
-      setTimeout(() => safeBack(), 500)
+      setTimeout(() => {
+        uni.redirectTo({ url: `/pages/appointment/calendar?date=${encodeURIComponent(form.value.date)}` })
+      }, 500)
     }
   } finally { submitting.value = false }
 }
@@ -1586,8 +1859,156 @@ async function onSubmit() {
   align-items: center;
   gap: 10rpx;
 }
+.section-title-between {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.section-title-main {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
 .section-icon {
   font-size: 28rpx;
+}
+
+.card-pet-builder {
+  padding-bottom: 20rpx;
+}
+.pet-builder-tip {
+  display: block;
+  margin: -4rpx 0 20rpx;
+  font-size: 24rpx;
+  color: #6B7280;
+  line-height: 1.6;
+}
+.pet-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 156rpx;
+  height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #EEF2FF;
+  color: #4338CA;
+  font-size: 22rpx;
+  font-weight: 700;
+  justify-content: center;
+  box-shadow: inset 0 0 0 2rpx rgba(99, 102, 241, 0.08);
+}
+.pet-add-plus {
+  font-size: 26rpx;
+  line-height: 1;
+}
+.pet-draft-tabs {
+  margin-bottom: 18rpx;
+}
+.pet-draft-tabs-row {
+  display: inline-flex;
+  gap: 12rpx;
+  min-width: 100%;
+}
+.pet-draft-tab {
+  min-width: 160rpx;
+  max-width: 240rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 2rpx solid #E5E7EB;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.pet-draft-tab.active {
+  background: linear-gradient(135deg, #EEF2FF, #F5F3FF);
+  border-color: #4F46E5;
+  box-shadow: 0 8rpx 20rpx rgba(79, 70, 229, 0.12);
+}
+.pet-draft-tab.parsed .pet-draft-tab-index {
+  color: #4F46E5;
+}
+.pet-draft-tab-index {
+  font-size: 20rpx;
+  color: #6B7280;
+  font-weight: 700;
+}
+.pet-draft-tab-name {
+  font-size: 24rpx;
+  color: #111827;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pet-draft-card {
+  padding: 22rpx;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 20rpx;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  margin-bottom: 18rpx;
+}
+.pet-draft-card.parsed {
+  border-color: #C7D2FE;
+  box-shadow: 0 8rpx 24rpx rgba(79, 70, 229, 0.08);
+}
+.pet-draft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+.pet-draft-title {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+}
+.pet-draft-badge {
+  align-self: flex-start;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  color: #6B7280;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+.pet-draft-name {
+  font-size: 28rpx;
+  color: #111827;
+  font-weight: 700;
+}
+.pet-draft-remove {
+  flex-shrink: 0;
+  color: #DC2626;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+.draft-parse-btn {
+  margin-top: 14rpx;
+}
+.draft-result {
+  margin-top: 18rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx dashed #D6DAF8;
+}
+.draft-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+.draft-result-title {
+  font-size: 26rpx;
+  color: #312E81;
+  font-weight: 700;
+}
+.draft-result-summary {
+  font-size: 22rpx;
+  color: #6366F1;
+  text-align: right;
 }
 
 /* ========== Search Bar ========== */
@@ -1596,9 +2017,11 @@ async function onSubmit() {
   align-items: center;
   background: #F9FAFB;
   border: 2rpx solid #E5E7EB;
-  border-radius: 16rpx;
-  padding: 4rpx 20rpx;
+  border-radius: 20rpx;
+  min-height: 92rpx;
+  padding: 0 22rpx;
   transition: all 0.2s;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.04);
 }
 .search-wrap {
   position: relative;
@@ -1611,7 +2034,8 @@ async function onSubmit() {
 .search-input {
   flex: 1;
   font-size: 28rpx;
-  padding: 18rpx 0;
+  min-height: 88rpx;
+  padding: 0;
   background: transparent;
   color: #374151;
 }
@@ -2169,19 +2593,20 @@ async function onSubmit() {
 .form-input-direct {
   background: #FFFFFF;
   border: 2rpx solid #C7D2FE;
-  border-radius: 14rpx;
+  border-radius: 18rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
   width: 100%;
   box-sizing: border-box;
   color: #1F2937;
-  height: 80rpx;
-  line-height: 80rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  box-shadow: 0 8rpx 22rpx rgba(79, 70, 229, 0.06);
 }
 .input-wrapper {
   background: #F9FAFB;
   border: 2rpx solid #E5E7EB;
-  border-radius: 14rpx;
+  border-radius: 18rpx;
   transition: all 0.2s;
 }
 .form-input {
@@ -2252,6 +2677,44 @@ async function onSubmit() {
   display: block;
   word-break: break-all;
 }
+.parsed-note-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.parsed-note-editor {
+  width: 100%;
+  min-height: 160rpx;
+  margin-top: 10rpx;
+  padding: 18rpx 20rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #E2E8F0;
+  border-radius: 18rpx;
+  font-size: 26rpx;
+  color: #1F2937;
+  line-height: 1.65;
+  box-sizing: border-box;
+  box-shadow: inset 0 1rpx 0 rgba(255,255,255,0.9), 0 8rpx 20rpx rgba(15, 23, 42, 0.04);
+}
+.parsed-note-editor:focus {
+  border-color: #818CF8;
+  background: #FDFEFF;
+}
+.parsed-note-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  align-items: center;
+  margin-top: 12rpx;
+}
+.parsed-note-tip {
+  font-size: 22rpx;
+  color: #9CA3AF;
+}
+.parsed-note-reset {
+  font-size: 22rpx;
+  color: #4F46E5;
+  white-space: nowrap;
+}
 .textarea {
   background: transparent;
   border: none;
@@ -2277,12 +2740,13 @@ async function onSubmit() {
   background: linear-gradient(135deg, #4F46E5, #6366F1);
   color: #fff;
   border: none;
-  border-radius: 16rpx;
-  font-size: 30rpx;
+  border-radius: 20rpx;
+  font-size: 29rpx;
   font-weight: 700;
-  padding: 24rpx 0;
+  min-height: 94rpx;
+  padding: 0 28rpx;
   letter-spacing: 2rpx;
-  box-shadow: 0 6rpx 20rpx rgba(79, 70, 229, 0.3);
+  box-shadow: 0 14rpx 28rpx rgba(79, 70, 229, 0.24);
   margin-top: 28rpx;
 }
 .btn-primary:active {
@@ -2298,10 +2762,11 @@ async function onSubmit() {
   background: #EEF2FF;
   color: #4F46E5;
   border: 2rpx solid #C7D2FE;
-  border-radius: 14rpx;
-  font-size: 28rpx;
+  border-radius: 18rpx;
+  font-size: 27rpx;
   font-weight: 600;
-  padding: 20rpx 0;
+  min-height: 86rpx;
+  padding: 0 24rpx;
   margin-top: 16rpx;
   letter-spacing: 2rpx;
 }
@@ -2314,10 +2779,11 @@ async function onSubmit() {
   background: #fff;
   color: #6B7280;
   border: 2rpx solid #E5E7EB;
-  border-radius: 16rpx;
-  font-size: 28rpx;
+  border-radius: 20rpx;
+  font-size: 27rpx;
   font-weight: 600;
-  padding: 24rpx 0;
+  min-height: 94rpx;
+  padding: 0 24rpx;
 }
 .btn-ghost:active {
   background: #F9FAFB;
@@ -2328,15 +2794,21 @@ async function onSubmit() {
   background: linear-gradient(135deg, #059669, #10B981);
   color: #fff;
   border: none;
-  border-radius: 16rpx;
-  font-size: 32rpx;
+  border-radius: 20rpx;
+  font-size: 30rpx;
   font-weight: 700;
-  padding: 24rpx 0;
-  letter-spacing: 4rpx;
-  box-shadow: 0 6rpx 20rpx rgba(5, 150, 105, 0.3);
+  min-height: 94rpx;
+  padding: 0 24rpx;
+  letter-spacing: 3rpx;
+  box-shadow: 0 14rpx 28rpx rgba(5, 150, 105, 0.24);
 }
 .btn-submit:active {
   transform: scale(0.98);
+}
+.btn-row .btn-primary,
+.btn-row .btn-ghost,
+.btn-row .btn-submit {
+  margin-top: 0;
 }
 
 /* ========== Pet Service Table (confirm step) ========== */
@@ -2481,15 +2953,15 @@ async function onSubmit() {
   height: 700rpx;
 }
 .svc-picker-sidebar {
-  width: 160rpx;
-  min-width: 160rpx;
+  width: 136rpx;
+  min-width: 136rpx;
   background: #F9FAFB;
   border-right: 2rpx solid #E5E7EB;
   overflow-y: auto;
 }
 .sidebar-item {
-  padding: 28rpx 16rpx;
-  font-size: 26rpx;
+  padding: 24rpx 12rpx;
+  font-size: 24rpx;
   color: #6B7280;
   text-align: center;
   border-left: 6rpx solid transparent;
@@ -2515,16 +2987,16 @@ async function onSubmit() {
 }
 .sub-tab-list {
   display: inline-flex;
-  padding: 16rpx 16rpx 0;
-  gap: 12rpx;
+  padding: 14rpx 12rpx 0;
+  gap: 8rpx;
 }
 .sub-tab {
   display: inline-block;
-  padding: 12rpx 24rpx;
+  padding: 10rpx 18rpx;
   font-size: 24rpx;
   color: #6B7280;
   border-radius: 32rpx;
-  margin-bottom: 12rpx;
+  margin-bottom: 10rpx;
   white-space: nowrap;
 }
 .sub-tab.active {
@@ -2575,8 +3047,8 @@ async function onSubmit() {
 .svc-item-right {
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  margin-left: 16rpx;
+  gap: 12rpx;
+  margin-left: 12rpx;
   flex-shrink: 0;
 }
 .svc-item-price {

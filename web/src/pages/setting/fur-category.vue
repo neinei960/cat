@@ -141,13 +141,45 @@ function onDelete(cat: FurCategory) {
 .action-btn.save { color: #059669; background: #D1FAE5; }
 .action-btn.cancel { color: #6B7280; background: #F3F4F6; }
 .item-edit { display: flex; align-items: center; gap: 12rpx; }
-.edit-input { background: #F3F4F6; border-radius: 8rpx; padding: 12rpx; font-size: 26rpx; flex: 1; }
+.edit-input,
+.add-input {
+  flex: 1;
+  min-height: 76rpx;
+  background: #F3F4F6;
+  border-radius: 12rpx;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+}
+.edit-input :deep(.uni-input-wrapper),
+.add-input :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+}
+.edit-input :deep(.uni-input-input),
+.add-input :deep(.uni-input-input) {
+  width: 100%;
+  min-height: 40rpx;
+  font-size: 28rpx;
+  line-height: 40rpx;
+  color: #111827;
+  text-align: left !important;
+}
+.edit-input :deep(.uni-input-placeholder),
+.add-input :deep(.uni-input-placeholder) {
+  width: 100%;
+  font-size: 28rpx;
+  color: #9CA3AF;
+  text-align: left !important;
+}
 .edit-input.sort { width: 100rpx; flex: none; }
 .empty { text-align: center; padding: 40rpx; color: #9CA3AF; font-size: 26rpx; }
 .add-section { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 24rpx; }
 .section-title { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 16rpx; }
 .add-form { display: flex; align-items: center; gap: 12rpx; }
-.add-input { background: #F3F4F6; border-radius: 8rpx; padding: 16rpx; font-size: 28rpx; flex: 1; }
 .add-input.sort { width: 120rpx; flex: none; }
 .add-btn { background: #4F46E5 !important; color: #fff !important; border-radius: 8rpx !important; font-size: 26rpx !important; }
 .tips { background: #FFFBEB; border-radius: 16rpx; padding: 24rpx; }

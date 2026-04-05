@@ -34,7 +34,8 @@
     "build:quickapp-webview": "uni build -p quickapp-webview",
     "build:quickapp-webview-huawei": "uni build -p quickapp-webview-huawei",
     "build:quickapp-webview-union": "uni build -p quickapp-webview-union",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "test:pet-template-parser": "rm -rf .tmp/parser-test && npx tsc ./src/utils/pet-template-parser.ts ./scripts/test-pet-template-parser.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/parser-test && node ./.tmp/parser-test/scripts/test-pet-template-parser.js"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080420251103001",

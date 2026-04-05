@@ -27,9 +27,12 @@ func main() {
 		&model.Shop{}, &model.Staff{}, &model.Customer{}, &model.CustomerTag{}, &model.CustomerTagRelation{}, &model.Pet{},
 		&model.Service{}, &model.ServicePriceRule{}, &model.ServiceAddon{}, &model.FurCategory{},
 		&model.StaffService{}, &model.StaffSchedule{},
-		&model.Appointment{}, &model.AppointmentService{},
+		&model.Appointment{}, &model.AppointmentCalendarMark{}, &model.AppointmentService{},
 		&model.AppointmentPet{}, &model.AppointmentPetService{},
-		&model.Order{}, &model.OrderItem{}, &model.NotificationLog{}, &model.DailyStats{},
+		&model.Order{}, &model.OrderItem{},
+		&model.FeedingSetting{}, &model.FeedingPlan{}, &model.FeedingPlanPet{}, &model.FeedingPlanRule{},
+		&model.FeedingVisit{}, &model.FeedingVisitItem{}, &model.FeedingVisitLog{}, &model.FeedingVisitMedia{},
+		&model.NotificationLog{}, &model.DailyStats{},
 	)
 
 	// Get shop (must exist from seed)

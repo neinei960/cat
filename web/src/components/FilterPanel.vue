@@ -39,6 +39,16 @@
           </view>
         </view>
 
+        <view class="fp-section" v-if="showProductKeyword">
+          <text class="fp-label">商品名称</text>
+          <input
+            v-model="localFilter.productKeyword"
+            class="fp-text-input"
+            placeholder="输入商品名称"
+            confirm-type="done"
+          />
+        </view>
+
         <!-- 洗护师 -->
         <view class="fp-section" v-if="staffList.length > 0">
           <text class="fp-label">洗护师</text>
@@ -82,6 +92,7 @@ interface FilterState {
   staffId: number
   payMethod: string
   categoryId: number
+  productKeyword: string
 }
 
 const props = withDefaults(defineProps<{
@@ -92,12 +103,14 @@ const props = withDefaults(defineProps<{
   payMethods?: { value: string; label: string }[]
   staffList?: any[]
   categories?: any[]
+  showProductKeyword?: boolean
 }>(), {
   statusOptions: () => [],
   statusLabel: '状态',
   payMethods: () => [],
   staffList: () => [],
   categories: () => [],
+  showProductKeyword: false,
 })
 
 const emit = defineEmits<{
@@ -112,6 +125,7 @@ const localFilter = reactive<FilterState>({
   staffId: 0,
   payMethod: '',
   categoryId: 0,
+  productKeyword: '',
 })
 
 watch(() => props.visible, (v) => {
@@ -125,6 +139,7 @@ function onReset() {
   localFilter.staffId = 0
   localFilter.payMethod = ''
   localFilter.categoryId = 0
+  localFilter.productKeyword = ''
 }
 function onConfirm() {
   emit('confirm', { ...localFilter })
@@ -141,6 +156,7 @@ function onConfirm() {
 .fp-date-row { display: flex; align-items: center; gap: 12rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .fp-date-btn { font-size: 26rpx; color: #374151; flex: 1; text-align: center; min-width: 140rpx; }
 .fp-date-sep { font-size: 26rpx; color: #9CA3AF; }
+.fp-text-input { width: 100%; box-sizing: border-box; font-size: 26rpx; color: #374151; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 20rpx; }
 .fp-chips { display: flex; flex-wrap: wrap; gap: 12rpx; }
 .fp-chip { font-size: 24rpx; padding: 12rpx 28rpx; border-radius: 999rpx; background: #F3F4F6; color: #374151; border: 1rpx solid #E5E7EB; }
 .fp-chip.active { background: #1F2937; color: #fff; border-color: #1F2937; }
@@ -149,4 +165,3 @@ function onConfirm() {
 .fp-btn-reset { background: #fff; color: #374151; border: 2rpx solid #E5E7EB; }
 .fp-btn-confirm { background: #FBBF24; color: #1F2937; }
 </style>
-

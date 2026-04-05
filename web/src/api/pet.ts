@@ -1,6 +1,11 @@
 import { request } from './request'
 
-export function getPetList(params?: PageParams) {
+export interface PetListParams extends PageParams {
+  keyword?: string
+  pet_tag?: string
+}
+
+export function getPetList(params?: PetListParams) {
   return request<PageResult<Pet>>({ url: '/b/pets', data: params })
 }
 

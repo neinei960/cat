@@ -158,6 +158,72 @@
 			}
 		},
 		{
+			"path": "pages/boarding/dashboard",
+			"style": {
+				"navigationBarTitleText": "寄养看板"
+			}
+		},
+		{
+			"path": "pages/boarding/create",
+			"style": {
+				"navigationBarTitleText": "新建寄养"
+			}
+		},
+		{
+			"path": "pages/boarding/detail",
+			"style": {
+				"navigationBarTitleText": "寄养详情"
+			}
+		},
+		{
+			"path": "pages/boarding/cabinets",
+			"style": {
+				"navigationBarTitleText": "寄养房型设置"
+			}
+		},
+		{
+			"path": "pages/boarding/policies",
+			"style": {
+				"navigationBarTitleText": "寄养优惠"
+			}
+		},
+		{
+			"path": "pages/boarding/holidays",
+			"style": {
+				"navigationBarTitleText": "寄养节假日"
+			}
+		},
+		{
+			"path": "pages/feeding/dashboard",
+			"style": {
+				"navigationBarTitleText": "上门喂养"
+			}
+		},
+		{
+			"path": "pages/feeding/create",
+			"style": {
+				"navigationBarTitleText": "新建上门喂养"
+			}
+		},
+		{
+			"path": "pages/feeding/detail",
+			"style": {
+				"navigationBarTitleText": "喂养计划详情"
+			}
+		},
+		{
+			"path": "pages/feeding/visit-execute",
+			"style": {
+				"navigationBarTitleText": "执行上门喂养"
+			}
+		},
+		{
+			"path": "pages/feeding/settings",
+			"style": {
+				"navigationBarTitleText": "上门喂养设置"
+			}
+		},
+		{
 			"path": "pages/dashboard/index",
 			"style": {
 				"navigationBarTitleText": "数据看板"

@@ -88,13 +88,18 @@
         <view class="col">
           <text class="label">毛发等级 *</text>
           <view class="fur-tags">
-            <view
-              v-for="fl in furLevels"
-              :key="fl"
-              :class="['fur-tag', form.fur_level === fl ? 'fur-active' : '']"
-              @click="form.fur_level = fl"
-              @longpress="onFurLongPress(fl)"
-            >{{ fl }}</view>
+            <view v-for="fl in furLevels" :key="fl" class="fur-tag-wrap">
+              <view
+                :class="['fur-tag', form.fur_level === fl ? 'fur-active' : '']"
+                @click="form.fur_level = fl"
+                @longpress="onFurLongPress(fl)"
+              >{{ fl }}</view>
+              <view
+                v-if="isDesktopInteraction"
+                class="tag-tool-btn fur-delete-btn"
+                @click.stop="deleteFurLevel(fl)"
+              >×</view>
+            </view>
             <view class="fur-tag fur-add" @click="showFurAdd = true">+</view>
           </view>
         </view>
@@ -109,14 +114,32 @@
         <view class="personality-tags">
           <view
             v-for="(p, idx) in personalities" :key="p"
-            :class="['p-tag', form.personality === p ? 'p-selected' : '', draggingIdx === idx ? 'p-dragging' : '']"
-            :style="{ background: form.personality === p ? getPersonalityColor(p) : getPersonalityBg(p), color: form.personality === p ? '#fff' : getPersonalityColor(p), borderColor: getPersonalityColor(p) }"
-            @click="form.personality = form.personality === p ? '' : p"
-            @longpress.prevent="onPersonalityLongPress(p, idx)"
-            @touchstart="onPTagTouchStart($event, idx)"
-            @touchmove.prevent="onPTagTouchMove($event)"
-            @touchend="onPTagTouchEnd"
-          >{{ p }}</view>
+            class="p-tag-wrap"
+            :class="{
+              'p-tag-wrap-dragging': desktopDraggingPersonality === p,
+              'p-tag-wrap-over': desktopDragOverPersonality === p && desktopDraggingPersonality !== p,
+            }"
+            :draggable="isDesktopInteraction"
+            @dragstart="onDesktopPersonalityDragStart(p)"
+            @dragover.prevent="onDesktopPersonalityDragOver(p)"
+            @drop.prevent="onDesktopPersonalityDrop(p)"
+            @dragend="onDesktopPersonalityDragEnd"
+          >
+            <view
+              :class="['p-tag', form.personality === p ? 'p-selected' : '', draggingIdx === idx ? 'p-dragging' : '']"
+              :style="{ background: form.personality === p ? getPersonalityColor(p) : getPersonalityBg(p), color: form.personality === p ? '#fff' : getPersonalityColor(p), borderColor: getPersonalityColor(p) }"
+              @click="form.personality = form.personality === p ? '' : p"
+              @longpress.prevent="onPersonalityLongPress(p, idx)"
+              @touchstart="!isDesktopInteraction ? onPTagTouchStart($event, idx) : undefined"
+              @touchmove.prevent="!isDesktopInteraction ? onPTagTouchMove($event) : undefined"
+              @touchend="!isDesktopInteraction ? onPTagTouchEnd() : undefined"
+            >{{ p }}</view>
+            <view v-if="isDesktopInteraction" class="tag-tools">
+              <view class="tag-tool-btn" @click.stop="openColorPalette('edit', p)">色</view>
+              <view class="tag-tool-btn" @click.stop="deletePersonality(p)">×</view>
+              <view class="tag-tool-btn drag-handle-btn">⋮⋮</view>
+            </view>
+          </view>
           <view class="p-tag p-add" @click="showPersonalityAdd = true">+</view>
         </view>
       </view>
@@ -186,20 +209,34 @@
       <view class="modal-body" @click.stop>
         <text class="modal-title">新增性格标签</text>
         <input v-model="newPersonalityName" placeholder="输入性格名称" class="input" style="margin: 16rpx 0;" />
-        <text class="label">选择颜色（风险等级）</text>
-        <view class="color-options">
-          <view
-            v-for="co in colorOptions" :key="co.value"
-            :class="['color-opt', newPersonalityColor === co.value ? 'color-selected' : '']"
-            :style="{ background: co.value }"
-            @click="newPersonalityColor = co.value"
-          >
-            <text class="color-opt-text">{{ co.name }}</text>
+        <text class="label">标签颜色（全局）</text>
+        <view class="color-picker-trigger" @click="openColorPalette('new')">
+          <view class="color-picker-preview">
+            <view class="color-picker-dot" :style="{ background: newPersonalityColor }"></view>
+            <text class="color-picker-text">{{ getColorName(newPersonalityColor) || '选择颜色' }}</text>
           </view>
+          <text class="color-picker-arrow">更换 ›</text>
         </view>
         <view class="modal-btns">
           <view class="modal-btn cancel" @click="showPersonalityAdd = false">取消</view>
           <view class="modal-btn confirm" @click="addPersonality">确定</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="modal-mask" v-if="showColorPalette" @click="showColorPalette = false">
+      <view class="modal-body palette-modal" @click.stop>
+        <text class="modal-title">选择标签颜色</text>
+        <view class="palette-grid">
+          <view
+            v-for="co in colorOptions"
+            :key="co.value"
+            :class="['palette-item', activePaletteColor === co.value ? 'palette-item-selected' : '']"
+            @click="applyPaletteColor(co.value)"
+          >
+            <view class="palette-swatch" :style="{ background: co.value }"></view>
+            <text class="palette-name">{{ co.name }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -214,44 +251,78 @@ import SideLayout from '@/components/SideLayout.vue'
 import ImageCropper from '@/components/ImageCropper.vue'
 import { getPet, createPet, updatePet, deletePet } from '@/api/pet'
 import { getFurCategoryList, createFurCategory, deleteFurCategory } from '@/api/fur-category'
+import { getShop, updateShop } from '@/api/shop'
 import { uploadFile } from '@/api/upload'
 import { safeBack } from '@/utils/navigate'
-import { getPersonalityColor, getPersonalityBg, personalityColors, colorOptions } from '@/utils/personality'
+import { useDesktopInteraction } from '@/utils/interaction'
+import {
+  addPersonalityTag,
+  buildBusinessHoursWithPersonality,
+  colorOptions,
+  getPersonalityColor,
+  getPersonalityBg,
+  getPersonalityNames,
+  removePersonalityTag,
+  reorderPersonalityTags,
+  setPersonalityColor,
+  syncPersonalityConfigFromShop,
+} from '@/utils/personality'
 
 const id = ref(0)
 const submitting = ref(false)
-const personalities = ref(['神仙宝贝', '胆大开放', '胆小敏感', '过度活跃', '笑里藏刀', '绝世凶兽'])
+const personalities = ref(getPersonalityNames())
 const aggressions = ['无', '可能', '有']
 const aggressionColorMap: Record<string, string> = { '无': '#10B981', '可能': '#F59E0B', '有': '#EF4444' }
 const showPersonalityAdd = ref(false)
 const newPersonalityName = ref('')
-const newPersonalityColor = ref('#F59E0B')
+const newPersonalityColor = ref('#4F46E5')
+const showColorPalette = ref(false)
+const paletteMode = ref<'new' | 'edit'>('new')
+const editingPersonalityName = ref('')
+const { isDesktopInteraction } = useDesktopInteraction()
 
 // Drag & longpress for personality tags
 const draggingIdx = ref(-1)
+const desktopDraggingPersonality = ref('')
+const desktopDragOverPersonality = ref('')
 let dragStartX = 0
 let dragMoved = false
 
 function onPersonalityLongPress(name: string, idx: number) {
   uni.showActionSheet({
-    itemList: ['上移', '下移', `删除「${name}」`],
-    success: (res) => {
+    itemList: ['上移', '下移', `修改颜色「${name}」`, `删除「${name}」`],
+    success: async (res) => {
       if (res.tapIndex === 0 && idx > 0) {
         // Move up
         const arr = [...personalities.value]
         ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
         personalities.value = arr
+        await persistPersonalityConfig()
       } else if (res.tapIndex === 1 && idx < personalities.value.length - 1) {
         // Move down
         const arr = [...personalities.value]
         ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
         personalities.value = arr
+        await persistPersonalityConfig()
       } else if (res.tapIndex === 2) {
+        editingPersonalityName.value = name
+        paletteMode.value = 'edit'
+        showColorPalette.value = true
+      } else if (res.tapIndex === 3) {
         personalities.value = personalities.value.filter(p => p !== name)
         if (form.value.personality === name) form.value.personality = ''
+        removePersonalityTag(name)
+        await persistPersonalityConfig()
       }
     }
   })
+}
+
+async function deletePersonality(name: string) {
+  personalities.value = personalities.value.filter(p => p !== name)
+  if (form.value.personality === name) form.value.personality = ''
+  removePersonalityTag(name)
+  await persistPersonalityConfig()
 }
 
 function onPTagTouchStart(e: any, idx: number) {
@@ -283,21 +354,94 @@ function onPTagTouchMove(e: any) {
   }
 }
 
-function onPTagTouchEnd() {
+async function onPTagTouchEnd() {
+  if (dragMoved) {
+    await persistPersonalityConfig()
+  }
+  dragMoved = false
   draggingIdx.value = -1
 }
 
-function addPersonality() {
+function onDesktopPersonalityDragStart(name: string) {
+  if (!isDesktopInteraction.value) return
+  desktopDraggingPersonality.value = name
+  desktopDragOverPersonality.value = name
+}
+
+function onDesktopPersonalityDragOver(name: string) {
+  if (!desktopDraggingPersonality.value || desktopDraggingPersonality.value === name) return
+  desktopDragOverPersonality.value = name
+}
+
+async function onDesktopPersonalityDrop(targetName: string) {
+  const sourceName = desktopDraggingPersonality.value
+  desktopDraggingPersonality.value = ''
+  desktopDragOverPersonality.value = ''
+  if (!sourceName || sourceName === targetName) return
+  const sourceIndex = personalities.value.findIndex(item => item === sourceName)
+  const targetIndex = personalities.value.findIndex(item => item === targetName)
+  if (sourceIndex < 0 || targetIndex < 0) return
+  const next = [...personalities.value]
+  const [moved] = next.splice(sourceIndex, 1)
+  next.splice(targetIndex, 0, moved)
+  personalities.value = next
+  await persistPersonalityConfig()
+}
+
+function onDesktopPersonalityDragEnd() {
+  desktopDraggingPersonality.value = ''
+  desktopDragOverPersonality.value = ''
+}
+
+async function addPersonality() {
   const name = newPersonalityName.value.trim()
   if (!name) return
   if (personalities.value.includes(name)) {
     uni.showToast({ title: '已存在', icon: 'none' }); return
   }
-  personalities.value.push(name)
-  personalityColors[name] = newPersonalityColor.value
+  addPersonalityTag(name, newPersonalityColor.value)
+  personalities.value = getPersonalityNames()
   form.value.personality = name
   newPersonalityName.value = ''
   showPersonalityAdd.value = false
+  await persistPersonalityConfig()
+}
+
+const activePaletteColor = computed(() => (
+  paletteMode.value === 'edit' && editingPersonalityName.value
+    ? getPersonalityColor(editingPersonalityName.value)
+    : newPersonalityColor.value
+))
+
+function getColorName(color: string) {
+  return colorOptions.find(item => item.value === color)?.name || color
+}
+
+function openColorPalette(mode: 'new' | 'edit', name = '') {
+  paletteMode.value = mode
+  editingPersonalityName.value = name
+  showColorPalette.value = true
+}
+
+async function applyPaletteColor(color: string) {
+  if (paletteMode.value === 'edit' && editingPersonalityName.value) {
+    setPersonalityColor(editingPersonalityName.value, color)
+    await persistPersonalityConfig()
+  } else {
+    newPersonalityColor.value = color
+  }
+  showColorPalette.value = false
+}
+
+async function persistPersonalityConfig() {
+  const config = reorderPersonalityTags(personalities.value)
+  try {
+    const shopRes = await getShop()
+    const businessHours = buildBusinessHoursWithPersonality(shopRes.data?.business_hours, config)
+    await updateShop({ business_hours: businessHours })
+  } catch {
+    uni.showToast({ title: '全局标签同步失败', icon: 'none' })
+  }
 }
 const bathFreqs = ['每月', '两月', '三月', '半年', '一年']
 
@@ -386,22 +530,26 @@ function onFurLongPress(fl: string) {
     itemList: [`删除「${fl}」`],
     success: async (res) => {
       if (res.tapIndex === 0) {
-        try {
-          const furId = furCategoryMap.value[fl]
-          if (!furId) {
-            uni.showToast({ title: '未找到对应分类', icon: 'none' })
-            return
-          }
-          await deleteFurCategory(furId)
-          if (form.value.fur_level === fl) form.value.fur_level = ''
-          await loadFurLevels()
-          uni.showToast({ title: '已删除', icon: 'success' })
-        } catch {
-          uni.showToast({ title: '删除失败', icon: 'none' })
-        }
+        await deleteFurLevel(fl)
       }
     }
   })
+}
+
+async function deleteFurLevel(fl: string) {
+  try {
+    const furId = furCategoryMap.value[fl]
+    if (!furId) {
+      uni.showToast({ title: '未找到对应分类', icon: 'none' })
+      return
+    }
+    await deleteFurCategory(furId)
+    if (form.value.fur_level === fl) form.value.fur_level = ''
+    await loadFurLevels()
+    uni.showToast({ title: '已删除', icon: 'success' })
+  } catch {
+    uni.showToast({ title: '删除失败', icon: 'none' })
+  }
 }
 
 // 新增毛发等级
@@ -429,6 +577,7 @@ async function addFurLevel() {
 
 onLoad((query) => {
   void loadFurLevels()
+  void loadPersonalityConfig()
   if (query?.id) {
     id.value = parseInt(query.id)
     loadData()
@@ -440,7 +589,16 @@ onLoad((query) => {
 
 onShow(() => {
   void loadFurLevels()
+  void loadPersonalityConfig()
 })
+
+async function loadPersonalityConfig() {
+  try {
+    const res = await getShop()
+    syncPersonalityConfigFromShop(res.data)
+  } catch {}
+  personalities.value = getPersonalityNames()
+}
 
 async function loadData() {
   const res = await getPet(id.value)
@@ -482,7 +640,8 @@ function chooseAvatar() {
         uni.showLoading({ title: '上传中...' })
         try {
           form.value.avatar = await uploadFile(filePath)
-          uni.showToast({ title: '上传成功', icon: 'success' })
+          const saved = await persistAvatarAfterUpload()
+          uni.showToast({ title: saved ? '上传并保存成功' : '上传成功', icon: 'success' })
         } catch {
           uni.showToast({ title: '上传失败', icon: 'none' })
         } finally {
@@ -529,7 +688,8 @@ async function onCropConfirm(blob: Blob) {
     const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
     updateLocalAvatarPreview(file)
     form.value.avatar = await uploadH5Avatar(file)
-    uni.showToast({ title: '上传成功', icon: 'success' })
+    const saved = await persistAvatarAfterUpload()
+    uni.showToast({ title: saved ? '上传并保存成功' : '上传成功', icon: 'success' })
   } catch (err: any) {
     uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
   } finally {
@@ -665,17 +825,27 @@ async function uploadH5Avatar(file: File): Promise<string> {
   return data.data.url
 }
 
+function buildPetPayload() {
+  return {
+    ...form.value,
+    species: '猫',
+    weight: form.value.weight ? parseFloat(form.value.weight) : 0,
+  }
+}
+
+async function persistAvatarAfterUpload() {
+  if (!id.value || !form.value.name) return false
+  await updatePet(id.value, buildPetPayload())
+  return true
+}
+
 async function onSubmit() {
   if (!form.value.name) {
     uni.showToast({ title: '请填写猫咪名', icon: 'none' }); return
   }
   submitting.value = true
   try {
-    const data: any = {
-      ...form.value,
-      species: '猫',
-      weight: form.value.weight ? parseFloat(form.value.weight) : 0,
-    }
+    const data: any = buildPetPayload()
     if (id.value) { await updatePet(id.value, data) }
     else { await createPet(data) }
     uni.showToast({ title: '保存成功', icon: 'success' })
@@ -698,7 +868,13 @@ async function onDelete() {
 </script>
 
 <style scoped>
-.page { padding: 24rpx; background: #F5F6FA; min-height: 100vh; }
+.page {
+  padding: 24rpx;
+  padding-bottom: calc(220rpx + env(safe-area-inset-bottom));
+  background: #F5F6FA;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
 
 /* 头像 */
 .avatar-section { display: flex; justify-content: center; margin-bottom: 20rpx; }
@@ -740,6 +916,7 @@ async function onDelete() {
 
 /* 毛发等级标签 */
 .fur-tags { display: flex; flex-wrap: wrap; gap: 10rpx; }
+.fur-tag-wrap { position: relative; display: inline-flex; align-items: center; }
 .fur-tag { font-size: 24rpx; padding: 8rpx 18rpx; border-radius: 20rpx; background: #F3F4F6; color: #6B7280; }
 .fur-active { background: #4F46E5; color: #fff; font-weight: 600; }
 .fur-add { background: #EEF2FF; color: #4F46E5; font-weight: 600; }
@@ -750,6 +927,9 @@ async function onDelete() {
 
 /* 性格标签 */
 .personality-tags { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.p-tag-wrap { position: relative; display: inline-flex; align-items: center; }
+.p-tag-wrap-dragging { opacity: 0.55; }
+.p-tag-wrap-over .p-tag { box-shadow: 0 0 0 2rpx #C7D2FE; }
 .p-tag {
   font-size: 26rpx; padding: 10rpx 22rpx; border-radius: 24rpx;
   border: 2rpx solid transparent; font-weight: 500;
@@ -758,6 +938,43 @@ async function onDelete() {
 .p-selected { font-weight: 700; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.15); }
 .p-dragging { transform: scale(1.1); box-shadow: 0 4rpx 16rpx rgba(0,0,0,0.25); z-index: 10; position: relative; }
 .p-add { background: #EEF2FF !important; color: #4F46E5 !important; border-color: #C7D2FE !important; font-weight: 600; }
+.tag-tools {
+  position: absolute;
+  top: -18rpx;
+  right: -10rpx;
+  display: flex;
+  gap: 6rpx;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.p-tag-wrap:hover .tag-tools,
+.fur-tag-wrap:hover .tag-tool-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tag-tool-btn {
+  min-width: 34rpx;
+  height: 34rpx;
+  padding: 0 8rpx;
+  border-radius: 999rpx;
+  background: rgba(17,24,39,0.82);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+.drag-handle-btn { cursor: grab; letter-spacing: -2rpx; }
+.fur-delete-btn {
+  position: absolute;
+  top: -12rpx;
+  right: -8rpx;
+  opacity: 0;
+  pointer-events: none;
+}
 
 /* 攻击性标签 */
 .aggression-tags { display: flex; gap: 12rpx; }
@@ -776,6 +993,36 @@ async function onDelete() {
 }
 .color-selected { border-color: #1F2937; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.2); }
 .color-opt-text { font-size: 22rpx; color: #fff; font-weight: 600; }
+.color-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 18rpx 20rpx;
+  margin-top: 10rpx;
+  border-radius: 14rpx;
+  background: #F8FAFF;
+  border: 1rpx solid #E0E7FF;
+}
+.color-picker-preview { display: flex; align-items: center; gap: 14rpx; min-width: 0; }
+.color-picker-dot { width: 32rpx; height: 32rpx; border-radius: 50%; box-shadow: inset 0 0 0 2rpx rgba(255,255,255,0.85), 0 4rpx 10rpx rgba(15,23,42,0.12); }
+.color-picker-text { font-size: 24rpx; color: #1F2937; font-weight: 600; }
+.color-picker-arrow { font-size: 24rpx; color: #4F46E5; font-weight: 600; flex-shrink: 0; }
+.palette-modal { width: 620rpx; }
+.palette-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14rpx; margin-top: 18rpx; }
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+  padding: 16rpx 14rpx;
+  border-radius: 14rpx;
+  border: 2rpx solid #E5E7EB;
+  background: #fff;
+}
+.palette-item-selected { border-color: #4F46E5; box-shadow: 0 8rpx 20rpx rgba(79,70,229,0.14); }
+.palette-swatch { width: 32rpx; height: 32rpx; border-radius: 50%; flex-shrink: 0; box-shadow: inset 0 0 0 2rpx rgba(255,255,255,0.9), 0 4rpx 10rpx rgba(15,23,42,0.12); }
+.palette-name { font-size: 24rpx; color: #1F2937; font-weight: 600; min-width: 0; }
 
 /* 按钮 */
 .report-entry {
@@ -793,7 +1040,15 @@ async function onDelete() {
 .report-entry-desc { display: block; margin-top: 8rpx; font-size: 24rpx; color: #6B7280; }
 .report-entry-arrow { font-size: 26rpx; color: #4F46E5; font-weight: 600; }
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 8rpx; }
-.btn-delete { background: #fff; color: #DC2626; border: 1rpx solid #DC2626; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
+.btn-delete {
+  background: #fff;
+  color: #DC2626;
+  border: 1rpx solid #DC2626;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  margin-top: 16rpx;
+  margin-bottom: 32rpx;
+}
 
 /* 弹窗 */
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; }

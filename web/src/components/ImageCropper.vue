@@ -1,10 +1,16 @@
 <template>
   <view v-if="visible" class="cropper-mask">
+    <view class="cropper-topbar">
+      <view class="cropper-topbar-text">
+        <text class="cropper-title">调整头像</text>
+        <text class="cropper-subtitle">拖动定位，双指缩放，必要时可旋转图片</text>
+      </view>
+    </view>
     <view class="cropper-body" @touchstart.prevent="onTouchStart" @touchmove.prevent="onTouchMove" @touchend="onTouchEnd">
       <!-- 图片层 -->
       <img
         ref="imgEl"
-        :src="src"
+        :src="displaySrc"
         class="cropper-img"
         :style="imgStyle"
         @load="onImgLoad"
@@ -20,11 +26,17 @@
         <view class="corner tl"></view><view class="corner tr"></view>
         <view class="corner bl"></view><view class="corner br"></view>
       </view>
+      <view class="crop-center-tip" :style="{ top: `${cropTop + cropSize + 18}px`, left: `${cropLeft}px`, width: `${cropSize}px` }">
+        头像将按圆形区域展示
+      </view>
     </view>
     <!-- 底部按钮 -->
     <view class="cropper-actions">
-      <view class="cropper-btn cancel" @click="$emit('cancel')">取消</view>
-      <view class="cropper-btn confirm" @click="doCrop">确定</view>
+      <view class="cropper-actions-inner">
+        <view class="cropper-btn cancel" @click="$emit('cancel')">取消</view>
+        <view class="cropper-btn rotate" @click="rotateClockwise">旋转</view>
+        <view class="cropper-btn confirm" @click="doCrop">确定</view>
+      </view>
     </view>
   </view>
 </template>
@@ -41,6 +53,9 @@ const emit = defineEmits<{
   (e: 'confirm', blob: Blob): void
   (e: 'cancel'): void
 }>()
+
+const displaySrc = ref('')
+const generatedSrc = ref('')
 
 // Image natural dimensions
 const natW = ref(0)
@@ -87,6 +102,64 @@ function onImgLoad(e: any) {
   const dispH = natH.value * scale.value
   offsetX.value = cropLeft.value + (cropSize.value - dispW) / 2
   offsetY.value = cropTop.value + (cropSize.value - dispH) / 2
+}
+
+function resetImageState() {
+  natW.value = 0
+  natH.value = 0
+  scale.value = 1
+  offsetX.value = 0
+  offsetY.value = 0
+  lastTouchDist = 0
+  lastTouchX = 0
+  lastTouchY = 0
+  touching = false
+}
+
+function revokeGeneratedSrc() {
+  if (generatedSrc.value) {
+    URL.revokeObjectURL(generatedSrc.value)
+    generatedSrc.value = ''
+  }
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+async function rotateClockwise() {
+  if (!displaySrc.value) return
+  try {
+    const img = await loadImage(displaySrc.value)
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalHeight
+    canvas.height = img.naturalWidth
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.translate(canvas.width / 2, canvas.height / 2)
+    ctx.rotate(Math.PI / 2)
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2)
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png')
+    })
+    if (!blob) return
+
+    const nextSrc = URL.createObjectURL(blob)
+    revokeGeneratedSrc()
+    generatedSrc.value = nextSrc
+    displaySrc.value = nextSrc
+    resetImageState()
+  } catch (error) {
+    console.error('rotate image failed', error)
+  }
 }
 
 const imgStyle = computed(() => ({
@@ -184,10 +257,7 @@ async function doCrop() {
   ctx.fillRect(0, 0, outputSize, outputSize)
 
   // Load image
-  const img = new Image()
-  img.crossOrigin = 'anonymous'
-  img.src = props.src
-  await new Promise(resolve => { img.onload = resolve })
+  const img = await loadImage(displaySrc.value || props.src)
 
   // Calculate which part of the image falls in the crop frame
   // Crop frame is at (cropLeft, cropTop) with size cropSize in screen coords
@@ -203,16 +273,53 @@ async function doCrop() {
   }, 'image/jpeg', 0.85)
 }
 
+watch(() => props.src, (nextSrc) => {
+  revokeGeneratedSrc()
+  displaySrc.value = nextSrc || ''
+  resetImageState()
+})
+
 watch(() => props.visible, (v) => {
-  if (v) initLayout()
+  if (v) {
+    displaySrc.value = props.src || ''
+    resetImageState()
+    initLayout()
+    return
+  }
+  revokeGeneratedSrc()
+  displaySrc.value = props.src || ''
+  resetImageState()
 })
 </script>
 
 <style scoped>
 .cropper-mask {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: #000; z-index: 9999;
+  background:
+    radial-gradient(circle at top, rgba(99, 102, 241, 0.12), transparent 34%),
+    linear-gradient(180deg, #07111f 0%, #04070d 100%);
+  z-index: 9999;
   display: flex; flex-direction: column;
+}
+.cropper-topbar {
+  padding: 32px 24px 10px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.cropper-topbar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cropper-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.cropper-subtitle {
+  font-size: 13px;
+  color: rgba(226, 232, 240, 0.82);
+  line-height: 1.5;
 }
 .cropper-body {
   flex: 1; position: relative; overflow: hidden;
@@ -221,9 +328,10 @@ watch(() => props.visible, (v) => {
 .cropper-img {
   position: absolute; top: 0; left: 0;
   user-select: none; pointer-events: none;
+  filter: drop-shadow(0 18px 42px rgba(0, 0, 0, 0.42));
 }
 .overlay {
-  position: absolute; background: rgba(0, 0, 0, 0.55);
+  position: absolute; background: rgba(1, 6, 16, 0.64);
 }
 .overlay-top { top: 0; left: 0; right: 0; }
 .overlay-bottom { left: 0; right: 0; }
@@ -231,27 +339,71 @@ watch(() => props.visible, (v) => {
 .overlay-right { }
 .crop-frame {
   position: absolute;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
+  border: 2px solid rgba(255,255,255,0.96);
+  border-radius: 28px;
+  box-shadow:
+    0 0 0 9999px rgba(0,0,0,0.02),
+    0 18px 36px rgba(15, 23, 42, 0.28),
+    inset 0 0 0 1px rgba(255,255,255,0.24);
   pointer-events: none;
 }
 .corner {
-  position: absolute; width: 20px; height: 20px;
+  position: absolute; width: 22px; height: 22px;
   border-color: #fff; border-style: solid;
 }
-.corner.tl { top: -2px; left: -2px; border-width: 3px 0 0 3px; }
-.corner.tr { top: -2px; right: -2px; border-width: 3px 3px 0 0; }
-.corner.bl { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; }
-.corner.br { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; }
+.corner.tl { top: 10px; left: 10px; border-width: 4px 0 0 4px; border-top-left-radius: 10px; }
+.corner.tr { top: 10px; right: 10px; border-width: 4px 4px 0 0; border-top-right-radius: 10px; }
+.corner.bl { bottom: 10px; left: 10px; border-width: 0 0 4px 4px; border-bottom-left-radius: 10px; }
+.corner.br { bottom: 10px; right: 10px; border-width: 0 4px 4px 0; border-bottom-right-radius: 10px; }
+
+.crop-center-tip {
+  position: absolute;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.4;
+  pointer-events: none;
+}
 
 .cropper-actions {
-  display: flex; height: 120px; background: #000;
-  align-items: center; justify-content: space-around;
-  padding: 0 40px; flex-shrink: 0;
+  padding: 16px 18px 28px;
+  flex-shrink: 0;
+}
+.cropper-actions-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 28px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
 }
 .cropper-btn {
-  font-size: 17px; padding: 12px 40px; border-radius: 8px;
+  min-height: 52px;
+  font-size: 16px;
+  padding: 0 16px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
-.cropper-btn.cancel { color: #fff; }
-.cropper-btn.confirm { background: #4F46E5; color: #fff; }
+.cropper-btn.cancel {
+  color: rgba(241, 245, 249, 0.92);
+  background: rgba(30, 41, 59, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.cropper-btn.rotate {
+  color: #E2E8F0;
+  background: rgba(37, 99, 235, 0.14);
+  border: 1px solid rgba(96, 165, 250, 0.26);
+}
+.cropper-btn.confirm {
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.32);
+}
 </style>

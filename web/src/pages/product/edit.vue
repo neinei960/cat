@@ -62,7 +62,7 @@
               :value="singleSku.price"
               type="digit"
               placeholder="0.00"
-              class="input"
+              class="input input-amount"
               @input="singleSku.price = $event.detail.value"
             />
           </view>
@@ -105,7 +105,7 @@
                 :value="sku.price"
                 type="digit"
                 placeholder="0.00"
-                class="input"
+                class="input input-amount"
                 @input="sku.price = $event.detail.value"
               />
             </view>

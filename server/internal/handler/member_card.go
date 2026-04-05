@@ -10,6 +10,7 @@ import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 	"github.com/neinei960/cat/server/pkg/response"
+	"gorm.io/gorm"
 )
 
 type MemberCardHandler struct{}
@@ -206,19 +207,19 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 	tx := database.DB.Begin()
 
 	card := &model.MemberCard{
-		ShopID:        shopID,
-		CustomerID:    uint(customerID),
-		TemplateID:    req.TemplateID,
-		CardName:      tpl.Name,
-		CardType:      tpl.CardType,
-		Balance:       req.RechargeAmount,
-		TotalRecharge: req.RechargeAmount,
+		ShopID:              shopID,
+		CustomerID:          uint(customerID),
+		TemplateID:          req.TemplateID,
+		CardName:            tpl.Name,
+		CardType:            tpl.CardType,
+		Balance:             req.RechargeAmount,
+		TotalRecharge:       req.RechargeAmount,
 		DiscountRate:        tpl.DiscountRate,
 		ProductDiscountRate: tpl.ProductDiscountRate,
-		TotalTimes:    tpl.TotalTimes,
-		UsedTimes:     0,
-		ExpireAt:      expireAt,
-		Status:        1,
+		TotalTimes:          tpl.TotalTimes,
+		UsedTimes:           0,
+		ExpireAt:            expireAt,
+		Status:              1,
 	}
 	if err := tx.Create(card).Error; err != nil {
 		tx.Rollback()
@@ -240,9 +241,9 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 
 	// Update customer
 	tx.Model(&customer).Updates(map[string]interface{}{
-		"member_card_id":  card.ID,
-		"member_balance":  card.Balance,
-		"discount_rate":   tpl.DiscountRate,
+		"member_card_id": card.ID,
+		"member_balance": card.Balance,
+		"discount_rate":  tpl.DiscountRate,
 	})
 
 	tx.Commit()
@@ -317,7 +318,7 @@ func (h *MemberCardHandler) GetCard(c *gin.Context) {
 func (h *MemberCardHandler) GetRecords(c *gin.Context) {
 	customerID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var records []model.RechargeRecord
-	database.DB.Where("customer_id = ?", customerID).Order("created_at DESC").Limit(50).Find(&records)
+	database.DB.Where("shop_id = ? AND customer_id = ?", c.GetUint("shop_id"), customerID).Order("created_at DESC, id DESC").Limit(50).Find(&records)
 	response.Success(c, records)
 }
 
@@ -419,6 +420,7 @@ type updateRecordReq struct {
 
 func (h *MemberCardHandler) UpdateRecord(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	shopID := c.GetUint("shop_id")
 
 	var req updateRecordReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -427,25 +429,34 @@ func (h *MemberCardHandler) UpdateRecord(c *gin.Context) {
 	}
 
 	var record model.RechargeRecord
-	if err := database.DB.First(&record, recordID).Error; err != nil {
+	if err := database.DB.Where("id = ? AND shop_id = ?", recordID, shopID).First(&record).Error; err != nil {
 		response.Error(c, http.StatusNotFound, "记录不存在")
+		return
+	}
+	if record.OrderID != nil {
+		response.Error(c, http.StatusBadRequest, "订单消费记录不支持直接编辑，请在订单中处理")
 		return
 	}
 
 	tx := database.DB.Begin()
+	if tx.Error != nil {
+		response.Error(c, http.StatusInternalServerError, "修改失败")
+		return
+	}
 
 	// 如果修改了金额，需要调整会员卡余额
 	if req.Amount != nil && *req.Amount != record.Amount {
-		diff := *req.Amount - record.Amount
-
 		var card model.MemberCard
-		if err := tx.First(&card, record.CardID).Error; err != nil {
+		if err := tx.Where("id = ? AND customer_id = ?", record.CardID, record.CustomerID).First(&card).Error; err != nil {
 			tx.Rollback()
 			response.Error(c, http.StatusNotFound, "会员卡不存在")
 			return
 		}
 
-		newBalance := card.Balance + diff
+		oldImpact := rechargeRecordBalanceImpact(record.Type, record.Amount)
+		newImpact := rechargeRecordBalanceImpact(record.Type, *req.Amount)
+		deltaBalance := newImpact - oldImpact
+		newBalance := card.Balance + deltaBalance
 		if newBalance < 0 {
 			tx.Rollback()
 			response.Error(c, http.StatusBadRequest, fmt.Sprintf("修改后余额为负数(%.2f)，不允许", newBalance))
@@ -453,19 +464,49 @@ func (h *MemberCardHandler) UpdateRecord(c *gin.Context) {
 		}
 
 		card.Balance = newBalance
-		tx.Save(&card)
-		tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", newBalance)
-
+		card.TotalRecharge += rechargeRecordRechargeImpact(record.Type, *req.Amount) - rechargeRecordRechargeImpact(record.Type, record.Amount)
+		if card.TotalRecharge < 0 {
+			card.TotalRecharge = 0
+		}
+		card.TotalSpent += rechargeRecordSpentImpact(record.Type, *req.Amount) - rechargeRecordSpentImpact(record.Type, record.Amount)
+		if card.TotalSpent < 0 {
+			card.TotalSpent = 0
+		}
+		if err := tx.Save(&card).Error; err != nil {
+			tx.Rollback()
+			response.Error(c, http.StatusInternalServerError, "修改失败")
+			return
+		}
+		if err := tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", newBalance).Error; err != nil {
+			tx.Rollback()
+			response.Error(c, http.StatusInternalServerError, "修改失败")
+			return
+		}
+		if deltaBalance != 0 {
+			if err := shiftLaterRechargeBalances(tx, record, deltaBalance).Error; err != nil {
+				tx.Rollback()
+				response.Error(c, http.StatusInternalServerError, "修改失败")
+				return
+			}
+		}
 		record.Amount = *req.Amount
-		record.BalanceAfter = record.BalanceAfter + diff
+		record.BalanceAfter = record.BalanceAfter + deltaBalance
 	}
 
 	if req.Remark != "" {
 		record.Remark = req.Remark
 	}
 
-	tx.Save(&record)
-	tx.Commit()
+	if err := tx.Save(&record).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "修改失败")
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "修改失败")
+		return
+	}
 	response.Success(c, record)
 }
 
@@ -473,37 +514,115 @@ func (h *MemberCardHandler) UpdateRecord(c *gin.Context) {
 
 func (h *MemberCardHandler) DeleteRecord(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	shopID := c.GetUint("shop_id")
 
 	var record model.RechargeRecord
-	if err := database.DB.First(&record, recordID).Error; err != nil {
+	if err := database.DB.Where("id = ? AND shop_id = ?", recordID, shopID).First(&record).Error; err != nil {
 		response.Error(c, http.StatusNotFound, "记录不存在")
+		return
+	}
+	if record.OrderID != nil {
+		response.Error(c, http.StatusBadRequest, "订单消费记录不支持直接删除，请在订单中处理")
 		return
 	}
 
 	tx := database.DB.Begin()
+	if tx.Error != nil {
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
 
-	// 回退余额：充值/正调整 → 扣回；消费/负调整 → 加回
 	var card model.MemberCard
-	if err := tx.First(&card, record.CardID).Error; err != nil {
+	if err := tx.Where("id = ? AND customer_id = ?", record.CardID, record.CustomerID).First(&card).Error; err != nil {
 		tx.Rollback()
 		response.Error(c, http.StatusNotFound, "会员卡不存在")
 		return
 	}
 
-	// 回退余额：type 1(充值)/3(退款)/4(调整) → amount 是实际变动值，减去即可
-	//           type 2(消费) → amount 是消费金额（正数），删除时要加回
-	if record.Type == 2 {
-		card.Balance += record.Amount
-	} else {
-		card.Balance -= record.Amount
+	deltaBalance := -rechargeRecordBalanceImpact(record.Type, record.Amount)
+	newBalance := card.Balance + deltaBalance
+	if newBalance < 0 {
+		tx.Rollback()
+		response.Error(c, http.StatusBadRequest, fmt.Sprintf("删除后余额为负数(%.2f)，不允许", newBalance))
+		return
 	}
 
-	tx.Save(&card)
-	tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", card.Balance)
+	card.Balance = newBalance
+	card.TotalRecharge -= rechargeRecordRechargeImpact(record.Type, record.Amount)
+	if card.TotalRecharge < 0 {
+		card.TotalRecharge = 0
+	}
+	card.TotalSpent -= rechargeRecordSpentImpact(record.Type, record.Amount)
+	if card.TotalSpent < 0 {
+		card.TotalSpent = 0
+	}
+	if err := tx.Save(&card).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
+	if err := tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", card.Balance).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
+	if deltaBalance != 0 {
+		if err := shiftLaterRechargeBalances(tx, record, deltaBalance).Error; err != nil {
+			tx.Rollback()
+			response.Error(c, http.StatusInternalServerError, "删除失败")
+			return
+		}
+	}
 
 	// 软删除记录
-	tx.Delete(&record)
+	if err := tx.Delete(&record).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
 	response.Success(c, nil)
+}
+
+func rechargeRecordBalanceImpact(recordType int, amount float64) float64 {
+	if recordType == 2 {
+		return -amount
+	}
+	return amount
+}
+
+func rechargeRecordRechargeImpact(recordType int, amount float64) float64 {
+	switch recordType {
+	case 1:
+		return amount
+	case 4:
+		if amount > 0 {
+			return amount
+		}
+	}
+	return 0
+}
+
+func rechargeRecordSpentImpact(recordType int, amount float64) float64 {
+	if recordType == 2 {
+		return amount
+	}
+	return 0
+}
+
+func shiftLaterRechargeBalances(tx *gorm.DB, record model.RechargeRecord, deltaBalance float64) *gorm.DB {
+	return tx.Model(&model.RechargeRecord{}).
+		Where(
+			"card_id = ? AND deleted_at IS NULL AND (created_at > ? OR (created_at = ? AND id > ?))",
+			record.CardID,
+			record.CreatedAt,
+			record.CreatedAt,
+			record.ID,
+		).
+		UpdateColumn("balance_after", gorm.Expr("balance_after + ?", deltaBalance))
 }

@@ -74,7 +74,14 @@
             <text class="name">{{ item.nickname || item.phone || '未命名' }}</text>
             <text class="phone" v-if="item.nickname">{{ item.phone || '未绑定手机' }}</text>
           </view>
-          <view class="visit-count">到店 {{ item.visit_count }} 次</view>
+          <view class="card-top-right">
+            <view class="visit-count">到店 {{ item.visit_count }} 次</view>
+            <view
+              v-if="isDesktopInteraction"
+              class="card-action-btn danger"
+              @click.stop="confirmDelete(item)"
+            >删除</view>
+          </view>
         </view>
         <view class="card-middle">
           <view :class="['info-pill', hasMemberCard(item) ? 'info-pill-member' : 'info-pill-muted']">
@@ -135,6 +142,7 @@ import { getCustomerList, deleteCustomer } from '@/api/customer'
 import { getCustomerTags } from '@/api/customer-tag'
 import { getCardTemplates } from '@/api/member-card'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+import { useDesktopInteraction } from '@/utils/interaction'
 
 const PAGE_SIZE = 50
 const list = ref<Customer[]>([])
@@ -148,6 +156,7 @@ const hasMore = ref(true)
 const keyword = ref('')
 const activeTemplateId = ref(0)
 const activeTagId = ref(0)
+const { isDesktopInteraction } = useDesktopInteraction()
 
 function hasMemberCard(item: Customer) {
   return !!(item.member_card_id || item.member_card?.ID)
@@ -284,22 +293,26 @@ function onLongPress(item: any) {
     itemList: ['删除该客户'],
     success: (res) => {
       if (res.tapIndex === 0) {
-        uni.showModal({
-          title: '确认删除',
-          content: `确定要删除客户「${item.nickname || '未命名'}」吗？\n可在回收站中1天内恢复。`,
-          confirmColor: '#EF4444',
-          success: async (modalRes) => {
-            if (modalRes.confirm) {
-              try {
-                await deleteCustomer(item.ID)
-                uni.showToast({ title: '已移入回收站', icon: 'success' })
-                await loadData()
-              } catch {
-                uni.showToast({ title: '删除失败', icon: 'none' })
-              }
-            }
-          }
-        })
+        confirmDelete(item)
+      }
+    }
+  })
+}
+
+function confirmDelete(item: any) {
+  uni.showModal({
+    title: '确认删除',
+    content: `确定要删除客户「${item.nickname || '未命名'}」吗？\n可在回收站中1天内恢复。`,
+    confirmColor: '#EF4444',
+    success: async (modalRes) => {
+      if (modalRes.confirm) {
+        try {
+          await deleteCustomer(item.ID)
+          uni.showToast({ title: '已移入回收站', icon: 'success' })
+          await loadData()
+        } catch {
+          uni.showToast({ title: '删除失败', icon: 'none' })
+        }
       }
     }
   })
@@ -369,7 +382,10 @@ onReachBottom(loadMore)
 .info { flex: 1; margin-left: 20rpx; }
 .name { font-size: 30rpx; font-weight: 600; color: #1F2937; display: block; }
 .phone { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
+.card-top-right { display: flex; align-items: center; gap: 12rpx; flex-shrink: 0; }
 .visit-count { font-size: 24rpx; color: #4F46E5; }
+.card-action-btn { padding: 8rpx 16rpx; border-radius: 999rpx; font-size: 22rpx; font-weight: 600; }
+.card-action-btn.danger { background: #FEF2F2; color: #DC2626; }
 .card-middle { display: flex; gap: 12rpx; margin-top: 16rpx; flex-wrap: wrap; }
 .info-pill { display: flex; align-items: center; gap: 8rpx; padding: 10rpx 16rpx; border-radius: 14rpx; }
 .info-pill-member { background: #EEF2FF; }

@@ -43,11 +43,26 @@ func main() {
 		&model.StaffService{},
 		&model.StaffSchedule{},
 		&model.Appointment{},
+		&model.AppointmentCalendarMark{},
 		&model.AppointmentService{},
 		&model.AppointmentPet{},
 		&model.AppointmentPetService{},
 		&model.Order{},
 		&model.OrderItem{},
+		&model.FeedingSetting{},
+		&model.FeedingPlan{},
+		&model.FeedingPlanPet{},
+		&model.FeedingPlanRule{},
+		&model.FeedingVisit{},
+		&model.FeedingVisitItem{},
+		&model.FeedingVisitLog{},
+		&model.FeedingVisitMedia{},
+		&model.BoardingCabinet{},
+		&model.BoardingHoliday{},
+		&model.BoardingDiscountPolicy{},
+		&model.BoardingOrder{},
+		&model.BoardingOrderPet{},
+		&model.BoardingOrderLog{},
 		&model.NotificationLog{},
 		&model.DailyStats{},
 		&model.Product{},
@@ -107,7 +122,7 @@ func main() {
 func sendReminders(apptRepo *repository.AppointmentRepository, notifService *service.NotificationService) {
 	tomorrow := time.Now().Add(24 * time.Hour).Format("2006-01-02")
 
-	// 查所有店铺的次日预约（status 1已确认 或 6已到店）
+	// 查所有店铺的次日预约（已确认；兼容历史 status=6）
 	var appts []model.Appointment
 	database.DB.Preload("Services").Preload("Customer").
 		Where("date = ? AND status IN (1, 6)", tomorrow).

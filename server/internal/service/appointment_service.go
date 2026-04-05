@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/internal/repository"
@@ -16,6 +17,7 @@ type AppointmentService struct {
 	scheduleRepo *repository.ScheduleRepository
 	serviceRepo  *repository.ServiceRepository
 	staffRepo    *repository.StaffRepository
+	orderRepo    *repository.OrderRepository
 }
 
 func NewAppointmentService(
@@ -23,12 +25,14 @@ func NewAppointmentService(
 	scheduleRepo *repository.ScheduleRepository,
 	serviceRepo *repository.ServiceRepository,
 	staffRepo *repository.StaffRepository,
+	orderRepo *repository.OrderRepository,
 ) *AppointmentService {
 	return &AppointmentService{
 		apptRepo:     apptRepo,
 		scheduleRepo: scheduleRepo,
 		serviceRepo:  serviceRepo,
 		staffRepo:    staffRepo,
+		orderRepo:    orderRepo,
 	}
 }
 
@@ -52,6 +56,12 @@ type timeInterval struct {
 type AppointmentPetSelection struct {
 	PetID      uint   `json:"pet_id"`
 	ServiceIDs []uint `json:"service_ids"`
+}
+
+type CalendarDaySummary struct {
+	Date            string `json:"date"`
+	HasAppointments bool   `json:"has_appointments"`
+	IsFull          bool   `json:"is_full"`
 }
 
 // GetAvailableSlots keeps the legacy single-service path for C-end callers.
@@ -215,6 +225,57 @@ func filterAppointmentsByID(appts []model.Appointment, excludeAppointmentID uint
 		filtered = append(filtered, appt)
 	}
 	return filtered
+}
+
+func (s *AppointmentService) GetCalendarSummary(shopID uint, startDate, endDate string) ([]CalendarDaySummary, error) {
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return nil, errors.New("开始日期格式错误")
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return nil, errors.New("结束日期格式错误")
+	}
+	if end.Before(start) {
+		return nil, errors.New("结束日期不能早于开始日期")
+	}
+
+	appts, err := s.apptRepo.FindByShopAndDateRange(shopID, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	marks, err := s.apptRepo.FindCalendarMarks(shopID, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+
+	hasAppointments := make(map[string]bool)
+	for _, appt := range appts {
+		hasAppointments[appt.Date] = true
+	}
+	markedDates := make(map[string]bool, len(marks))
+	for _, mark := range marks {
+		markedDates[mark.Date] = true
+	}
+
+	result := make([]CalendarDaySummary, 0)
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		date := current.Format("2006-01-02")
+		result = append(result, CalendarDaySummary{
+			Date:            date,
+			HasAppointments: hasAppointments[date],
+			IsFull:          markedDates[date],
+		})
+	}
+
+	return result, nil
+}
+
+func (s *AppointmentService) SetCalendarMark(shopID uint, date string, marked bool) error {
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return errors.New("日期格式错误")
+	}
+	return s.apptRepo.SetCalendarMark(shopID, date, marked)
 }
 
 // Create keeps the legacy single-pet entrypoint for C-end callers.
@@ -454,6 +515,45 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	return tx.Commit().Error
 }
 
+func (s *AppointmentService) Delete(apptID, shopID uint) error {
+	appt, err := s.apptRepo.FindByID(apptID)
+	if err != nil || appt.ShopID != shopID {
+		return errors.New("预约不存在")
+	}
+	if appt.Status == 2 || appt.Status == 3 || appt.Status == 7 {
+		return errors.New("当前状态不允许删除预约")
+	}
+
+	orderCount, err := s.orderRepo.CountByAppointment(appt.ID)
+	if err != nil {
+		return err
+	}
+	if orderCount > 0 {
+		return errors.New("该预约已关联订单，不能删除")
+	}
+
+	tx := database.DB.Begin()
+	petSubQuery := tx.Model(&model.AppointmentPet{}).Select("id").Where("appointment_id = ?", appt.ID)
+	if err := tx.Where("appointment_pet_id IN (?)", petSubQuery).Delete(&model.AppointmentPetService{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Where("appointment_id = ?", appt.ID).Delete(&model.AppointmentPet{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Where("appointment_id = ?", appt.ID).Delete(&model.AppointmentService{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Delete(&model.Appointment{}, appt.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit().Error
+}
+
 func (s *AppointmentService) getQualifiedStaffIDs(shopID uint, serviceIDs []uint) ([]uint, error) {
 	var allStaff []model.Staff
 	if err := database.DB.Where("shop_id = ? AND status = 1 AND role IN ?", shopID, []string{
@@ -463,52 +563,9 @@ func (s *AppointmentService) getQualifiedStaffIDs(shopID uint, serviceIDs []uint
 	}).Find(&allStaff).Error; err != nil {
 		return nil, err
 	}
-	if len(allStaff) == 0 {
-		return nil, nil
-	}
-
-	activeStaff := make(map[uint]struct{}, len(allStaff))
+	ids := make([]uint, 0, len(allStaff))
 	for _, st := range allStaff {
-		activeStaff[st.ID] = struct{}{}
-	}
-
-	var candidate map[uint]struct{}
-	for _, serviceID := range serviceIDs {
-		var staffServices []model.StaffService
-		if err := database.DB.Where("service_id = ?", serviceID).Find(&staffServices).Error; err != nil {
-			return nil, err
-		}
-
-		current := make(map[uint]struct{})
-		if len(staffServices) == 0 {
-			for id := range activeStaff {
-				current[id] = struct{}{}
-			}
-		} else {
-			for _, ss := range staffServices {
-				if _, ok := activeStaff[ss.StaffID]; ok {
-					current[ss.StaffID] = struct{}{}
-				}
-			}
-		}
-
-		if candidate == nil {
-			candidate = current
-			continue
-		}
-
-		next := make(map[uint]struct{})
-		for id := range candidate {
-			if _, ok := current[id]; ok {
-				next[id] = struct{}{}
-			}
-		}
-		candidate = next
-	}
-
-	ids := make([]uint, 0, len(candidate))
-	for id := range candidate {
-		ids = append(ids, id)
+		ids = append(ids, st.ID)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids, nil
@@ -532,6 +589,20 @@ func uniqueUintSlice(values []uint) []uint {
 
 func (s *AppointmentService) GetByID(id uint) (*model.Appointment, error) {
 	return s.apptRepo.FindByID(id)
+}
+
+func (s *AppointmentService) UpdateNotes(apptID, shopID uint, notes string) error {
+	appt, err := s.apptRepo.FindByID(apptID)
+	if err != nil || appt.ShopID != shopID {
+		return errors.New("预约不存在")
+	}
+	if appt.Status > 3 {
+		return errors.New("当前状态不允许修改预约备注")
+	}
+	appt.Notes = notes
+	return database.DB.Model(&model.Appointment{}).
+		Where("id = ? AND shop_id = ?", appt.ID, shopID).
+		Update("notes", notes).Error
 }
 
 func (s *AppointmentService) ListByDate(shopID uint, date string) ([]model.Appointment, error) {
@@ -573,16 +644,14 @@ func (s *AppointmentService) UpdateStatus(id uint, newStatus int, staffNotes, ca
 	switch newStatus {
 	case 1: // 已确认 ← 待确认
 		valid = appt.Status == 0
-	case 2: // 服务中 ← 已确认 or 已到店
+	case 2: // 服务中 ← 已确认（兼容历史已到店）
 		valid = appt.Status == 1 || appt.Status == 6
 	case 3: // 待结算 ← 服务中
 		valid = appt.Status == 2
-	case 4: // 已取消 ← 待确认/已确认/已到店
+	case 4: // 已取消 ← 待确认/已确认（兼容历史已到店）
 		valid = appt.Status == 0 || appt.Status == 1 || appt.Status == 6
-	case 5: // 未到店 ← 已确认
-		valid = appt.Status == 1
-	case 6: // 已到店 ← 已确认
-		valid = appt.Status == 1
+	case 5: // 未到店 ← 允许从任意未终止状态标记
+		valid = appt.Status != 4 && appt.Status != 5
 	}
 	if !valid {
 		return fmt.Errorf("无法从状态 %d 变更为 %d", appt.Status, newStatus)

@@ -26,6 +26,13 @@ func (s *StaffService) CreateWithPassword(staff *model.Staff, password string) e
 	if err != nil {
 		return err
 	}
+	if staff.SortOrder <= 0 {
+		nextSort, err := s.staffRepo.NextSortOrder(staff.ShopID)
+		if err != nil {
+			return err
+		}
+		staff.SortOrder = nextSort
+	}
 	staff.PasswordHash = hash
 	return s.staffRepo.Create(staff)
 }
@@ -50,6 +57,10 @@ func (s *StaffService) Update(staff *model.Staff) error {
 
 func (s *StaffService) Delete(id uint) error {
 	return s.staffRepo.Delete(id)
+}
+
+func (s *StaffService) Reorder(shopID uint, orderedIDs []uint) error {
+	return s.staffRepo.BatchUpdateSortOrders(shopID, orderedIDs)
 }
 
 func (s *StaffService) ResetPassword(id uint, newPassword string) error {

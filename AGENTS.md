@@ -14,6 +14,7 @@ Rules:
 - After any code change under `server/`, run the deploy hook so the Linux binary is rebuilt and restarted on the remote server.
 - If both `web/` and `server/` change, deploy both.
 - Do not skip deployment unless the user explicitly says not to deploy.
+- For any change that affects UI, run a Playwright check after deployment to verify the actual rendered behavior.
 
 Preferred command:
 

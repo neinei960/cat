@@ -19,17 +19,22 @@
           v-for="(day, idx) in calendarDays"
           :key="idx"
           :class="getDayClass(day)"
+          @touchstart="day.date && day.inMonth && startDayLongPress(day)"
+          @touchend="clearDayLongPress"
+          @touchcancel="clearDayLongPress"
+          @touchmove="clearDayLongPress"
           @click="day.date && selectDay(day)"
         >
           <text class="cal-day-num">{{ day.day || '' }}</text>
           <text v-if="day.holiday" class="cal-holiday">{{ day.holiday }}</text>
           <text v-else-if="day.isWorkday" class="cal-workday">班</text>
-          <view v-if="day.dot" class="cal-dot"></view>
+          <view v-if="day.dot || day.isFull" :class="['cal-dot', day.isFull ? 'cal-dot-full' : '']"></view>
         </view>
       </view>
 
       <!-- 底部 -->
       <view class="cal-footer">
+        <text class="cal-footer-tip">长按日期可标红或取消</text>
         <view class="cal-today-btn" @click="goToday">今天</view>
       </view>
     </view>
@@ -43,12 +48,14 @@ const props = defineProps<{
   visible: boolean
   value: string // YYYY-MM-DD
   appointmentDates?: string[] // 有预约的日期列表
+  fullDates?: string[] // 约满的日期列表
 }>()
 
 const emit = defineEmits<{
   (e: 'select', date: string): void
   (e: 'close'): void
   (e: 'month-change', payload: { year: number; month: number; startDate: string; endDate: string }): void
+  (e: 'toggle-full', payload: { date: string; marked: boolean }): void
 }>()
 
 const weekLabels = ['一', '二', '三', '四', '五', '六', '日']
@@ -59,6 +66,8 @@ const viewMonth = ref(1)
 // 节假日数据：{ "2026-01-01": { name: "元旦", isOffDay: true } }
 const holidayMap = ref<Record<string, { name: string; isOffDay: boolean }>>({})
 const loadedYears = new Set<number>()
+let dayLongPressTimer: ReturnType<typeof setTimeout> | null = null
+let dayLongPressTriggered = false
 
 function getMonthRange(year: number, month: number) {
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`
@@ -128,6 +137,7 @@ interface CalDay {
   holiday: string
   isWorkday: boolean // 调休补班
   dot: boolean
+  isFull: boolean
 }
 
 const calendarDays = computed<CalDay[]>(() => {
@@ -144,6 +154,7 @@ const calendarDays = computed<CalDay[]>(() => {
   const today = new Date()
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const apptSet = new Set(props.appointmentDates || [])
+  const fullSet = new Set(props.fullDates || [])
 
   const days: CalDay[] = []
 
@@ -154,7 +165,7 @@ const calendarDays = computed<CalDay[]>(() => {
     const pm = m === 1 ? 12 : m - 1
     const py = m === 1 ? y - 1 : y
     const dateStr = `${py}-${String(pm).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    days.push({ day: d, date: dateStr, inMonth: false, isToday: false, isSelected: false, isWeekend: false, holiday: '', isWorkday: false, dot: false })
+    days.push({ day: d, date: dateStr, inMonth: false, isToday: false, isSelected: false, isWeekend: false, holiday: '', isWorkday: false, dot: false, isFull: false })
   }
 
   // 当月
@@ -173,6 +184,7 @@ const calendarDays = computed<CalDay[]>(() => {
       holiday: getHoliday(dateStr),
       isWorkday: offDay === false, // 调休补班
       dot: apptSet.has(dateStr),
+      isFull: fullSet.has(dateStr),
     })
   }
 
@@ -182,7 +194,7 @@ const calendarDays = computed<CalDay[]>(() => {
     const nm = m === 12 ? 1 : m + 1
     const ny = m === 12 ? y + 1 : y
     const dateStr = `${ny}-${String(nm).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    days.push({ day: d, date: dateStr, inMonth: false, isToday: false, isSelected: false, isWeekend: false, holiday: '', isWorkday: false, dot: false })
+    days.push({ day: d, date: dateStr, inMonth: false, isToday: false, isSelected: false, isWeekend: false, holiday: '', isWorkday: false, dot: false, isFull: false })
   }
 
   return days
@@ -201,7 +213,27 @@ function getDayClass(day: CalDay) {
 }
 
 function selectDay(day: CalDay) {
+  if (dayLongPressTriggered) {
+    dayLongPressTriggered = false
+    return
+  }
   if (day.date) emit('select', day.date)
+}
+
+function startDayLongPress(day: CalDay) {
+  clearDayLongPress()
+  dayLongPressTriggered = false
+  dayLongPressTimer = setTimeout(() => {
+    dayLongPressTriggered = true
+    emit('toggle-full', { date: day.date, marked: !day.isFull })
+  }, 450)
+}
+
+function clearDayLongPress() {
+  if (dayLongPressTimer) {
+    clearTimeout(dayLongPressTimer)
+    dayLongPressTimer = null
+  }
 }
 
 function prevMonth() {
@@ -258,8 +290,10 @@ function goToday() {
 .cal-workday { font-size: 16rpx; color: #0284C7; line-height: 1; margin-top: 2rpx; }
 
 .cal-dot { position: absolute; bottom: 6rpx; width: 8rpx; height: 8rpx; border-radius: 50%; background: #4F46E5; }
+.cal-dot-full { background: #EF4444; }
 .cal-day-selected .cal-dot { background: #fff; }
 
-.cal-footer { display: flex; justify-content: center; padding-top: 16rpx; border-top: 1rpx solid #F3F4F6; margin-top: 12rpx; }
+.cal-footer { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; padding-top: 16rpx; border-top: 1rpx solid #F3F4F6; margin-top: 12rpx; }
+.cal-footer-tip { font-size: 22rpx; color: #9CA3AF; }
 .cal-today-btn { font-size: 28rpx; color: #4F46E5; padding: 12rpx 40rpx; }
 </style>

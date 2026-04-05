@@ -30,6 +30,8 @@ func Setup(mode string) *gin.Engine {
 	petRepo := repository.NewPetRepository()
 	serviceRepo := repository.NewServiceRepository()
 	scheduleRepo := repository.NewScheduleRepository()
+	boardingRepo := repository.NewBoardingRepository()
+	feedingRepo := repository.NewFeedingRepository()
 
 	apptRepo := repository.NewAppointmentRepository()
 	orderRepo := repository.NewOrderRepository()
@@ -44,8 +46,10 @@ func Setup(mode string) *gin.Engine {
 	customerService := service.NewCustomerService(customerRepo)
 	customerTagService := service.NewCustomerTagService(customerTagRepo)
 	petService := service.NewPetService(petRepo)
-	apptService := service.NewAppointmentService(apptRepo, scheduleRepo, serviceRepo, staffRepo)
+	apptService := service.NewAppointmentService(apptRepo, scheduleRepo, serviceRepo, staffRepo, orderRepo)
 	orderService := service.NewOrderService(orderRepo, apptRepo)
+	boardingService := service.NewBoardingService(boardingRepo, orderRepo, customerRepo, petRepo)
+	feedingService := service.NewFeedingService(feedingRepo, orderRepo, customerRepo, petRepo)
 	notifService := service.NewNotificationService(notifRepo, customerRepo)
 	dashService := service.NewDashboardService(statsRepo)
 
@@ -59,6 +63,8 @@ func Setup(mode string) *gin.Engine {
 	petHandler := handler.NewPetHandler(petService, customerService)
 	apptHandler := handler.NewAppointmentHandler(apptService)
 	orderHandler := handler.NewOrderHandler(orderService, petService, customerService, serviceService)
+	boardingHandler := handler.NewBoardingHandler(boardingService)
+	feedingHandler := handler.NewFeedingHandler(feedingService)
 	dashHandler := handler.NewDashboardHandler(dashService)
 	addonHandler := handler.NewAddonHandler()
 	memberCardHandler := handler.NewMemberCardHandler()
@@ -100,6 +106,7 @@ func Setup(mode string) *gin.Engine {
 		// Staff
 		b.POST("/staffs", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Create)
 		b.GET("/staffs", staffHandler.List)
+		b.PUT("/staffs/order", middleware.RequireMinRole(model.StaffRoleManager), staffHandler.Reorder)
 		b.GET("/staffs/:id", staffHandler.Get)
 		b.PUT("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Update)
 		b.DELETE("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Delete)
@@ -196,14 +203,60 @@ func Setup(mode string) *gin.Engine {
 
 		// Appointments
 		b.GET("/appointments/slots", apptHandler.GetSlots)
+		b.GET("/appointments/calendar-summary", apptHandler.CalendarSummary)
+		b.PUT("/appointments/calendar-mark/:date", apptHandler.SetCalendarMark)
 		b.GET("/appointments/calendar", apptHandler.Calendar)
 		b.POST("/appointments", apptHandler.Create)
 		b.GET("/appointments", apptHandler.List)
 		b.GET("/appointments/:id", apptHandler.Get)
 		b.PUT("/appointments/:id", apptHandler.Update)
+		b.PUT("/appointments/:id/notes", apptHandler.UpdateNotes)
+		b.DELETE("/appointments/:id", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.Delete)
 		b.PUT("/appointments/:id/status", apptHandler.UpdateStatus)
 		b.PUT("/appointments/:id/assign", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.AssignStaff)
 		b.PUT("/appointments/:id/reschedule", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.Reschedule)
+
+		// Feeding
+		b.GET("/feeding/settings", feedingHandler.GetSettings)
+		b.PUT("/feeding/settings/pricing", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.UpdatePricing)
+		b.PUT("/feeding/settings/items", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.UpdateItems)
+		b.POST("/feeding/plans", feedingHandler.CreatePlan)
+		b.GET("/feeding/plans", feedingHandler.ListPlans)
+		b.GET("/feeding/plans/:id", feedingHandler.GetPlan)
+		b.PUT("/feeding/plans/:id", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.UpdatePlan)
+		b.PUT("/feeding/plans/:id/pause", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.PausePlan)
+		b.PUT("/feeding/plans/:id/resume", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.ResumePlan)
+		b.PUT("/feeding/plans/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.CancelPlan)
+		b.POST("/feeding/plans/:id/generate-order", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.GenerateOrder)
+		b.GET("/feeding/dashboard", feedingHandler.Dashboard)
+		b.GET("/feeding/visits", feedingHandler.ListVisits)
+		b.PUT("/feeding/visits/:id/assign", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.AssignVisit)
+		b.PUT("/feeding/visits/:id/start", feedingHandler.StartVisit)
+		b.PUT("/feeding/visits/:id/complete", feedingHandler.CompleteVisit)
+		b.PUT("/feeding/visits/:id/exception", feedingHandler.ExceptionVisit)
+		b.POST("/feeding/visits/:id/media", feedingHandler.AddVisitMedia)
+
+		// Boarding
+		b.GET("/boarding/cabinets", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.ListCabinets)
+		b.POST("/boarding/cabinets", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.CreateCabinet)
+		b.PUT("/boarding/cabinets/:id", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.UpdateCabinet)
+		b.GET("/boarding/cabinets/availability", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.GetAvailableCabinets)
+		b.GET("/boarding/holidays", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.ListHolidays)
+		b.POST("/boarding/holidays", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.CreateHoliday)
+		b.DELETE("/boarding/holidays/:id", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.DeleteHoliday)
+		b.GET("/boarding/policies", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.ListPolicies)
+		b.POST("/boarding/policies", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.CreatePolicy)
+		b.PUT("/boarding/policies/:id", middleware.RequireRole(model.StaffRoleAdmin), boardingHandler.UpdatePolicy)
+		b.POST("/boarding/orders/price-preview", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.PricePreview)
+		b.POST("/boarding/orders", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.CreateOrder)
+		b.GET("/boarding/orders", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.ListOrders)
+		b.GET("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.GetOrder)
+		b.GET("/boarding/dashboard", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.Dashboard)
+		b.PUT("/boarding/orders/:id/check-in", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.CheckIn)
+		b.PUT("/boarding/orders/:id/check-out", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.CheckOut)
+		b.PUT("/boarding/orders/:id/extend", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.Extend)
+		b.PUT("/boarding/orders/:id/change-cabinet", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.ChangeCabinet)
+		b.PUT("/boarding/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.Cancel)
 
 		// Service Records
 		svcRecordRepo := repository.NewServiceRecordRepository()
@@ -297,6 +350,12 @@ func Setup(mode string) *gin.Engine {
 				ImageURL: req.ImageURL,
 				BathDate: bathDate,
 			}
+			sortOrder, err := petBathReportRepo.GetNextSortOrder(c.GetUint("shop_id"), uint(petID))
+			if err != nil {
+				response.Error(c, 500, "排序初始化失败")
+				return
+			}
+			report.SortOrder = sortOrder
 			if err := petBathReportRepo.Create(report); err != nil {
 				response.Error(c, 500, "保存失败")
 				return
@@ -332,6 +391,41 @@ func Setup(mode string) *gin.Engine {
 			}
 			response.Success(c, gin.H{"updated": true, "bath_date": req.BathDate})
 		})
+		b.PUT("/pets/:id/bath-reports/reorder", func(c *gin.Context) {
+			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || petID == 0 {
+				response.Error(c, 400, "宠物ID错误")
+				return
+			}
+			var req struct {
+				ReportIDs []uint `json:"report_ids"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			if len(req.ReportIDs) == 0 {
+				response.Error(c, 400, "请提供排序后的报告ID")
+				return
+			}
+			seen := make(map[uint]struct{}, len(req.ReportIDs))
+			for _, reportID := range req.ReportIDs {
+				if reportID == 0 {
+					response.Error(c, 400, "报告ID错误")
+					return
+				}
+				if _, exists := seen[reportID]; exists {
+					response.Error(c, 400, "报告ID重复")
+					return
+				}
+				seen[reportID] = struct{}{}
+			}
+			if err := petBathReportRepo.Reorder(c.GetUint("shop_id"), uint(petID), req.ReportIDs); err != nil {
+				response.Error(c, 500, "排序保存失败")
+				return
+			}
+			response.Success(c, gin.H{"updated": true})
+		})
 		b.DELETE("/pets/:id/bath-reports/:report_id", func(c *gin.Context) {
 			petID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 			if err != nil || petID == 0 {
@@ -357,9 +451,12 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/orders", orderHandler.List)
 		b.GET("/orders/price-lookup", orderHandler.PriceLookup)
 		b.GET("/orders/:id", orderHandler.Get)
+		b.PUT("/orders/:id", orderHandler.Update)
 		b.PUT("/orders/:id/pay", orderHandler.Pay)
+		b.PUT("/orders/:id/remark", orderHandler.UpdateRemark)
 		b.PUT("/orders/:id/refund", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Refund)
 		b.PUT("/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Cancel)
+		b.DELETE("/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Delete)
 
 		// Dashboard
 		b.GET("/dashboard/overview", dashHandler.Overview)

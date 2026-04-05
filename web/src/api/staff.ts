@@ -16,6 +16,10 @@ export function updateStaff(id: number, data: Partial<Staff>) {
   return request<Staff>({ url: `/b/staffs/${id}`, method: 'PUT', data })
 }
 
+export function updateStaffOrder(staffIds: number[]) {
+  return request({ url: '/b/staffs/order', method: 'PUT', data: { staff_ids: staffIds } })
+}
+
 export function deleteStaff(id: number) {
   return request({ url: `/b/staffs/${id}`, method: 'DELETE' })
 }

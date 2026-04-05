@@ -19,7 +19,7 @@
       <text class="search-icon">🔍</text>
       <input
         v-model="keyword"
-        placeholder="搜索猫咪名 / 主人昵称 / 手机号"
+        placeholder="搜索猫咪名 / 主人昵称 / 手机号 / 标签"
         class="search-input"
         confirm-type="search"
         @confirm="onSearch"
@@ -27,6 +27,19 @@
       />
       <view v-if="keyword" class="search-clear" @click="clearSearch">✕</view>
     </view>
+
+    <scroll-view class="tag-filter-scroll" scroll-x v-if="filterTags.length">
+      <view class="tag-filter-row">
+        <view
+          v-for="tag in filterTags"
+          :key="tag"
+          :class="['filter-chip', activeTag === tag ? 'filter-chip-active' : '']"
+          @click="toggleTag(tag)"
+        >
+          {{ tag }}
+        </view>
+      </view>
+    </scroll-view>
 
     <!-- 加载中 -->
     <view v-if="loading" class="loading">
@@ -38,7 +51,7 @@
     <view v-else-if="groupedList.length === 0" class="empty">
       <text class="empty-icon">🐱</text>
       <text class="empty-title">还没有宠物档案</text>
-      <text class="empty-desc">{{ keyword ? '没有找到匹配的猫咪' : '点击右上角新增第一只猫咪吧' }}</text>
+      <text class="empty-desc">{{ keyword || activeTag ? '没有找到匹配的猫咪' : '点击右上角新增第一只猫咪吧' }}</text>
     </view>
 
     <!-- 分组列表 -->
@@ -154,7 +167,8 @@ import SideLayout from '@/components/SideLayout.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { onShow, onHide, onReachBottom } from '@dcloudio/uni-app'
 import { getPetList } from '@/api/pet'
-import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
+import { getShop } from '@/api/shop'
+import { getPersonalityColor, getPersonalityBg, syncPersonalityConfigFromShop, getPersonalityNames } from '@/utils/personality'
 
 function calcAge(birthDate: string): string {
   if (!birthDate) return ''
@@ -190,6 +204,8 @@ const loading = ref(true)
 const loadingMore = ref(false)
 const hasMore = ref(true)
 const keyword = ref('')
+const activeTag = ref('')
+const filterTags = ref<string[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const groupedList = computed<OwnerGroup[]>(() => {
@@ -212,6 +228,8 @@ const groupedList = computed<OwnerGroup[]>(() => {
   const sorted = Object.values(groups).sort((a, b) => {
     if (a.key === noOwnerKey) return 1
     if (b.key === noOwnerKey) return -1
+    const amountDiff = (b.customer?.total_spent || 0) - (a.customer?.total_spent || 0)
+    if (amountDiff !== 0) return amountDiff
     return 0
   })
   return sorted
@@ -223,6 +241,7 @@ async function loadData() {
   try {
     const params: any = { page: 1, page_size: PAGE_SIZE }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    if (activeTag.value) params.pet_tag = normalizeTagValue(activeTag.value)
     const res = await getPetList(params)
     list.value = res.data.list || []
     total.value = res.data.total || list.value.length
@@ -237,6 +256,7 @@ async function loadMore() {
     currentPage.value++
     const params: any = { page: currentPage.value, page_size: PAGE_SIZE }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    if (activeTag.value) params.pet_tag = normalizeTagValue(activeTag.value)
     const res = await getPetList(params)
     const newItems = res.data.list || []
     list.value = [...list.value, ...newItems]
@@ -253,6 +273,33 @@ function onSearchInput() {
 function clearSearch() {
   keyword.value = ''
   loadData()
+}
+function toggleTag(tag: string) {
+  activeTag.value = activeTag.value === tag ? '' : tag
+  loadData()
+}
+
+function normalizeTagValue(tag: string) {
+  if (tag === '无攻击性') return '无'
+  if (tag === '可能攻击') return '可能'
+  if (tag === '有攻击') return '有'
+  return tag
+}
+
+async function loadFilterTags() {
+  const tags = new Set<string>()
+  try {
+    const [shopRes] = await Promise.allSettled([getShop()])
+
+    if (shopRes.status === 'fulfilled') {
+      syncPersonalityConfigFromShop(shopRes.value.data)
+    }
+
+    for (const name of getPersonalityNames()) {
+      if (name) tags.add(name)
+    }
+  } catch {}
+  filterTags.value = Array.from(tags)
 }
 
 function goAdd() { uni.navigateTo({ url: '/pages/pet/edit' }) }
@@ -271,15 +318,18 @@ let savedScrollTop = 0
 let isFirstLoad = true
 
 onMounted(loadData)
+onMounted(loadFilterTags)
 onShow(async () => {
   if (isFirstLoad) {
     isFirstLoad = false
     return // onMounted already loaded
   }
+  loadFilterTags()
   // 静默刷新数据但不重置滚动位置
   try {
     const params: any = { page: 1, page_size: currentPage.value * PAGE_SIZE }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    if (activeTag.value) params.pet_tag = normalizeTagValue(activeTag.value)
     const res = await getPetList(params)
     list.value = res.data.list || []
     total.value = res.data.total || list.value.length
@@ -402,6 +452,36 @@ onReachBottom(loadMore)
   color: #9CA3AF;
   padding: 8rpx;
   flex-shrink: 0;
+}
+
+.tag-filter-scroll {
+  white-space: nowrap;
+  margin-bottom: 28rpx;
+}
+
+.tag-filter-row {
+  display: inline-flex;
+  gap: 12rpx;
+  padding-right: 24rpx;
+}
+
+.filter-chip {
+  flex-shrink: 0;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #FFFFFF;
+  color: #4B5563;
+  border: 1.5rpx solid #E5E7EB;
+  font-size: 24rpx;
+  line-height: 1;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+}
+
+.filter-chip-active {
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
+  color: #FFFFFF;
+  border-color: #4F46E5;
+  box-shadow: 0 6rpx 16rpx rgba(79, 70, 229, 0.22);
 }
 
 /* =====================

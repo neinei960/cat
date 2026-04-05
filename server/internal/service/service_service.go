@@ -21,14 +21,14 @@ func (s *ServiceService) GetByID(id uint) (*model.Service, error) {
 	return s.repo.FindByID(id)
 }
 
-func (s *ServiceService) List(shopID uint, page, pageSize int) ([]model.Service, int64, error) {
+func (s *ServiceService) List(shopID uint, page, pageSize int, orderBy string) ([]model.Service, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.repo.FindByShopID(shopID, page, pageSize)
+	return s.repo.FindByShopID(shopID, page, pageSize, orderBy)
 }
 
 func (s *ServiceService) ListActive(shopID uint) ([]model.Service, error) {

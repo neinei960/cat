@@ -38,6 +38,20 @@ export function getAppointmentCalendar(startDate: string, endDate: string) {
   return request<any[]>({ url: `/b/appointments/calendar?start_date=${startDate}&end_date=${endDate}` })
 }
 
+export function getAppointmentCalendarSummary(startDate: string, endDate: string) {
+  return request<Array<{ date: string; has_appointments: boolean; is_full: boolean }>>({
+    url: `/b/appointments/calendar-summary?start_date=${startDate}&end_date=${endDate}`,
+  })
+}
+
+export function setAppointmentCalendarMark(date: string, marked: boolean) {
+  return request<{ date: string; marked: boolean }>({
+    url: `/b/appointments/calendar-mark/${date}`,
+    method: 'PUT',
+    data: { marked },
+  })
+}
+
 export function createAppointment(data: CreateApptReq) {
   return request<any>({ url: '/b/appointments', method: 'POST', data })
 }
@@ -46,12 +60,20 @@ export function updateAppointment(id: number, data: CreateApptReq) {
   return request<any>({ url: `/b/appointments/${id}`, method: 'PUT', data })
 }
 
+export function updateAppointmentNotes(id: number, notes: string) {
+  return request<any>({ url: `/b/appointments/${id}/notes`, method: 'PUT', data: { notes } })
+}
+
 export function getAppointmentList(params?: PageParams & { status?: number; date_from?: string; date_to?: string }) {
   return request<PageResult<any>>({ url: '/b/appointments', data: params })
 }
 
 export function getAppointment(id: number) {
   return request<any>({ url: `/b/appointments/${id}` })
+}
+
+export function deleteAppointment(id: number) {
+  return request<any>({ url: `/b/appointments/${id}`, method: 'DELETE' })
 }
 
 export function updateAppointmentStatus(id: number, data: { status: number; staff_notes?: string; cancel_reason?: string; cancelled_by?: string }) {

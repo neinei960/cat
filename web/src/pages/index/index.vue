@@ -67,8 +67,17 @@
                 <text class="action-desc">会员与余额</text>
               </view>
             </view>
+            <view class="action-item" @click="go('/pages/boarding/create')">
+              <view class="action-icon">🏨</view>
+              <view class="action-copy">
+                <text class="action-title">寄养开单</text>
+                <text class="action-desc">选柜并登记</text>
+              </view>
+            </view>
             <view class="action-item" @click="go('/pages/pet/list')">
-              <view class="action-icon">🐱</view>
+              <view class="action-icon action-icon-cat">
+                <image class="action-icon-image" :src="catSticker" mode="aspectFit" />
+              </view>
               <view class="action-copy">
                 <text class="action-title">猫咪档案</text>
                 <text class="action-desc">资料与偏好</text>
@@ -157,6 +166,7 @@ import { useAuthStore } from '@/store/auth'
 import SideLayout from '@/components/SideLayout.vue'
 import { getDashboardOverview } from '@/api/dashboard'
 import { getAppointmentCalendar } from '@/api/appointment'
+import catSticker from '@/assets/cat-sticker.jpg'
 
 const authStore = useAuthStore()
 const staffName = computed(() => authStore.staffInfo?.name || '员工')
@@ -169,11 +179,11 @@ const hour = now.getHours()
 const greetingText = hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'
 
 const statusColors: Record<number, string> = {
-  0: '#D97706', 1: '#4338CA', 2: '#059669', 3: '#0284C7', 4: '#6B7280', 5: '#DC2626',
+  0: '#D97706', 1: '#4338CA', 2: '#059669', 3: '#0284C7', 4: '#6B7280', 5: '#DC2626', 7: '#7C3AED',
 }
 
 const statusText: Record<number, string> = {
-  0: '待确认', 1: '已确认', 2: '服务中', 3: '待结算', 4: '已取消', 5: '未到店',
+  0: '待确认', 1: '已确认', 2: '服务中', 3: '待结算', 4: '已取消', 5: '未到店', 7: '已开单',
 }
 
 const overview = ref({
@@ -419,6 +429,17 @@ onShow(loadData)
   justify-content: center;
   background: linear-gradient(135deg, #111827, #374151);
   font-size: 30rpx;
+}
+
+.action-icon-cat {
+  padding: 6rpx;
+  background: linear-gradient(135deg, #FFF7ED, #FDE68A);
+}
+
+.action-icon-image {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .action-copy {

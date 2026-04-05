@@ -30,7 +30,7 @@ func (r *AppointmentRepository) FindByID(id uint) (*model.Appointment, error) {
 func (r *AppointmentRepository) FindByShopAndDate(shopID uint, date string) ([]model.Appointment, error) {
 	var appts []model.Appointment
 	err := r.withRelations().
-		Where("shop_id = ? AND date = ? AND status IN (0,1,2,3)", shopID, date).
+		Where("shop_id = ? AND date = ? AND status IN (0,1,2,3,5,7)", shopID, date).
 		Order("start_time ASC").Find(&appts).Error
 	if err == nil {
 		r.normalizeAppointments(appts)
@@ -41,7 +41,7 @@ func (r *AppointmentRepository) FindByShopAndDate(shopID uint, date string) ([]m
 func (r *AppointmentRepository) FindByShopAndDateRange(shopID uint, startDate, endDate string) ([]model.Appointment, error) {
 	var appts []model.Appointment
 	err := r.withRelations().
-		Where("shop_id = ? AND date >= ? AND date <= ? AND status IN (0,1,2,3)", shopID, startDate, endDate).
+		Where("shop_id = ? AND date >= ? AND date <= ? AND status IN (0,1,2,3,5,7)", shopID, startDate, endDate).
 		Order("date ASC, start_time ASC").Find(&appts).Error
 	if err == nil {
 		r.normalizeAppointments(appts)
@@ -51,7 +51,7 @@ func (r *AppointmentRepository) FindByShopAndDateRange(shopID uint, startDate, e
 
 func (r *AppointmentRepository) FindByStaffAndDate(staffID uint, date string) ([]model.Appointment, error) {
 	var appts []model.Appointment
-	err := database.DB.Where("staff_id = ? AND date = ? AND status IN (0,1,2)", staffID, date).
+	err := database.DB.Where("staff_id = ? AND date = ? AND status IN (0,1,2,7)", staffID, date).
 		Order("start_time ASC").Find(&appts).Error
 	return appts, err
 }
@@ -211,7 +211,7 @@ func itoa(v int) string {
 func (r *AppointmentRepository) HasConflict(staffID uint, date, startTime, endTime string, excludeID uint) (bool, error) {
 	var count int64
 	db := database.DB.Model(&model.Appointment{}).
-		Where("staff_id = ? AND date = ? AND status IN (0,1,2)", staffID, date).
+		Where("staff_id = ? AND date = ? AND status IN (0,1,2,7)", staffID, date).
 		Where("start_time < ? AND end_time > ?", endTime, startTime)
 	if excludeID > 0 {
 		db = db.Where("id != ?", excludeID)

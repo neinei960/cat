@@ -21,14 +21,14 @@ func (s *PetService) GetByID(id uint) (*model.Pet, error) {
 	return s.repo.FindByID(id)
 }
 
-func (s *PetService) List(shopID uint, page, pageSize int) ([]model.Pet, int64, error) {
+func (s *PetService) List(shopID uint, petTag string, page, pageSize int) ([]model.Pet, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.repo.FindByShopID(shopID, page, pageSize)
+	return s.repo.FindByShopID(shopID, petTag, page, pageSize)
 }
 
 func (s *PetService) FindByCustomer(customerID uint) ([]model.Pet, error) {
@@ -43,12 +43,12 @@ func (s *PetService) Delete(id uint) error {
 	return s.repo.Delete(id)
 }
 
-func (s *PetService) Search(shopID uint, keyword string, page, pageSize int) ([]model.Pet, int64, error) {
+func (s *PetService) Search(shopID uint, keyword, petTag string, page, pageSize int) ([]model.Pet, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.repo.Search(shopID, keyword, page, pageSize)
+	return s.repo.Search(shopID, keyword, petTag, page, pageSize)
 }

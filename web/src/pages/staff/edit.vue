@@ -56,13 +56,12 @@
     <!-- 工作时间设置 (编辑模式, 仅 admin) -->
     <view class="section" v-if="id && isAdmin">
       <view class="section-header">
-        <text class="section-title">工作时间</text>
-        <text class="hint">设置本周排班，可逐日调整</text>
+        <text class="section-title">每周上班时间</text>
+        <text class="hint">按周模板设置，保存后自动复用到后续每周</text>
       </view>
       <view class="schedule-row" v-for="(day, idx) in weekSchedule" :key="day.date">
         <view class="day-label">
           <text class="day-name">{{ dayNames[idx] }}</text>
-          <text class="day-date">{{ day.date.slice(5) }}</text>
         </view>
         <view v-if="day.is_day_off" class="day-off-tag" @click="day.is_day_off = false">休息</view>
         <view v-else class="time-inputs">
@@ -74,12 +73,12 @@
         </view>
       </view>
       <view class="schedule-actions">
-        <view class="btn-copy" @click="copyToAll">复制第一天到全周</view>
-        <view class="btn-save-schedule" @click="saveSchedule">保存排班</view>
+        <view class="btn-copy" @click="copyToAll">复制周一到全周</view>
+        <view class="btn-save-schedule" @click="saveSchedule">保存模板</view>
       </view>
     </view>
 
-    <button v-if="isAdmin" class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
+    <button v-if="isAdmin" class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存全部' : '新增' }}</button>
     <button class="btn-delete" v-if="id && isAdmin" @click="onDelete">删除员工</button>
   </view>
   </SideLayout>
@@ -124,6 +123,18 @@ interface DaySchedule {
 const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const weekSchedule = ref<DaySchedule[]>([])
 
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseLocalDate(dateText: string): Date {
+  const [year, month, day] = dateText.split('-').map(Number)
+  return new Date(year, (month || 1) - 1, day || 1)
+}
+
 function getWeekDates(): string[] {
   const now = new Date()
   const day = now.getDay() || 7 // 周日=7
@@ -132,7 +143,7 @@ function getWeekDates(): string[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
-    return d.toISOString().split('T')[0]
+    return formatLocalDate(d)
   })
 }
 
@@ -173,17 +184,34 @@ function copyToAll() {
 
 async function saveSchedule() {
   try {
-    await batchSetSchedule(id.value, weekSchedule.value.map(d => ({
-      date: d.date,
-      start_time: d.is_day_off ? '' : d.start_time,
-      end_time: d.is_day_off ? '' : d.end_time,
-      is_day_off: d.is_day_off,
-      max_capacity: Math.max(1, Number(d.max_capacity) || 1),
-    })))
-    uni.showToast({ title: '排班已保存', icon: 'success' })
+    await persistScheduleTemplate()
+    uni.showToast({ title: '排班模板已保存', icon: 'success' })
   } catch (e: any) {
     uni.showToast({ title: e.message || '保存失败', icon: 'none' })
   }
+}
+
+function buildScheduleTemplatePayload() {
+  if (!weekSchedule.value.length) return []
+  return Array.from({ length: 52 }, (_, weekOffset) => (
+    weekSchedule.value.map((day, dayIndex) => {
+      const targetDate = parseLocalDate(weekSchedule.value[0].date)
+      targetDate.setDate(targetDate.getDate() + weekOffset * 7 + dayIndex)
+      return {
+        date: formatLocalDate(targetDate),
+        start_time: day.is_day_off ? '' : day.start_time,
+        end_time: day.is_day_off ? '' : day.end_time,
+        is_day_off: day.is_day_off,
+        max_capacity: Math.max(1, Number(day.max_capacity) || 1),
+      }
+    })
+  )).flat()
+}
+
+async function persistScheduleTemplate() {
+  const schedules = buildScheduleTemplatePayload()
+  if (!schedules.length) return
+  await batchSetSchedule(id.value, schedules)
 }
 
 onLoad((query) => {
@@ -215,6 +243,9 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
+    if (id.value && isAdmin.value) {
+      await persistScheduleTemplate()
+    }
     const payload = {
       name: form.value.name,
       phone: form.value.phone,
@@ -237,7 +268,7 @@ async function onSubmit() {
         feeding_commission_rate: payload.feeding_commission_rate,
       })
     }
-    uni.showToast({ title: '保存成功', icon: 'success' })
+    uni.showToast({ title: id.value && isAdmin.value ? '员工与排班已保存' : '保存成功', icon: 'success' })
     setTimeout(() => safeBack(), 500)
   } finally {
     submitting.value = false

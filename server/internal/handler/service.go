@@ -79,8 +79,9 @@ func (h *ServiceHandler) List(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	orderBy := c.Query("order_by")
 
-	list, total, err := h.serviceService.List(shopID, page, pageSize)
+	list, total, err := h.serviceService.List(shopID, page, pageSize, orderBy)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return

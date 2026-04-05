@@ -20,15 +20,39 @@
           v-for="(report, index) in reports"
           :key="report.ID"
           class="report-card"
-          @click="previewReport(index)"
+          :class="{ 'report-card-active': draggingReportId === report.ID }"
+          :data-report-id="report.ID"
+          @click="onReportClick(index)"
           @longpress="openReportActions(report)"
         >
-          <picker mode="date" :value="getEditableBathDate(report)" @change="onBathDateChange(report, $event)" @click.stop>
-            <view class="report-date editable-date">
-              <text>洗浴日期：{{ formatBathDate(report) }}</text>
-              <text class="report-date-arrow">编辑 ›</text>
+          <view class="report-toolbar">
+            <picker mode="date" :value="getEditableBathDate(report)" @change="onBathDateChange(report, $event)" @click.stop>
+              <view class="report-date editable-date">
+                <view class="report-date-copy">
+                  <text class="report-date-label">洗浴日期</text>
+                  <text class="report-date-main">{{ formatBathDate(report) }}</text>
+                </view>
+                <text class="report-date-arrow">编辑</text>
+              </view>
+            </picker>
+            <view class="report-tools">
+              <view
+                v-if="canDragSort"
+                class="drag-handle"
+                @click.stop
+                @touchstart.stop.prevent="beginDrag(index, $event)"
+                @mousedown.stop.prevent="beginDrag(index, $event)"
+              >
+                <text class="drag-handle-icon">↕</text>
+                <text>拖拽换位</text>
+              </view>
+              <view
+                v-if="isDesktopInteraction"
+                class="report-delete-btn"
+                @click.stop="deleteReport(report)"
+              >删除</view>
             </view>
-          </picker>
+          </view>
           <image :src="report.image_url" class="report-image" mode="aspectFill" />
           <text class="report-hint">点击查看大图</text>
         </view>
@@ -38,19 +62,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getPet } from '@/api/pet'
 import { uploadFile } from '@/api/upload'
-import { createPetBathReport, deletePetBathReport, getPetBathReports, updatePetBathReport, type PetBathReport } from '@/api/pet-bath-report'
+import { createPetBathReport, deletePetBathReport, getPetBathReports, reorderPetBathReports, updatePetBathReport, type PetBathReport } from '@/api/pet-bath-report'
+import { useDesktopInteraction } from '@/utils/interaction'
 
 const petId = ref(0)
 const petName = ref('')
 const loading = ref(false)
 const reports = ref<PetBathReport[]>([])
 const uploading = ref(false)
+const savingOrder = ref(false)
+const draggingReportId = ref<number | null>(null)
+let dragMoved = false
+let dragSnapshot: PetBathReport[] = []
+const { isDesktopInteraction } = useDesktopInteraction()
 
+const canDragSort = computed(() => reports.value.length > 1 && !savingOrder.value)
 const previewUrls = computed(() => reports.value.map(item => item.image_url))
 
 onLoad((query) => {
@@ -62,6 +93,10 @@ onLoad((query) => {
 onShow(() => {
   if (!petId.value) return
   void Promise.all([loadPet(), loadReports()])
+})
+
+onBeforeUnmount(() => {
+  removeDragListeners()
 })
 
 async function loadPet() {
@@ -115,13 +150,17 @@ function previewReport(index: number) {
   })
 }
 
+function onReportClick(index: number) {
+  if (draggingReportId.value != null) return
+  previewReport(index)
+}
+
 async function onBathDateChange(report: PetBathReport, e: any) {
   const bathDate = e?.detail?.value
   if (!bathDate) return
   try {
     await updatePetBathReport(petId.value, report.ID, bathDate)
     report.bath_date = bathDate
-    reports.value = [...reports.value].sort((a, b) => getEditableBathDate(b).localeCompare(getEditableBathDate(a)))
     uni.showToast({ title: '已更新洗浴日期', icon: 'success' })
   } catch {
     uni.showToast({ title: '更新失败', icon: 'none' })
@@ -133,15 +172,19 @@ function openReportActions(report: PetBathReport) {
     itemList: ['删除当前报告'],
     success: async (res) => {
       if (res.tapIndex !== 0) return
-      try {
-        await deletePetBathReport(petId.value, report.ID)
-        uni.showToast({ title: '已删除', icon: 'success' })
-        await loadReports()
-      } catch {
-        uni.showToast({ title: '删除失败', icon: 'none' })
-      }
+      await deleteReport(report)
     },
   })
+}
+
+async function deleteReport(report: PetBathReport) {
+  try {
+    await deletePetBathReport(petId.value, report.ID)
+    uni.showToast({ title: '已删除', icon: 'success' })
+    await loadReports()
+  } catch {
+    uni.showToast({ title: '删除失败', icon: 'none' })
+  }
 }
 
 async function chooseReportImage() {
@@ -182,6 +225,98 @@ async function compressImageIfPossible(filePath: string) {
     return result.tempFilePath || filePath
   } catch {
     return filePath
+  }
+}
+
+function swapReports(list: PetBathReport[], fromIndex: number, toIndex: number) {
+  const next = [...list]
+  ;[next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]]
+  return next
+}
+
+function getEventPoint(event: any) {
+  const touch = event?.touches?.[0] || event?.changedTouches?.[0]
+  if (touch) {
+    return { x: touch.clientX, y: touch.clientY }
+  }
+  if (typeof event?.clientX === 'number' && typeof event?.clientY === 'number') {
+    return { x: event.clientX, y: event.clientY }
+  }
+  return null
+}
+
+function removeDragListeners() {
+  if (typeof window === 'undefined') return
+  window.removeEventListener('touchmove', handleDragMove as EventListener)
+  window.removeEventListener('touchend', handleDragEnd as EventListener)
+  window.removeEventListener('touchcancel', handleDragEnd as EventListener)
+  window.removeEventListener('mousemove', handleDragMove as EventListener)
+  window.removeEventListener('mouseup', handleDragEnd as EventListener)
+  document.body.style.userSelect = ''
+}
+
+async function saveReportOrder(list: PetBathReport[]) {
+  if (!petId.value) return
+  savingOrder.value = true
+  try {
+    await reorderPetBathReports(
+      petId.value,
+      list.map(item => item.ID),
+    )
+    list.forEach((item, index) => {
+      item.sort_order = list.length - index
+    })
+    uni.showToast({ title: '顺序已更新', icon: 'success' })
+  } finally {
+    savingOrder.value = false
+  }
+}
+
+function beginDrag(index: number, event: any) {
+  if (typeof window === 'undefined' || savingOrder.value || !reports.value[index] || reports.value.length < 2) return
+  draggingReportId.value = reports.value[index].ID
+  dragSnapshot = [...reports.value]
+  dragMoved = false
+  document.body.style.userSelect = 'none'
+  window.addEventListener('touchmove', handleDragMove as EventListener, { passive: false })
+  window.addEventListener('touchend', handleDragEnd as EventListener)
+  window.addEventListener('touchcancel', handleDragEnd as EventListener)
+  window.addEventListener('mousemove', handleDragMove as EventListener)
+  window.addEventListener('mouseup', handleDragEnd as EventListener)
+  handleDragMove(event)
+}
+
+function handleDragMove(event: Event) {
+  if (draggingReportId.value == null || typeof document === 'undefined') return
+  const point = getEventPoint(event)
+  if (!point) return
+  if ('preventDefault' in event) {
+    event.preventDefault()
+  }
+  const element = document.elementFromPoint(point.x, point.y) as HTMLElement | null
+  const card = element?.closest('.report-card') as HTMLElement | null
+  const targetId = Number(card?.dataset?.reportId || 0)
+  if (!targetId || targetId === draggingReportId.value) return
+  const fromIndex = reports.value.findIndex(item => item.ID === draggingReportId.value)
+  const targetIndex = reports.value.findIndex(item => item.ID === targetId)
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return
+  reports.value = swapReports(reports.value, fromIndex, targetIndex)
+  dragMoved = true
+}
+
+async function handleDragEnd() {
+  const activeId = draggingReportId.value
+  removeDragListeners()
+  draggingReportId.value = null
+  if (!activeId || !dragMoved) return
+  try {
+    await saveReportOrder(reports.value)
+  } catch {
+    reports.value = dragSnapshot
+    uni.showToast({ title: '保存顺序失败', icon: 'none' })
+  } finally {
+    dragSnapshot = []
+    dragMoved = false
   }
 }
 </script>
@@ -238,42 +373,121 @@ async function compressImageIfPossible(filePath: string) {
 .report-card {
   background: #fff;
   border-radius: 20rpx;
-  padding: 22rpx;
+  padding: 18rpx;
   box-shadow: 0 12rpx 30rpx rgba(15, 23, 42, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.report-card-active {
+  transform: scale(1.02);
+  box-shadow: 0 20rpx 44rpx rgba(79, 70, 229, 0.18);
+}
+
+.report-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.report-tools {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  flex-wrap: wrap;
 }
 
 .report-date {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16rpx;
-  font-size: 26rpx;
+  gap: 10rpx;
+  margin-bottom: 12rpx;
   font-weight: 700;
   color: #111827;
 }
 
 .editable-date {
-  gap: 12rpx;
+  min-width: 0;
+  padding: 12rpx 14rpx;
+  border-radius: 16rpx;
+  background: #f8f8ff;
+  border: 1rpx solid #ececff;
+}
+
+.report-date-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.report-date-label {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.report-date-main {
+  font-size: 24rpx;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .report-date-arrow {
   flex-shrink: 0;
-  font-size: 22rpx;
+  font-size: 21rpx;
   color: #4f46e5;
   font-weight: 600;
 }
 
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 20rpx;
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle-icon {
+  font-size: 24rpx;
+}
+
+.report-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: #FEF2F2;
+  color: #DC2626;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
 .report-image {
   width: 100%;
-  height: 360rpx;
+  height: 280rpx;
   border-radius: 16rpx;
   background: #eef2ff;
 }
 
 .report-hint {
   display: block;
-  margin-top: 12rpx;
-  font-size: 22rpx;
+  margin-top: 10rpx;
+  font-size: 20rpx;
   color: #6b7280;
 }
 
@@ -300,4 +514,27 @@ async function compressImageIfPossible(filePath: string) {
   margin-top: 14rpx;
   font-size: 24rpx;
 }
+
+@media (max-width: 380px) {
+  .page {
+    padding: 18rpx;
+  }
+
+  .report-grid {
+    gap: 14rpx;
+  }
+
+  .report-card {
+    padding: 14rpx;
+  }
+
+  .report-date-main {
+    font-size: 22rpx;
+  }
+
+  .report-image {
+    height: 240rpx;
+  }
+}
+
 </style>

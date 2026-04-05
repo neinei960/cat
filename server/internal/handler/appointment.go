@@ -106,6 +106,7 @@ func (h *AppointmentHandler) Create(c *gin.Context) {
 		Date:       req.Date,
 		StartTime:  req.StartTime,
 		EndTime:    req.EndTime,
+		Status:     1,
 		Source:     req.Source,
 		Notes:      req.Notes,
 	}
@@ -186,6 +187,15 @@ func (h *AppointmentHandler) Get(c *gin.Context) {
 	response.Success(c, appt)
 }
 
+func (h *AppointmentHandler) Delete(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err := h.apptService.Delete(uint(id), c.GetUint("shop_id")); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, gin.H{"id": id})
+}
+
 // GET /b/appointments?page=1&page_size=20&status=0
 func (h *AppointmentHandler) List(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
@@ -239,6 +249,49 @@ func (h *AppointmentHandler) Calendar(c *gin.Context) {
 	response.Success(c, appts)
 }
 
+func (h *AppointmentHandler) CalendarSummary(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if startDate == "" || endDate == "" {
+		response.Error(c, http.StatusBadRequest, "请提供start_date和end_date")
+		return
+	}
+
+	summary, err := h.apptService.GetCalendarSummary(shopID, startDate, endDate)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.Success(c, summary)
+}
+
+type setCalendarMarkReq struct {
+	Marked bool `json:"marked"`
+}
+
+func (h *AppointmentHandler) SetCalendarMark(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	date := c.Param("date")
+	if date == "" {
+		response.Error(c, http.StatusBadRequest, "请提供日期")
+		return
+	}
+
+	var req setCalendarMarkReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	if err := h.apptService.SetCalendarMark(shopID, date, req.Marked); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{"date": date, "marked": req.Marked})
+}
+
 type updateStatusReq struct {
 	Status       int    `json:"status" binding:"required"`
 	StaffNotes   string `json:"staff_notes"`
@@ -285,6 +338,10 @@ type rescheduleReq struct {
 	StartTime string `json:"start_time" binding:"required"`
 }
 
+type updateNotesReq struct {
+	Notes string `json:"notes"`
+}
+
 func (h *AppointmentHandler) Reschedule(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req rescheduleReq
@@ -298,4 +355,21 @@ func (h *AppointmentHandler) Reschedule(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+func (h *AppointmentHandler) UpdateNotes(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req updateNotesReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	if err := h.apptService.UpdateNotes(uint(id), c.GetUint("shop_id"), req.Notes); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, _ := h.apptService.GetByID(uint(id))
+	response.Success(c, result)
 }

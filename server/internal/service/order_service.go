@@ -2,7 +2,9 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/neinei960/cat/server/internal/model"
@@ -38,13 +40,16 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 
 	custID := appt.CustomerID
 	order := &model.Order{
-		OrderNo:       utils.GenerateOrderNo(),
-		ShopID:        appt.ShopID,
-		CustomerID:    &custID,
-		AppointmentID: &appt.ID,
-		StaffID:       appt.StaffID,
-		TotalAmount:   appt.TotalAmount,
-		PayAmount:     appt.TotalAmount,
+		OrderNo:               utils.GenerateOrderNo(),
+		ShopID:                appt.ShopID,
+		CustomerID:            &custID,
+		AppointmentID:         &appt.ID,
+		StaffID:               appt.StaffID,
+		TotalAmount:           appt.TotalAmount,
+		ServiceTotal:          appt.TotalAmount,
+		PayAmount:             appt.TotalAmount,
+		ServiceDiscountAmount: 0,
+		ProductDiscountAmount: 0,
 	}
 
 	tx := database.DB.Begin()
@@ -100,22 +105,17 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 }
 
 type ServiceOverride struct {
-	Price    float64
-	Duration int
+	ServiceID   uint
+	ServiceName string
+	Price       float64
+	Duration    int
 }
 
-func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides ...map[uint]map[uint]ServiceOverride) ([]model.Order, error) {
-	// overrideMap: petId -> serviceId -> {Price, Duration}
-	var overrideMap map[uint]map[uint]ServiceOverride
+func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides ...map[uint][]ServiceOverride) ([]model.Order, error) {
+	// overrideMap: petId -> []services
+	var overrideMap map[uint][]ServiceOverride
 	if len(overrides) > 0 && overrides[0] != nil {
 		overrideMap = overrides[0]
-	}
-	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
-	if err != nil {
-		return nil, err
-	}
-	if existingCount > 0 {
-		return nil, errors.New("该预约已开单")
 	}
 
 	appt, err := s.apptRepo.FindByID(appointmentID)
@@ -123,7 +123,17 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides 
 		return nil, errors.New("预约不存在")
 	}
 
-	if len(appt.Pets) == 0 {
+	validPets := filterBillableAppointmentPets(appt)
+
+	existingOrders, err := s.orderRepo.FindByAppointment(appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if hasConflictingOrders(existingOrders, validPets) {
+		return nil, errors.New("该预约已开单")
+	}
+
+	if len(validPets) == 0 {
 		order, err := s.CreateFromAppointment(appointmentID)
 		if err != nil {
 			return nil, err
@@ -131,93 +141,185 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides 
 		return []model.Order{*order}, nil
 	}
 
-	orders := make([]model.Order, 0, len(appt.Pets))
 	tx := database.DB.Begin()
+	custID := appt.CustomerID
+	order := model.Order{
+		OrderNo:       utils.GenerateOrderNo(),
+		ShopID:        appt.ShopID,
+		CustomerID:    &custID,
+		PetID:         nil,
+		AppointmentID: &appt.ID,
+		StaffID:       appt.StaffID,
+		Remark:        appt.Notes,
+	}
 
-	for _, apptPet := range appt.Pets {
-		custID := appt.CustomerID
-		petID := apptPet.PetID
-		order := model.Order{
-			OrderNo:       utils.GenerateOrderNo(),
-			ShopID:        appt.ShopID,
-			CustomerID:    &custID,
-			PetID:         &petID,
-			AppointmentID: &appt.ID,
-			StaffID:       appt.StaffID,
-			TotalAmount:   apptPet.TotalAmount,
-			PayAmount:     apptPet.TotalAmount,
-			Remark:        appt.Notes,
-		}
+	if err := tx.Create(&order).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-		if err := tx.Create(&order).Error; err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
+	items := make([]model.OrderItem, 0)
+	var orderTotal float64
+	for _, apptPet := range validPets {
 		petName := "宠物"
 		if apptPet.Pet != nil && apptPet.Pet.Name != "" {
 			petName = apptPet.Pet.Name
 		}
 
-		// 应用价格覆盖
-		petSvcOverrides := make(map[uint]ServiceOverride)
-		if overrideMap != nil {
-			if m, ok := overrideMap[apptPet.PetID]; ok {
-				petSvcOverrides = m
-			}
+		serviceList := buildOrderServices(apptPet, overrideMap)
+		if len(serviceList) == 0 {
+			tx.Rollback()
+			return nil, errors.New("请至少保留一项服务后再开单")
 		}
 
-		items := make([]model.OrderItem, 0, len(apptPet.Services))
-		var orderTotal float64
-		for _, svc := range apptPet.Services {
-			price := svc.Price
-			if ov, ok := petSvcOverrides[svc.ServiceID]; ok {
-				price = ov.Price
+		for _, svc := range serviceList {
+			name := svc.ServiceName
+			if name == "" {
+				name = "服务项目"
 			}
 			items = append(items, model.OrderItem{
 				OrderID:   order.ID,
 				ItemType:  1,
 				ItemID:    svc.ServiceID,
-				Name:      petName + " · " + svc.ServiceName,
+				Name:      fmt.Sprintf("%s · %s", petName, name),
 				Quantity:  1,
-				UnitPrice: price,
-				Amount:    price,
+				UnitPrice: svc.Price,
+				Amount:    svc.Price,
 			})
-			orderTotal += price
+			orderTotal += svc.Price
 		}
-		// 如果有覆盖，更新订单总额
-		if len(petSvcOverrides) > 0 {
-			order.TotalAmount = orderTotal
-			order.PayAmount = orderTotal
-			tx.Save(&order)
+	}
+	order.TotalAmount = orderTotal
+	order.ServiceTotal = orderTotal
+	order.PayAmount = orderTotal
+	if err := tx.Save(&order).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if len(items) > 0 {
+		if err := tx.Create(&items).Error; err != nil {
+			tx.Rollback()
+			return nil, err
 		}
-		if len(items) > 0 {
-			if err := tx.Create(&items).Error; err != nil {
-				tx.Rollback()
-				return nil, err
-			}
-		}
-
-		orders = append(orders, order)
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	_ = s.syncAppointmentSettlement(appointmentID)
-	return orders, nil
+	result, err := s.GetByID(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	return []model.Order{*result}, nil
+}
+
+func filterBillableAppointmentPets(appt *model.Appointment) []model.AppointmentPet {
+	if appt == nil || len(appt.Pets) == 0 {
+		return nil
+	}
+
+	filtered := make([]model.AppointmentPet, 0, len(appt.Pets))
+	seen := make(map[uint]struct{}, len(appt.Pets))
+	for _, petItem := range appt.Pets {
+		if petItem.PetID == 0 {
+			continue
+		}
+		if _, exists := seen[petItem.PetID]; exists {
+			continue
+		}
+		if petItem.Pet != nil && petItem.Pet.CustomerID != nil && *petItem.Pet.CustomerID != appt.CustomerID {
+			continue
+		}
+		seen[petItem.PetID] = struct{}{}
+		filtered = append(filtered, petItem)
+	}
+	return filtered
+}
+
+func hasConflictingOrders(existingOrders []model.Order, apptPets []model.AppointmentPet) bool {
+	activeOrders := filterActiveAppointmentOrders(existingOrders)
+	if len(activeOrders) == 0 {
+		return false
+	}
+
+	validPetIDs := make(map[uint]struct{}, len(apptPets))
+	for _, petItem := range apptPets {
+		if petItem.PetID > 0 {
+			validPetIDs[petItem.PetID] = struct{}{}
+		}
+	}
+
+	for _, order := range activeOrders {
+		if order.PetID == nil || *order.PetID == 0 {
+			return true
+		}
+		if _, exists := validPetIDs[*order.PetID]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func filterActiveAppointmentOrders(orders []model.Order) []model.Order {
+	if len(orders) == 0 {
+		return nil
+	}
+
+	filtered := make([]model.Order, 0, len(orders))
+	for _, order := range orders {
+		if order.Status != 0 && order.Status != 1 {
+			continue
+		}
+		filtered = append(filtered, order)
+	}
+	return filtered
+}
+
+func buildOrderServices(apptPet model.AppointmentPet, overrideMap map[uint][]ServiceOverride) []ServiceOverride {
+	if overrideMap != nil {
+		if overrides, ok := overrideMap[apptPet.PetID]; ok {
+			services := make([]ServiceOverride, 0, len(overrides))
+			for _, override := range overrides {
+				services = append(services, override)
+			}
+			return services
+		}
+	}
+
+	services := make([]ServiceOverride, 0, len(apptPet.Services))
+	for _, svc := range apptPet.Services {
+		services = append(services, ServiceOverride{
+			ServiceID:   svc.ServiceID,
+			ServiceName: svc.ServiceName,
+			Price:       svc.Price,
+			Duration:    svc.Duration,
+		})
+	}
+	return services
 }
 
 // CreateDirect creates a standalone order (walk-in / direct billing)
 func (s *OrderService) CreateDirect(order *model.Order, items []model.OrderItem) error {
 	order.OrderNo = utils.GenerateOrderNo()
 
-	var total float64
+	var total, serviceTotal, productTotal, addonTotal float64
 	for i := range items {
 		items[i].Amount = items[i].UnitPrice * float64(items[i].Quantity)
 		total += items[i].Amount
+		switch items[i].ItemType {
+		case 1:
+			serviceTotal += items[i].Amount
+		case 2:
+			productTotal += items[i].Amount
+		case 3:
+			addonTotal += items[i].Amount
+		}
 	}
 	order.TotalAmount = total
+	order.ServiceTotal = serviceTotal
+	order.ProductTotal = productTotal
+	order.AddonTotal = addonTotal
 	order.PayAmount = total - order.DiscountAmount
 
 	tx := database.DB.Begin()
@@ -237,8 +339,69 @@ func (s *OrderService) CreateDirect(order *model.Order, items []model.OrderItem)
 	return tx.Commit().Error
 }
 
+func (s *OrderService) UpdateDraft(shopID, id uint, patch *model.Order, items []model.OrderItem) error {
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil {
+		return errors.New("订单不存在")
+	}
+	if order.ShopID != shopID {
+		return errors.New("订单不存在")
+	}
+	if order.PayStatus != 0 {
+		return errors.New("已支付订单不可修改价格")
+	}
+	if order.Status == 2 || order.Status == 3 {
+		return errors.New("当前订单状态不可修改价格")
+	}
+	if len(items) == 0 {
+		return errors.New("请添加商品或服务")
+	}
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		order.CustomerID = patch.CustomerID
+		order.PetID = patch.PetID
+		order.StaffID = patch.StaffID
+		order.TotalAmount = patch.TotalAmount
+		order.ServiceTotal = patch.ServiceTotal
+		order.ProductTotal = patch.ProductTotal
+		order.AddonTotal = patch.AddonTotal
+		order.DiscountRate = patch.DiscountRate
+		order.DiscountAmount = patch.DiscountAmount
+		order.ServiceDiscountAmount = patch.ServiceDiscountAmount
+		order.ProductDiscountAmount = patch.ProductDiscountAmount
+		order.PayAmount = patch.PayAmount
+		order.Commission = patch.Commission
+		order.Remark = patch.Remark
+
+		if err := tx.Save(order).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
+			return err
+		}
+		for i := range items {
+			items[i].OrderID = order.ID
+		}
+		if err := tx.Create(&items).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+	return nil
+}
+
 func (s *OrderService) GetByID(id uint) (*model.Order, error) {
-	return s.orderRepo.FindByID(id)
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	s.decorateOrder(order)
+	return order, nil
 }
 
 func (s *OrderService) ListPaged(shopID uint, f repository.OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
@@ -248,7 +411,12 @@ func (s *OrderService) ListPaged(shopID uint, f repository.OrderFilter, page, pa
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.orderRepo.FindByShopPaged(shopID, f, page, pageSize)
+	list, total, err := s.orderRepo.FindByShopPaged(shopID, f, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	s.decorateOrders(list)
+	return list, total, nil
 }
 
 func (s *OrderService) Search(shopID uint, keyword string, f repository.OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
@@ -258,7 +426,12 @@ func (s *OrderService) Search(shopID uint, keyword string, f repository.OrderFil
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return s.orderRepo.Search(shopID, keyword, f, page, pageSize)
+	list, total, err := s.orderRepo.Search(shopID, keyword, f, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	s.decorateOrders(list)
+	return list, total, nil
 }
 
 // MarkPaid marks an order as paid
@@ -321,6 +494,13 @@ func (s *OrderService) Refund(id uint, remark string) error {
 	return nil
 }
 
+func (s *OrderService) UpdateRemark(id uint, remark string) error {
+	if _, err := s.orderRepo.FindByID(id); err != nil {
+		return errors.New("订单不存在")
+	}
+	return s.orderRepo.UpdateRemark(id, remark)
+}
+
 // Cancel cancels an unpaid order
 func (s *OrderService) Cancel(id uint) error {
 	order, err := s.orderRepo.FindByID(id)
@@ -339,6 +519,276 @@ func (s *OrderService) Cancel(id uint) error {
 	return nil
 }
 
+func (s *OrderService) Delete(shopID, id uint) error {
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil {
+		return errors.New("订单不存在")
+	}
+	if order.ShopID != shopID {
+		return errors.New("订单不存在")
+	}
+	if order.Status != 2 && order.Status != 3 {
+		return errors.New("仅已取消或已退款订单可删除")
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&model.Order{}, order.ID).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+	return nil
+}
+
+func (s *OrderService) decorateOrders(list []model.Order) {
+	for i := range list {
+		s.decorateOrder(&list[i])
+	}
+}
+
+func (s *OrderService) decorateOrder(order *model.Order) {
+	if order == nil {
+		return
+	}
+	decorateOrderTotals(order)
+	order.PetGroups = buildOrderPetGroups(order)
+	order.PetSummary = buildOrderPetSummary(order)
+	order.OrderKind = buildOrderKind(order)
+}
+
+func buildOrderPetGroups(order *model.Order) []model.OrderPetGroup {
+	if order == nil {
+		return nil
+	}
+	appointmentPetIDs := appointmentPetIDsByName(order)
+	feedingPetIDs := feedingPetIDsByName(order)
+	singleFeedingPetName, singleFeedingPetID := singleFeedingPet(order)
+	groupMap := make(map[string]*model.OrderPetGroup)
+	groupOrder := make([]string, 0)
+	for _, item := range order.Items {
+		groupKey := ""
+		itemName := item.Name
+		if item.ItemType == 2 || item.ItemType == 3 {
+			groupKey = "零售商品"
+		} else {
+			petName, strippedName := splitOrderItemPetName(item.Name)
+			groupKey = petName
+			if strippedName != "" {
+				itemName = strippedName
+			}
+			if groupKey == "" {
+				if order.Pet != nil && order.Pet.Name != "" {
+					groupKey = order.Pet.Name
+				} else if singleFeedingPetName != "" {
+					groupKey = singleFeedingPetName
+				} else {
+					groupKey = "未分组"
+				}
+			}
+		}
+		group, exists := groupMap[groupKey]
+		if !exists {
+			group = &model.OrderPetGroup{PetName: groupKey}
+			if order.Pet != nil && order.Pet.Name == groupKey && order.PetID != nil && *order.PetID > 0 {
+				group.PetID = order.PetID
+			} else if petID, ok := appointmentPetIDs[groupKey]; ok && petID > 0 {
+				group.PetID = uintPtr(petID)
+			} else if petID, ok := feedingPetIDs[groupKey]; ok && petID > 0 {
+				group.PetID = uintPtr(petID)
+			} else if singleFeedingPetName == groupKey && singleFeedingPetID > 0 {
+				group.PetID = uintPtr(singleFeedingPetID)
+			}
+			groupMap[groupKey] = group
+			groupOrder = append(groupOrder, groupKey)
+		}
+		itemCopy := item
+		itemCopy.Name = itemName
+		group.Items = append(group.Items, itemCopy)
+	}
+	if len(groupOrder) == 0 && order.Pet != nil && order.Pet.Name != "" {
+		return []model.OrderPetGroup{{
+			PetID:   order.PetID,
+			PetName: order.Pet.Name,
+			Items:   append([]model.OrderItem(nil), order.Items...),
+		}}
+	}
+	if len(groupOrder) == 0 && singleFeedingPetName != "" {
+		return []model.OrderPetGroup{{
+			PetID:   uintPtr(singleFeedingPetID),
+			PetName: singleFeedingPetName,
+			Items:   append([]model.OrderItem(nil), order.Items...),
+		}}
+	}
+	groups := make([]model.OrderPetGroup, 0, len(groupOrder))
+	for _, key := range groupOrder {
+		groups = append(groups, *groupMap[key])
+	}
+	return groups
+}
+
+func appointmentPetIDsByName(order *model.Order) map[string]uint {
+	result := make(map[string]uint)
+	if order == nil || order.Appointment == nil {
+		return result
+	}
+	for _, apptPet := range order.Appointment.Pets {
+		if apptPet.PetID == 0 || apptPet.Pet == nil || apptPet.Pet.Name == "" {
+			continue
+		}
+		if _, exists := result[apptPet.Pet.Name]; exists {
+			continue
+		}
+		result[apptPet.Pet.Name] = apptPet.PetID
+	}
+	return result
+}
+
+func feedingPetIDsByName(order *model.Order) map[string]uint {
+	result := make(map[string]uint)
+	if order == nil || order.FeedingPlan == nil {
+		return result
+	}
+	for _, planPet := range order.FeedingPlan.Pets {
+		name := ""
+		if planPet.Pet != nil && strings.TrimSpace(planPet.Pet.Name) != "" {
+			name = strings.TrimSpace(planPet.Pet.Name)
+		} else {
+			name = strings.TrimSpace(planPet.PetNameSnapshot)
+		}
+		if name == "" || planPet.PetID == 0 {
+			continue
+		}
+		if _, exists := result[name]; exists {
+			continue
+		}
+		result[name] = planPet.PetID
+	}
+	return result
+}
+
+func singleFeedingPet(order *model.Order) (string, uint) {
+	if order == nil || order.FeedingPlan == nil || len(order.FeedingPlan.Pets) != 1 {
+		return "", 0
+	}
+	planPet := order.FeedingPlan.Pets[0]
+	if planPet.Pet != nil && strings.TrimSpace(planPet.Pet.Name) != "" {
+		return strings.TrimSpace(planPet.Pet.Name), planPet.PetID
+	}
+	return strings.TrimSpace(planPet.PetNameSnapshot), planPet.PetID
+}
+
+func buildOrderPetSummary(order *model.Order) string {
+	groups := buildOrderPetGroups(order)
+	names := make([]string, 0, len(groups))
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		if group.PetName == "" || group.PetName == "未分组" || group.PetName == "零售商品" {
+			continue
+		}
+		if _, ok := seen[group.PetName]; ok {
+			continue
+		}
+		seen[group.PetName] = struct{}{}
+		names = append(names, group.PetName)
+	}
+	if len(names) == 0 && order.Pet != nil && order.Pet.Name != "" {
+		names = append(names, order.Pet.Name)
+	}
+	if len(names) == 0 && order.FeedingPlan != nil {
+		seenFeeding := make(map[string]struct{})
+		for _, planPet := range order.FeedingPlan.Pets {
+			name := strings.TrimSpace(planPet.PetNameSnapshot)
+			if planPet.Pet != nil && strings.TrimSpace(planPet.Pet.Name) != "" {
+				name = strings.TrimSpace(planPet.Pet.Name)
+			}
+			if name == "" {
+				continue
+			}
+			if _, ok := seenFeeding[name]; ok {
+				continue
+			}
+			seenFeeding[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, " / ")
+}
+
+func decorateOrderTotals(order *model.Order) {
+	if order == nil {
+		return
+	}
+
+	var serviceTotal, productTotal, addonTotal float64
+	for _, item := range order.Items {
+		switch item.ItemType {
+		case 1:
+			serviceTotal += item.Amount
+		case 2:
+			productTotal += item.Amount
+		case 3:
+			addonTotal += item.Amount
+		}
+	}
+
+	if serviceTotal > 0 || order.ServiceTotal == 0 {
+		order.ServiceTotal = serviceTotal
+	}
+	if productTotal > 0 || order.ProductTotal == 0 {
+		order.ProductTotal = productTotal
+	}
+	if addonTotal > 0 || order.AddonTotal == 0 {
+		order.AddonTotal = addonTotal
+	}
+
+	if order.TotalAmount == 0 {
+		order.TotalAmount = order.ServiceTotal + order.ProductTotal + order.AddonTotal
+	}
+
+	if order.ServiceDiscountAmount == 0 && order.ProductDiscountAmount == 0 && order.DiscountAmount > 0 {
+		switch {
+		case order.ServiceTotal > 0 && order.ProductTotal == 0:
+			order.ServiceDiscountAmount = order.DiscountAmount
+		case order.ProductTotal > 0 && order.ServiceTotal == 0:
+			order.ProductDiscountAmount = order.DiscountAmount
+		}
+	}
+}
+
+func buildOrderKind(order *model.Order) string {
+	if order == nil {
+		return "service"
+	}
+	if order.FeedingPlanID != nil && *order.FeedingPlanID > 0 {
+		return "feeding"
+	}
+	hasService := order.ServiceTotal > 0
+	hasProduct := order.ProductTotal > 0
+	switch {
+	case hasService && hasProduct:
+		return "mixed"
+	case hasProduct:
+		return "product"
+	default:
+		return "service"
+	}
+}
+
+func splitOrderItemPetName(name string) (string, string) {
+	parts := strings.SplitN(name, " · ", 2)
+	if len(parts) < 2 {
+		return "", name
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
 func (s *OrderService) syncAppointmentSettlementPtr(appointmentID *uint) error {
 	if appointmentID == nil || *appointmentID == 0 {
 		return nil
@@ -347,10 +797,16 @@ func (s *OrderService) syncAppointmentSettlementPtr(appointmentID *uint) error {
 }
 
 func (s *OrderService) syncAppointmentSettlement(appointmentID uint) error {
+	appt, err := s.apptRepo.FindByID(appointmentID)
+	if err != nil {
+		return err
+	}
+
 	orders, err := s.orderRepo.FindByAppointment(appointmentID)
 	if err != nil {
 		return err
 	}
+	activeOrders := filterActiveAppointmentOrders(orders)
 
 	var paidAmount float64
 	for _, order := range orders {
@@ -359,7 +815,16 @@ func (s *OrderService) syncAppointmentSettlement(appointmentID uint) error {
 		}
 	}
 
+	updates := map[string]interface{}{
+		"paid_amount": paidAmount,
+	}
+	if len(activeOrders) > 0 {
+		updates["status"] = 7
+	} else if appt.Status == 7 {
+		updates["status"] = 3
+	}
+
 	return database.DB.Model(&model.Appointment{}).
 		Where("id = ?", appointmentID).
-		Update("paid_amount", paidAmount).Error
+		Updates(updates).Error
 }

@@ -5,11 +5,12 @@
     <view v-else-if="!appt" class="state">预约不存在</view>
     <template v-else>
       <view class="summary-card">
-        <text class="summary-title">预约开单确认</text>
+        <text class="summary-title">{{ isEditing ? '修改合单' : '预约合单确认' }}</text>
         <text class="summary-line">{{ appt.date }} {{ appt.start_time }} - {{ appt.end_time }}</text>
         <text class="summary-line">客户：{{ appt.customer?.nickname || appt.customer?.phone || '-' }}</text>
         <text class="summary-line">洗护师：{{ appt.staff?.name || '待分配' }}</text>
-        <text class="summary-amount">预计共 {{ drafts.length }} 单 · ¥{{ totalAmount.toFixed(2) }}</text>
+        <text class="summary-line">宠物：{{ petSummary }}</text>
+        <text class="summary-amount">{{ isEditing ? '修改后应付' : '预计生成 1 单' }} · ¥{{ totalAmount.toFixed(2) }}</text>
       </view>
 
       <view class="draft-list">
@@ -33,7 +34,17 @@
             <view class="service-row" v-for="(svc, si) in draft.services" :key="`${draft.petId}-${svc.service_id}-${si}`">
               <text class="service-name">{{ svc.service_name }}</text>
               <view class="service-edit">
-                <text class="service-price" @click="editPrice(di, si)">¥{{ svc.price }}</text>
+                <input
+                  v-if="isEditingPrice(di, si)"
+                  v-model="editPriceValue"
+                  type="digit"
+                  class="service-price-input"
+                  :focus="true"
+                  confirm-type="done"
+                  @blur="saveInlinePrice"
+                  @confirm="saveInlinePrice"
+                />
+                <text v-else class="service-price" @click="editPrice(di, si)">¥{{ svc.price }}</text>
                 <text class="service-dur">{{ svc.duration }}分钟</text>
                 <text class="service-del" @click="removeService(di, si)">✕</text>
               </view>
@@ -45,28 +56,23 @@
         </view>
       </view>
 
-      <view class="notes-card" v-if="appt.notes">
-        <text class="notes-title">预约备注</text>
-        <text class="notes-text">{{ appt.notes }}</text>
+      <view class="notes-card">
+        <view class="notes-head">
+          <text class="notes-title">预约备注</text>
+          <text class="notes-tip">保存合单时同步更新</text>
+        </view>
+        <textarea
+          v-model="noteDraft"
+          class="notes-input"
+          auto-height
+          maxlength="300"
+          placeholder="填写预约备注，如送达时间、注意事项"
+        />
       </view>
 
       <view class="submit-bar">
-        <button class="submit-btn" :loading="submitting" @click="submitBatch">确认生成 {{ drafts.length }} 张订单</button>
+        <button class="submit-btn" :loading="submitting" @click="submitBatch">{{ isEditing ? '保存修改' : '确认生成订单' }}</button>
       </view>
-
-      <!-- 修改价格弹窗 -->
-      <view v-if="editingPrice" class="modal-mask" @click="editingPrice = null">
-        <view class="modal-body" @click.stop>
-          <text class="modal-title">修改价格</text>
-          <text class="modal-svc-name">{{ editingPrice.name }}</text>
-          <input v-model="editPriceValue" type="digit" class="modal-input" placeholder="输入新价格" />
-          <view class="modal-btns">
-            <view class="modal-btn cancel" @click="editingPrice = null">取消</view>
-            <view class="modal-btn confirm" @click="savePrice">确定</view>
-          </view>
-        </view>
-      </view>
-
       <!-- 添加服务弹窗（按分类） -->
       <view v-if="showAddService" class="modal-mask" @click="showAddService = false">
         <view class="modal-body modal-body-tall" @click.stop>
@@ -131,11 +137,13 @@
 import SideLayout from '@/components/SideLayout.vue'
 import { computed, ref, reactive } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getAppointment } from '@/api/appointment'
-import { createBatchOrdersFromAppointment } from '@/api/order'
+import { getAppointment, updateAppointmentNotes } from '@/api/appointment'
+import { createBatchOrdersFromAppointment, getOrder, updateOrder } from '@/api/order'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
 
 const appointmentId = ref(0)
+const editingOrderId = ref(0)
+const existingOrder = ref<any>(null)
 const appt = ref<any>(null)
 const loading = ref(true)
 const submitting = ref(false)
@@ -179,6 +187,7 @@ interface Draft {
 }
 
 const drafts = reactive<Draft[]>([])
+const noteDraft = ref('')
 
 function calcAge(birthDate?: string): string {
   if (!birthDate) return ''
@@ -225,23 +234,30 @@ function recalcAmount(draft: Draft) {
 }
 
 const totalAmount = computed(() => drafts.reduce((sum, d) => sum + d.amount, 0))
+const petSummary = computed(() => drafts.map((draft) => draft.petName).filter(Boolean).join(' / ') || '-')
+const isEditing = computed(() => editingOrderId.value > 0)
 
 // === 修改价格 ===
-const editingPrice = ref<{ di: number; si: number; name: string } | null>(null)
+const editingPrice = ref<{ di: number; si: number } | null>(null)
 const editPriceValue = ref('')
+
+function isEditingPrice(di: number, si: number) {
+  return editingPrice.value?.di === di && editingPrice.value?.si === si
+}
 
 function editPrice(di: number, si: number) {
   const svc = drafts[di].services[si]
-  editingPrice.value = { di, si, name: svc.service_name }
+  editingPrice.value = { di, si }
   editPriceValue.value = String(svc.price)
 }
 
-function savePrice() {
+function saveInlinePrice() {
   if (!editingPrice.value) return
   const { di, si } = editingPrice.value
   const val = parseFloat(editPriceValue.value)
   if (isNaN(val) || val < 0) {
-    uni.showToast({ title: '请输入有效价格', icon: 'none' }); return
+    uni.showToast({ title: '请输入有效价格', icon: 'none' })
+    return
   }
   drafts[di].services[si].price = val
   recalcAmount(drafts[di])
@@ -317,28 +333,13 @@ async function loadData() {
   if (!appointmentId.value) return
   loading.value = true
   try {
-    const res = await getAppointment(appointmentId.value)
-    appt.value = res.data
-
-    // 构建可编辑 drafts
-    const pets = Array.isArray(res.data?.pets) ? res.data.pets : []
-    drafts.length = 0
-    for (const petItem of pets) {
-      const svcs = (petItem.services || []).map((s: any) => ({
-        service_id: s.service_id,
-        service_name: s.service_name,
-        price: Number(s.price || 0),
-        duration: Number(s.duration || 0),
-      }))
-      drafts.push({
-        petId: petItem.pet_id,
-        petName: petItem.pet?.name || `宠物#${petItem.pet_id}`,
-        meta: getPetMeta(petItem.pet),
-        tags: getPetTags(petItem.pet),
-        services: svcs,
-        amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
-      })
-    }
+    const [apptRes, orderRes] = await Promise.all([
+      getAppointment(appointmentId.value),
+      editingOrderId.value ? getOrder(editingOrderId.value) : Promise.resolve(null as any),
+    ])
+    appt.value = apptRes.data
+    existingOrder.value = orderRes?.data || null
+    noteDraft.value = appt.value?.notes || ''
 
     // 加载服务列表和分类（用于添加服务）
     try {
@@ -350,6 +351,56 @@ async function loadData() {
       allServices.value = (svcRes.data?.list || svcRes.data || []).filter((s: any) => s.status === 1)
       categoryTree.value = catRes.data || []
     } catch { /* ignore */ }
+
+    const petMap = new Map<string, any>()
+    const pets = Array.isArray(appt.value?.pets) ? appt.value.pets : []
+    for (const petItem of pets) {
+      const key = petItem?.pet?.name || `宠物#${petItem.pet_id}`
+      if (!petMap.has(key)) {
+        petMap.set(key, petItem)
+      }
+    }
+
+    drafts.length = 0
+    if (existingOrder.value?.pet_groups?.length) {
+      for (const group of existingOrder.value.pet_groups) {
+        const petItem = petMap.get(group.pet_name)
+        const svcs = (group.items || []).map((item: any) => {
+          const service = allServices.value.find((svc: any) => svc.ID === item.item_id)
+          return {
+            service_id: item.item_id,
+            service_name: item.name,
+            price: Number(item.unit_price || item.amount || 0),
+            duration: Number(service?.duration || 0),
+          }
+        })
+        drafts.push({
+          petId: petItem?.pet_id || 0,
+          petName: group.pet_name,
+          meta: getPetMeta(petItem?.pet),
+          tags: getPetTags(petItem?.pet),
+          services: svcs,
+          amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
+        })
+      }
+    } else {
+      for (const petItem of pets) {
+        const svcs = (petItem.services || []).map((s: any) => ({
+          service_id: s.service_id,
+          service_name: s.service_name,
+          price: Number(s.price || 0),
+          duration: Number(s.duration || 0),
+        }))
+        drafts.push({
+          petId: petItem.pet_id,
+          petName: petItem.pet?.name || `宠物#${petItem.pet_id}`,
+          meta: getPetMeta(petItem.pet),
+          tags: getPetTags(petItem.pet),
+          services: svcs,
+          amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
+        })
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -357,37 +408,67 @@ async function loadData() {
 
 async function submitBatch() {
   if (!appointmentId.value) return
-  // 先把修改后的价格同步回预约（通过更新预约的服务价格）
   submitting.value = true
   try {
-    const res = await createBatchOrdersFromAppointment(appointmentId.value, {
-      overrides: drafts.map(d => ({
-        pet_id: d.petId,
-        services: d.services.map(s => ({
-          service_id: s.service_id,
-          price: s.price,
-          duration: s.duration,
+    await syncAppointmentNotes()
+
+    let res: any
+    if (isEditing.value) {
+      const items = drafts.flatMap((draft) =>
+        draft.services.map((svc) => ({
+          item_type: 1,
+          item_id: svc.service_id,
+          name: `${draft.petName} · ${svc.service_name}`,
+          quantity: 1,
+          unit_price: svc.price,
         })),
-      })),
-    })
-    const orders = res.data || []
-    uni.showToast({ title: `已生成${orders.length}张订单`, icon: 'success' })
+      )
+      res = await updateOrder(editingOrderId.value, {
+        customer_id: existingOrder.value?.customer_id || appt.value?.customer_id,
+        staff_id: existingOrder.value?.staff_id || appt.value?.staff_id,
+        remark: existingOrder.value?.remark || appt.value?.notes || '',
+        items,
+      } as any)
+    } else {
+      res = await createBatchOrdersFromAppointment(appointmentId.value, {
+        overrides: drafts.map(d => ({
+          pet_id: d.petId,
+          services: d.services.map(s => ({
+            service_id: s.service_id,
+            service_name: s.service_name,
+            price: s.price,
+            duration: s.duration,
+          })),
+        })),
+      })
+    }
+    const order = res.data
+    uni.showToast({ title: isEditing.value ? '已保存修改' : '已生成1张订单', icon: 'success' })
     setTimeout(() => {
-      if (orders.length === 1 && orders[0]?.ID) {
-        uni.redirectTo({ url: `/pages/order/detail?id=${orders[0].ID}` })
-      } else {
-        uni.redirectTo({ url: '/pages/order/list' })
+      if (order?.ID) {
+        uni.redirectTo({ url: `/pages/order/detail?id=${order.ID}` })
+        return
       }
+      uni.redirectTo({ url: '/pages/order/list' })
     }, 500)
   } catch (e: any) {
-    uni.showToast({ title: e.message || '批量开单失败', icon: 'none' })
+    uni.showToast({ title: e?.msg || e?.message || '批量开单失败', icon: 'none' })
   } finally {
     submitting.value = false
   }
 }
 
+async function syncAppointmentNotes() {
+  const currentNotes = appt.value?.notes || ''
+  const nextNotes = noteDraft.value.trim()
+  if (!appt.value || nextNotes === currentNotes) return
+  const res = await updateAppointmentNotes(appointmentId.value, nextNotes)
+  appt.value = res.data || { ...appt.value, notes: nextNotes }
+}
+
 onLoad((query) => {
   appointmentId.value = parseInt(String(query?.appointment_id || 0)) || 0
+  editingOrderId.value = parseInt(String(query?.order_id || 0)) || 0
   loadData()
 })
 </script>
@@ -414,17 +495,43 @@ onLoad((query) => {
 .service-list { margin-top: 16rpx; border-top: 1rpx solid #EEF2F7; padding-top: 8rpx; }
 .service-row { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; padding: 12rpx 0; border-bottom: 1rpx solid #F3F4F6; }
 .service-row:last-child { border-bottom: none; }
-.service-name { font-size: 24rpx; color: #1F2937; flex: 1; }
+.service-name { font-size: 24rpx; color: #1F2937; flex: 1; min-width: 0; }
 .service-edit { display: flex; align-items: center; gap: 12rpx; }
 .service-price { font-size: 24rpx; color: #4F46E5; font-weight: 600; padding: 4rpx 12rpx; background: #EEF2FF; border-radius: 8rpx; }
+.service-price-input {
+  width: 108rpx;
+  min-height: 52rpx;
+  padding: 0 12rpx;
+  background: #EEF2FF;
+  border: 1rpx solid rgba(79, 70, 229, 0.18);
+  border-radius: 10rpx;
+  box-sizing: border-box;
+  font-size: 24rpx;
+  color: #4338CA;
+  font-weight: 700;
+  text-align: center;
+}
 .service-dur { font-size: 20rpx; color: #9CA3AF; }
 .service-del { font-size: 24rpx; color: #EF4444; padding: 4rpx 8rpx; }
 
 .add-service-row { padding: 16rpx 0 4rpx; text-align: center; }
 .add-service-text { font-size: 24rpx; color: #4F46E5; }
 
-.notes-title { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 10rpx; }
-.notes-text { font-size: 24rpx; color: #6B7280; line-height: 1.6; }
+.notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-bottom: 12rpx; }
+.notes-title { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; }
+.notes-tip { font-size: 22rpx; color: #9CA3AF; flex-shrink: 0; }
+.notes-input {
+  width: 100%;
+  min-height: 132rpx;
+  box-sizing: border-box;
+  padding: 20rpx;
+  border-radius: 14rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E5E7EB;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: #1F2937;
+}
 .submit-bar {
   position: fixed;
   left: 0;
@@ -437,13 +544,20 @@ onLoad((query) => {
 
 .submit-btn {
   margin: 0;
-  background: #4F46E5;
+  min-height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4F46E5, #6366F1);
   color: #fff;
-  border-radius: 16rpx;
+  border-radius: 18rpx;
   font-size: 30rpx;
   line-height: 1.2;
-  padding: 22rpx 32rpx;
-  box-shadow: 0 12rpx 28rpx rgba(79, 70, 229, 0.24);
+  text-align: center;
+  white-space: nowrap;
+  font-weight: 800;
+  padding: 0 32rpx;
+  box-shadow: 0 14rpx 28rpx rgba(79, 70, 229, 0.24);
 }
 
 /* 弹窗 */
@@ -454,9 +568,20 @@ onLoad((query) => {
 .modal-svc-name { font-size: 26rpx; color: #6B7280; display: block; margin-bottom: 16rpx; }
 .modal-input { background: #F3F4F6; border-radius: 12rpx; padding: 16rpx; font-size: 28rpx; width: 100%; }
 .modal-btns { display: flex; gap: 16rpx; margin-top: 24rpx; }
-.modal-btn { flex: 1; text-align: center; padding: 16rpx 0; border-radius: 12rpx; font-size: 28rpx; }
-.modal-btn.cancel { background: #F3F4F6; color: #6B7280; }
-.modal-btn.confirm { background: #4F46E5; color: #fff; }
+.modal-btn {
+  flex: 1;
+  min-height: 84rpx;
+  text-align: center;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.modal-btn.cancel { background: #F8FAFC; color: #64748B; border: 2rpx solid #CBD5E1; }
+.modal-btn.confirm { background: linear-gradient(135deg, #4F46E5, #6366F1); color: #fff; box-shadow: 0 12rpx 24rpx rgba(79, 70, 229, 0.2); }
 .modal-empty { text-align: center; padding: 40rpx 0; color: #9CA3AF; font-size: 26rpx; }
 
 .cat-tabs { margin-bottom: 12rpx; white-space: nowrap; }

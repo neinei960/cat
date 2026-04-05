@@ -11,7 +11,7 @@ type Appointment struct {
 	Date         string  `json:"date" gorm:"size:10;not null;index;comment:YYYY-MM-DD"`
 	StartTime    string  `json:"start_time" gorm:"size:5;not null;comment:HH:MM"`
 	EndTime      string  `json:"end_time" gorm:"size:5;not null;comment:HH:MM"`
-	Status       int     `json:"status" gorm:"default:0;index;comment:0待确认 1已确认 2进行中 3待结算 4已取消 5未到店 6已到店"`
+	Status       int     `json:"status" gorm:"default:0;index;comment:0待确认 1已确认 2进行中 3待结算 4已取消 5未到店 7已开单"`
 	Source       int     `json:"source" gorm:"default:1;comment:1小程序 2商家创建 3电话"`
 	Notes        string  `json:"notes" gorm:"size:500;comment:客户备注"`
 	StaffNotes   string  `json:"staff_notes" gorm:"size:500;comment:技师备注"`

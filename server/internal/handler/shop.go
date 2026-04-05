@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -75,6 +76,14 @@ func (h *ShopHandler) Update(c *gin.Context) {
 	}
 	if req.CloseTime != "" {
 		shop.CloseTime = req.CloseTime
+	}
+	if req.BusinessHours != nil {
+		if payload, err := json.Marshal(req.BusinessHours); err == nil {
+			shop.BusinessHours = payload
+		} else {
+			response.Error(c, http.StatusBadRequest, "营业配置格式错误")
+			return
+		}
 	}
 
 	if err := h.shopService.Update(shop); err != nil {

@@ -79,7 +79,7 @@
           </view>
           <view class="form-item" v-if="modalForm.card_type === '1'">
             <text class="label">储值门槛 (元) *</text>
-            <input v-model="modalForm.min_recharge" type="digit" placeholder="1000" class="input" />
+            <input v-model="modalForm.min_recharge" type="digit" placeholder="1000" class="input input-amount" />
           </view>
           <view class="form-item" v-if="modalForm.card_type === '2'">
             <text class="label">总次数 *</text>
@@ -87,7 +87,7 @@
           </view>
           <view class="form-item" v-if="modalForm.card_type === '2'">
             <text class="label">售价 (元) *</text>
-            <input v-model="modalForm.times_price" type="digit" placeholder="800" class="input" />
+            <input v-model="modalForm.times_price" type="digit" placeholder="800" class="input input-amount" />
           </view>
           <view class="form-item">
             <text class="label">服务折扣 * (如0.8=八折)</text>

@@ -118,15 +118,16 @@ func (h *PetHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	keyword := c.Query("keyword")
+	petTag := c.Query("pet_tag")
 
 	var list []model.Pet
 	var total int64
 	var err error
 
 	if keyword != "" {
-		list, total, err = h.petService.Search(shopID, keyword, page, pageSize)
+		list, total, err = h.petService.Search(shopID, keyword, petTag, page, pageSize)
 	} else {
-		list, total, err = h.petService.List(shopID, page, pageSize)
+		list, total, err = h.petService.List(shopID, petTag, page, pageSize)
 	}
 
 	if err != nil {

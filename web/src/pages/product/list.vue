@@ -44,8 +44,15 @@
       >
         <view class="card-top">
           <text class="product-name">{{ item.name }}</text>
-          <view :class="['badge', item.status === 1 ? 'badge-on' : 'badge-off']">
-            {{ item.status === 1 ? '可售' : '已下架' }}
+          <view class="card-top-right">
+            <view :class="['badge', item.status === 1 ? 'badge-on' : 'badge-off']">
+              {{ item.status === 1 ? '可售' : '已下架' }}
+            </view>
+            <view
+              v-if="isDesktopInteraction"
+              class="card-action-btn danger"
+              @click.stop="confirmDelete(item)"
+            >删除</view>
           </view>
         </view>
         <view class="card-bottom">
@@ -66,6 +73,7 @@ import SideLayout from '@/components/SideLayout.vue'
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getProductList, getProductCategories, deleteProduct } from '@/api/product'
+import { useDesktopInteraction } from '@/utils/interaction'
 
 const list = ref<any[]>([])
 const categories = ref<any[]>([])
@@ -73,6 +81,7 @@ const loading = ref(true)
 const activeCategoryId = ref(0)
 const keyword = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const { isDesktopInteraction } = useDesktopInteraction()
 
 function formatPrice(item: any): string {
   const skus = item.skus || []
@@ -119,17 +128,21 @@ function onLongPress(item: any) {
     itemList: ['删除'],
     success: (res) => {
       if (res.tapIndex === 0) {
-        uni.showModal({
-          title: '确认删除',
-          content: `确认删除商品「${item.name}」？`,
-          success: async (r) => {
-            if (r.confirm) {
-              await deleteProduct(item.ID)
-              uni.showToast({ title: '已删除', icon: 'success' })
-              loadData()
-            }
-          }
-        })
+        confirmDelete(item)
+      }
+    }
+  })
+}
+
+function confirmDelete(item: any) {
+  uni.showModal({
+    title: '确认删除',
+    content: `确认删除商品「${item.name}」？`,
+    success: async (r) => {
+      if (r.confirm) {
+        await deleteProduct(item.ID)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        loadData()
       }
     }
   })
@@ -156,11 +169,14 @@ onShow(async () => {
 .tab.active { background: #4F46E5; color: #fff; }
 .loading, .empty { text-align: center; padding: 100rpx 0; color: #9CA3AF; font-size: 28rpx; }
 .card { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; gap: 12rpx; }
+.card-top-right { display: flex; align-items: center; gap: 12rpx; flex-shrink: 0; }
 .product-name { font-size: 30rpx; font-weight: 600; color: #1F2937; flex: 1; margin-right: 16rpx; }
 .badge { font-size: 22rpx; padding: 6rpx 16rpx; border-radius: 16rpx; }
 .badge-on { background: #D1FAE5; color: #059669; }
 .badge-off { background: #F3F4F6; color: #6B7280; }
+.card-action-btn { padding: 8rpx 16rpx; border-radius: 999rpx; font-size: 22rpx; font-weight: 600; }
+.card-action-btn.danger { background: #FEF2F2; color: #DC2626; }
 .card-bottom { display: flex; justify-content: space-between; align-items: center; }
 .card-bottom-left { display: flex; align-items: center; gap: 12rpx; flex-wrap: wrap; }
 .cat-tag { font-size: 22rpx; color: #4F46E5; background: #EEF2FF; padding: 4rpx 16rpx; border-radius: 8rpx; }

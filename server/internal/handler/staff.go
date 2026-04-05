@@ -85,6 +85,7 @@ type updateStaffReq struct {
 	Phone                 string   `json:"phone"`
 	Role                  string   `json:"role"`
 	Status                int      `json:"status"`
+	SortOrder             *int     `json:"sort_order"`
 	CommissionRate        *float64 `json:"commission_rate"`
 	ProductCommissionRate *float64 `json:"product_commission_rate"`
 	FeedingCommissionRate *float64 `json:"feeding_commission_rate"`
@@ -121,6 +122,9 @@ func (h *StaffHandler) Update(c *gin.Context) {
 	if req.Status != 0 {
 		staff.Status = req.Status
 	}
+	if req.SortOrder != nil {
+		staff.SortOrder = *req.SortOrder
+	}
 	if req.CommissionRate != nil {
 		staff.CommissionRate = *req.CommissionRate
 	}
@@ -139,6 +143,37 @@ func (h *StaffHandler) Update(c *gin.Context) {
 		return
 	}
 	response.Success(c, staff)
+}
+
+type reorderStaffReq struct {
+	StaffIDs []uint `json:"staff_ids" binding:"required"`
+}
+
+func (h *StaffHandler) Reorder(c *gin.Context) {
+	var req reorderStaffReq
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.StaffIDs) == 0 {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	seen := make(map[uint]struct{}, len(req.StaffIDs))
+	for _, id := range req.StaffIDs {
+		if id == 0 {
+			response.Error(c, http.StatusBadRequest, "员工ID错误")
+			return
+		}
+		if _, exists := seen[id]; exists {
+			response.Error(c, http.StatusBadRequest, "员工ID重复")
+			return
+		}
+		seen[id] = struct{}{}
+	}
+
+	if err := h.staffService.Reorder(c.GetUint("shop_id"), req.StaffIDs); err != nil {
+		response.Error(c, http.StatusInternalServerError, "保存排序失败")
+		return
+	}
+	response.Success(c, nil)
 }
 
 func (h *StaffHandler) Delete(c *gin.Context) {

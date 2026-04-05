@@ -32,7 +32,7 @@
       <template v-if="form.pricing_type === 1">
         <view class="form-item">
           <text class="label">基础价格 (元) *</text>
-          <input v-model="form.base_price" type="digit" placeholder="0.00" class="input" />
+          <input v-model="form.base_price" type="digit" placeholder="0.00" class="input input-amount" />
         </view>
         <view class="form-item">
           <text class="label">时长 (分钟) *</text>
@@ -44,11 +44,11 @@
       <template v-if="form.pricing_type === 2">
         <view class="form-item">
           <text class="label">平时单价 (元/天) *</text>
-          <input v-model="form.base_price" type="digit" placeholder="80" class="input" />
+          <input v-model="form.base_price" type="digit" placeholder="80" class="input input-amount" />
         </view>
         <view class="form-item">
           <text class="label">节假日单价 (元/天)</text>
-          <input v-model="form.holiday_price" type="digit" placeholder="95" class="input" />
+          <input v-model="form.holiday_price" type="digit" placeholder="95" class="input input-amount" />
         </view>
       </template>
 
@@ -84,7 +84,7 @@
             <input v-model="spec.name" placeholder="如：短毛猫" class="spec-input" />
           </view>
           <view class="spec-col-price">
-            <input v-model="spec.price" type="digit" placeholder="0" class="spec-input" />
+            <input v-model="spec.price" type="digit" placeholder="0" class="spec-input input-amount" />
           </view>
           <view class="spec-col-dur">
             <input v-model="spec.duration" type="number" placeholder="60" class="spec-input" />
@@ -131,7 +131,7 @@
             </view>
             <view class="discount-field" v-if="d.type === 1">
               <text class="discount-label">优惠单价 (元/天)</text>
-              <input v-model="d.discount_price" type="digit" placeholder="68" class="input" />
+              <input v-model="d.discount_price" type="digit" placeholder="68" class="input input-amount" />
             </view>
             <view class="discount-field" v-if="d.type === 2">
               <text class="discount-label">免 M 天</text>

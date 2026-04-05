@@ -24,7 +24,9 @@
 
       <view class="login-card">
         <view class="logo-section">
-          <view class="logo-badge">🐾</view>
+          <view class="logo-badge">
+            <image class="logo-badge-image" :src="catSticker" mode="aspectFit" />
+          </view>
           <text class="logo-title">账号登录</text>
           <text class="logo-subtitle">进入今天的门店工作流</text>
         </view>
@@ -87,6 +89,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAuthStore } from '@/store/auth'
+import catSticker from '@/assets/cat-sticker.jpg'
 
 const phone = ref('')
 const password = ref('')
@@ -246,7 +249,13 @@ async function handleLogin() {
   justify-content: center;
   background: linear-gradient(135deg, #FB7185, #F59E0B);
   box-shadow: 0 10rpx 30rpx rgba(251, 113, 133, 0.24);
-  font-size: 42rpx;
+  padding: 8rpx;
+}
+
+.logo-badge-image {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .logo-title {

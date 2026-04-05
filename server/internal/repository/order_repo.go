@@ -18,24 +18,27 @@ func (r *OrderRepository) Create(order *model.Order) error {
 
 func (r *OrderRepository) FindByID(id uint) (*model.Order, error) {
 	var order model.Order
-	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").
+	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
+		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
 		First(&order, id).Error
 	return &order, err
 }
 
 func (r *OrderRepository) FindByOrderNo(orderNo string) (*model.Order, error) {
 	var order model.Order
-	err := database.DB.Preload("Customer").Preload("Staff").Preload("Items").
+	err := database.DB.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
+		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
 		Where("order_no = ?", orderNo).First(&order).Error
 	return &order, err
 }
 
 type OrderFilter struct {
-	Status    *int
-	DateFrom  string
-	DateTo    string
-	StaffID   uint
-	PayMethod string
+	Status         *int
+	DateFrom       string
+	DateTo         string
+	StaffID        uint
+	PayMethod      string
+	ProductKeyword string
 }
 
 func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) *gorm.DB {
@@ -53,7 +56,16 @@ func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) 
 		db = db.Where("staff_id = ?", f.StaffID)
 	}
 	if f.PayMethod != "" {
-		db = db.Where("pay_method = ?", f.PayMethod)
+		db = applyPayMethodFilter(db, "pay_method", f.PayMethod)
+	}
+	if f.ProductKeyword != "" {
+		like := "%" + f.ProductKeyword + "%"
+		db = db.Where(
+			"EXISTS (?)",
+			database.DB.Model(&model.OrderItem{}).
+				Select("1").
+				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, like),
+		)
 	}
 	return db
 }
@@ -64,7 +76,8 @@ func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, page
 	db := r.applyFilters(database.DB.Model(&model.Order{}), shopID, f)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
+		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
 		Order("id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
 }
@@ -93,13 +106,40 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 		db = db.Where("orders.staff_id = ?", f.StaffID)
 	}
 	if f.PayMethod != "" {
-		db = db.Where("orders.pay_method = ?", f.PayMethod)
+		db = applyPayMethodFilter(db, "orders.pay_method", f.PayMethod)
+	}
+	if f.ProductKeyword != "" {
+		productLike := "%" + f.ProductKeyword + "%"
+		db = db.Where(
+			"EXISTS (?)",
+			database.DB.Model(&model.OrderItem{}).
+				Select("1").
+				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, productLike),
+		)
 	}
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
+		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
 		Order("orders.id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
+}
+
+func applyPayMethodFilter(db *gorm.DB, column string, payMethod string) *gorm.DB {
+	switch payMethod {
+	case "qrcode":
+		return db.Where(column+" IN ?", []string{"qrcode", "alipay"})
+	case "wechat":
+		return db.Where(column+" = ?", "wechat")
+	case "meituan":
+		return db.Where(column+" = ?", "meituan")
+	case "balance":
+		return db.Where(column+" IN ?", []string{"balance", "card"})
+	case "other":
+		return db.Where(column+" IN ?", []string{"other", "cash"})
+	default:
+		return db.Where(column+" = ?", payMethod)
+	}
 }
 
 func (r *OrderRepository) FindByCustomer(customerID uint, page, pageSize int) ([]model.Order, int64, error) {
@@ -114,6 +154,10 @@ func (r *OrderRepository) FindByCustomer(customerID uint, page, pageSize int) ([
 
 func (r *OrderRepository) Update(order *model.Order) error {
 	return database.DB.Save(order).Error
+}
+
+func (r *OrderRepository) UpdateRemark(id uint, remark string) error {
+	return database.DB.Model(&model.Order{}).Where("id = ?", id).Update("remark", remark).Error
 }
 
 func (r *OrderRepository) CreateItems(items []model.OrderItem) error {

@@ -19,6 +19,8 @@ interface Shop {
   latitude: number
   longitude: number
   business_hours: any
+  open_time: string
+  close_time: string
   status: number
 }
 
@@ -30,6 +32,7 @@ interface Staff {
   name: string
   avatar: string
   role: string
+  sort_order?: number
   status: number
   commission_rate: number
   product_commission_rate?: number
@@ -90,6 +93,7 @@ interface MemberCardTemplate {
   card_type: number // 1储值卡 2次卡
   min_recharge: number
   discount_rate: number
+  product_discount_rate: number
   valid_days: number
   total_times: number // 次卡总次数
   times_price: number // 次卡售价
@@ -117,6 +121,7 @@ interface MemberCard {
   total_recharge: number
   total_spent: number
   discount_rate: number
+  product_discount_rate: number
   expire_at: string | null
   status: number
   template?: MemberCardTemplate
@@ -170,6 +175,31 @@ interface PetBathReport {
   CreatedAt: string
 }
 
+interface ProductSKU {
+  ID: number
+  product_id: number
+  spec_name: string
+  price: number
+  weight: number
+  sellable: boolean
+}
+
+interface Product {
+  ID: number
+  shop_id: number
+  category_id: number
+  name: string
+  brand: string
+  description: string
+  multi_spec: boolean
+  status: number
+  category?: {
+    ID: number
+    name: string
+  }
+  skus?: ProductSKU[]
+}
+
 // Service Category
 interface ServiceCategory {
   ID: number
@@ -197,6 +227,7 @@ interface ServiceItem {
   status: number
   pricing_type: number  // 1按次 2按天
   holiday_price: number
+  monthly_usage_count?: number
   price_rules?: ServicePriceRule[]
   discounts?: ServiceDiscount[]
   service_category?: ServiceCategory
@@ -236,4 +267,303 @@ interface StaffSchedule {
   max_capacity: number
   is_day_off: boolean
   staff?: Staff
+}
+
+interface BoardingCabinet {
+  ID: number
+  shop_id: number
+  code: string
+  cabinet_type: string
+  room_count: number
+  capacity: number
+  base_price: number
+  status: string
+  remark: string
+  occupied_rooms?: number
+  reserved_rooms?: number
+  remaining_rooms?: number
+  CreatedAt?: string
+}
+
+interface BoardingHoliday {
+  ID: number
+  shop_id: number
+  holiday_date: string
+  name: string
+  CreatedAt?: string
+}
+
+interface BoardingDiscountPolicy {
+  ID: number
+  shop_id: number
+  name: string
+  policy_type: string
+  rule_json: string
+  valid_from: string
+  valid_to: string
+  priority: number
+  stackable: boolean
+  status: number
+  remark: string
+  rule?: any
+}
+
+interface BoardingPriceLine {
+  type: string
+  label: string
+  quantity: number
+  unit_price: number
+  amount: number
+}
+
+interface BoardingPricePreview {
+  check_in_at: string
+  check_out_at: string
+  nights: number
+  pet_count: number
+  regular_nights: number
+  holiday_nights: number
+  base_amount: number
+  holiday_surcharge_amount: number
+  discount_amount: number
+  pay_amount: number
+  policies: BoardingDiscountPolicy[]
+  lines: BoardingPriceLine[]
+}
+
+interface BoardingOrderPet {
+  ID: number
+  boarding_order_id: number
+  pet_id: number
+  pet_name_snapshot: string
+  remark: string
+  pet?: Pet
+}
+
+interface BoardingOrderLog {
+  ID: number
+  boarding_order_id: number
+  operator_id: number
+  action: string
+  content: string
+  operator?: Staff
+  CreatedAt?: string
+}
+
+interface BoardingOrder {
+  ID: number
+  shop_id: number
+  order_id?: number
+  customer_id: number
+  staff_id: number
+  cabinet_id: number
+  check_in_at: string
+  check_out_at: string
+  actual_check_out_at: string
+  nights: number
+  base_amount: number
+  holiday_surcharge_amount: number
+  discount_amount: number
+  pay_amount: number
+  status: string
+  remark: string
+  policy_snapshot_json: string
+  price_snapshot_json: string
+  customer?: Customer
+  staff?: Staff
+  cabinet?: BoardingCabinet
+  pets?: BoardingOrderPet[]
+  logs?: BoardingOrderLog[]
+  order?: Order
+  CreatedAt?: string
+}
+
+interface BoardingDashboardGroup {
+  cabinet_id: number
+  cabinet_type: string
+  room_count: number
+  capacity: number
+  base_price: number
+  status: string
+  remark: string
+  occupied_rooms: number
+  reserved_rooms: number
+  remaining_rooms: number
+  orders: BoardingOrder[]
+}
+
+interface FeedingPricingSetting {
+  base_visit_price: number
+  extra_pet_price: number
+  holiday_surcharge: number
+}
+
+interface FeedingItemTemplate {
+  code: string
+  name: string
+  extra_price: number
+}
+
+interface FeedingSettings {
+  pricing: FeedingPricingSetting
+  items: FeedingItemTemplate[]
+}
+
+interface FeedingAddressSnapshot {
+  address: string
+  detail?: string
+  door_code?: string
+}
+
+interface FeedingPlanPet {
+  ID?: number
+  feeding_plan_id?: number
+  pet_id: number
+  pet_name_snapshot?: string
+  remark?: string
+  pet?: Pet
+}
+
+interface FeedingPlanRule {
+  ID?: number
+  feeding_plan_id?: number
+  weekday: number
+  window_code: string
+  visit_count: number
+}
+
+interface FeedingVisitItem {
+  ID: number
+  feeding_visit_id: number
+  item_code: string
+  item_name_snapshot: string
+  extra_price: number
+  checked: boolean
+}
+
+interface FeedingVisitLog {
+  ID: number
+  feeding_visit_id: number
+  operator_id: number
+  action: string
+  content: string
+  operator?: Staff
+  CreatedAt?: string
+}
+
+interface FeedingVisitMedia {
+  ID: number
+  feeding_visit_id: number
+  media_type: string
+  url: string
+  CreatedAt?: string
+}
+
+interface FeedingVisit {
+  ID: number
+  shop_id: number
+  feeding_plan_id: number
+  scheduled_date: string
+  window_code: string
+  staff_id?: number
+  status: string
+  visit_price: number
+  arrived_at?: string
+  completed_at?: string
+  customer_note?: string
+  internal_note?: string
+  exception_type?: string
+  plan?: FeedingPlan
+  staff?: Staff
+  items?: FeedingVisitItem[]
+  logs?: FeedingVisitLog[]
+  media?: FeedingVisitMedia[]
+  CreatedAt?: string
+}
+
+interface FeedingPlan {
+  ID: number
+  shop_id: number
+  customer_id: number
+  order_id?: number
+  address_snapshot_json: string
+  contact_name: string
+  contact_phone: string
+  start_date: string
+  end_date: string
+  time_granularity: string
+  status: string
+  remark: string
+  pricing_snapshot_json: string
+  selected_items_json: string
+  total_amount: number
+  unpaid_amount: number
+  customer?: Customer
+  order?: Order
+  pets?: FeedingPlanPet[]
+  rules?: FeedingPlanRule[]
+  visits?: FeedingVisit[]
+  CreatedAt?: string
+}
+
+interface FeedingDashboardGroup {
+  status: string
+  label: string
+  count: number
+  visits: FeedingVisit[]
+}
+
+interface FeedingDashboardResponse {
+  date: string
+  groups: FeedingDashboardGroup[]
+}
+
+interface Order {
+  ID: number
+  order_no: string
+  customer_id?: number
+  pet_id?: number
+  appointment_id?: number
+  feeding_plan_id?: number
+  staff_id?: number
+  total_amount: number
+  service_total?: number
+  product_total?: number
+  addon_total?: number
+  discount_amount: number
+  service_discount_amount?: number
+  product_discount_amount?: number
+  discount_rate: number
+  pay_amount: number
+  commission: number
+  pay_method: string
+  pay_status: number
+  status: number
+  remark: string
+  order_kind?: 'service' | 'product' | 'mixed' | 'feeding'
+  pet_summary?: string
+  pet_groups?: OrderPetGroup[]
+  customer?: Customer
+  pet?: Pet
+  staff?: Staff
+  items?: OrderItem[]
+  pay_time?: string
+  CreatedAt?: string
+}
+
+interface OrderItem {
+  ID: number
+  order_id: number
+  item_type: number
+  item_id: number
+  name: string
+  quantity: number
+  unit_price: number
+  amount: number
+}
+
+interface OrderPetGroup {
+  pet_id?: number
+  pet_name: string
+  items: OrderItem[]
 }

@@ -13,7 +13,10 @@
           :class="{ active: isActive(item.path) }"
           @click="navigate(item.path)"
         >
-          <text class="menu-icon">{{ item.icon }}</text>
+          <view class="menu-icon" :class="{ 'menu-icon-cat': item.catIcon }">
+            <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
+            <text v-else>{{ item.icon }}</text>
+          </view>
           <text class="menu-label">{{ item.label }}</text>
         </view>
       </view>
@@ -43,9 +46,15 @@
         @click="navigate(item.path)"
       >
         <view v-if="item.highlight" class="tab-icon-highlight">
-          <text class="tab-icon">{{ item.icon }}</text>
+          <view class="tab-icon" :class="{ 'tab-icon-cat': item.catIcon }">
+            <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
+            <text v-else>{{ item.icon }}</text>
+          </view>
         </view>
-        <text v-else class="tab-icon">{{ item.icon }}</text>
+        <view v-else class="tab-icon" :class="{ 'tab-icon-cat': item.catIcon }">
+          <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
+          <text v-else>{{ item.icon }}</text>
+        </view>
         <text class="tab-label" :style="item.highlight ? 'color: #4F46E5;' : ''">{{ item.label }}</text>
       </view>
       <view class="tab-item" @click="showMoreMenu = true">
@@ -87,6 +96,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
+import catSticker from '@/assets/cat-sticker.jpg'
 
 const authStore = useAuthStore()
 const staffName = computed(() => authStore.staffInfo?.name || '员工')
@@ -129,9 +139,11 @@ const allMenuItems = [
   { icon: '🧾', label: '开单', path: '/pages/order/create' },
   { icon: '📅', label: '预约日历', path: '/pages/appointment/calendar' },
   { icon: '📋', label: '预约列表', path: '/pages/appointment/list' },
-  { icon: '🐱', label: '猫咪管理', path: '/pages/pet/list' },
+  { icon: '🛵', label: '上门喂养', path: '/pages/feeding/dashboard' },
+  { icon: '🐱', label: '猫咪管理', path: '/pages/pet/list', catIcon: true },
   { icon: '👥', label: '客户管理', path: '/pages/customer/list' },
   { icon: '📋', label: '订单管理', path: '/pages/order/list' },
+  { icon: '🏨', label: '寄养看板', path: '/pages/boarding/dashboard', minRole: 'manager' },
   { icon: '✂️', label: '服务管理', path: '/pages/service/list', minRole: 'admin' },
   { icon: '📦', label: '商品管理', path: '/pages/product/list' },
   { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', minRole: 'manager' },
@@ -145,13 +157,15 @@ const tabItems = [
   { icon: '🏠', label: '工作台', path: '/pages/index/index' },
   { icon: '🧾', label: '开单', path: '/pages/order/create', highlight: true },
   { icon: '📅', label: '预约', path: '/pages/appointment/calendar' },
-  { icon: '🐱', label: '猫咪', path: '/pages/pet/list' },
+  { icon: '🐱', label: '猫咪', path: '/pages/pet/list', catIcon: true },
   { icon: '📋', label: '订单', path: '/pages/order/list' },
 ]
 
 const allMoreItems = [
   { icon: '📋', label: '预约列表', path: '/pages/appointment/list' },
   { icon: '👥', label: '客户管理', path: '/pages/customer/list' },
+  { icon: '🛵', label: '上门喂养', path: '/pages/feeding/dashboard' },
+  { icon: '🏨', label: '寄养看板', path: '/pages/boarding/dashboard', minRole: 'manager' },
   { icon: '✂️', label: '服务管理', path: '/pages/service/list', minRole: 'admin' },
   { icon: '📦', label: '商品管理', path: '/pages/product/list' },
   { icon: '🧑‍💼', label: '员工管理', path: '/pages/staff/list', minRole: 'manager' },
@@ -271,6 +285,10 @@ function handleLogout() {
   margin-right: 10px;
 }
 
+.menu-icon-cat {
+  padding: 2px;
+}
+
 .menu-item.active .menu-icon {
   background-color: #4F46E5;
 }
@@ -366,6 +384,10 @@ function handleLogout() {
   justify-content: center;
   border-radius: 8rpx;
   background-color: #F1F5F9;
+}
+
+.tab-icon-cat {
+  padding: 4rpx;
 }
 
 .tab-item.active .tab-icon {
@@ -469,6 +491,12 @@ function handleLogout() {
 .more-icon {
   font-size: 24px;
   margin-bottom: 4px;
+}
+
+.cat-sticker {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .more-label {

@@ -94,9 +94,9 @@
             <text class="record-balance">余额:¥{{ r.balance_after.toFixed(2) }}</text>
             <text class="record-time">{{ r.CreatedAt.substring(5,16) }}</text>
           </view>
-          <view v-if="isAdmin" class="record-actions">
-            <text class="record-btn record-btn-edit" @click.stop="editRecord(r)">编辑</text>
-            <text class="record-btn record-btn-del" @click.stop="confirmDeleteRecord(r)">删除</text>
+          <view v-if="isAdmin && canManageRecord(r)" class="record-actions">
+            <view class="record-btn record-btn-edit" @click.stop="editRecord(r)">编辑</view>
+            <view class="record-btn record-btn-del" @click.stop="confirmDeleteRecord(r)">{{ deletingRecordId === r.ID ? '删除中' : '删除' }}</view>
           </view>
         </view>
       </view>
@@ -107,7 +107,7 @@
           <text class="modal-title">编辑记录</text>
           <view class="form-item">
             <text class="label">金额</text>
-            <input v-model="editForm.amount" type="digit" class="input" />
+            <input v-model="editForm.amount" type="digit" class="input input-amount" />
           </view>
           <view class="form-item">
             <text class="label">备注</text>
@@ -206,7 +206,7 @@
         </view>
         <view class="form-item">
           <text class="label">充值金额 *</text>
-          <input v-model="rechargeAmount" type="digit" :placeholder="'最低' + minRecharge" class="input" />
+          <input v-model="rechargeAmount" type="digit" :placeholder="'最低' + minRecharge" class="input input-amount" />
         </view>
         <view class="modal-btns">
           <view class="modal-btn cancel" @click="showOpenCardModal = false">取消</view>
@@ -221,7 +221,7 @@
         <text class="modal-title">充值</text>
         <view class="form-item">
           <text class="label">充值金额 *</text>
-          <input v-model="rechargeAmount" type="digit" placeholder="请输入金额" class="input" />
+          <input v-model="rechargeAmount" type="digit" placeholder="请输入金额" class="input input-amount" />
         </view>
         <view class="modal-btns">
           <view class="modal-btn cancel" @click="showRechargeModal = false">取消</view>
@@ -240,12 +240,12 @@
         </view>
         <view class="form-item" v-if="adjustMode === 'delta'">
           <text class="label">调整金额 *</text>
-          <input v-model="adjustAmount" type="digit" placeholder="正数增加，负数减少" class="input" />
+          <input v-model="adjustAmount" type="digit" placeholder="正数增加，负数减少" class="input input-amount" />
           <text class="field-hint">当前余额: ¥{{ memberCard?.balance.toFixed(2) }}</text>
         </view>
         <view class="form-item" v-else>
           <text class="label">设置余额为 *</text>
-          <input v-model="adjustSetValue" type="digit" placeholder="输入目标余额" class="input" />
+          <input v-model="adjustSetValue" type="digit" placeholder="输入目标余额" class="input input-amount" />
           <text class="field-hint">当前余额: ¥{{ memberCard?.balance.toFixed(2) }}</text>
         </view>
         <view class="form-item">
@@ -370,6 +370,7 @@ const showAllRecords = ref(false)
 const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 3))
 const editingRecord = ref<RechargeRecord | null>(null)
 const editForm = ref({ amount: '', remark: '' })
+const deletingRecordId = ref<number | null>(null)
 
 const minRecharge = computed(() => {
   const tpl = templates.value.find(t => t.ID === selectedTplId.value)
@@ -490,6 +491,10 @@ async function doAdjust() {
 }
 
 function editRecord(r: RechargeRecord) {
+  if (!canManageRecord(r)) {
+    uni.showToast({ title: '订单消费记录请在订单中处理', icon: 'none' })
+    return
+  }
   editingRecord.value = r
   editForm.value = { amount: String(r.amount), remark: r.remark }
 }
@@ -510,32 +515,34 @@ async function saveRecord() {
 }
 
 function confirmDeleteRecord(r: RechargeRecord) {
+  if (deletingRecordId.value) return
+  if (!canManageRecord(r)) {
+    uni.showToast({ title: '订单消费记录请在订单中处理', icon: 'none' })
+    return
+  }
   uni.showModal({
     title: '确认删除',
-    content: `确定要删除这条${r.type === 1 ? '充值' : r.type === 2 ? '消费' : '调整'}记录（¥${r.amount.toFixed(2)}）吗？`,
+    content: `删除后会同步回退会员余额，确定删除这条${r.type === 1 ? '充值' : r.type === 2 ? '消费' : '调整'}记录（¥${r.amount.toFixed(2)}）吗？`,
     confirmColor: '#EF4444',
-    success: (res) => {
+    success: async (res) => {
       if (res.confirm) {
-        // 第二次确认
-        uni.showModal({
-          title: '再次确认',
-          content: '删除后余额将被回退，此操作不可恢复，确定删除？',
-          confirmColor: '#EF4444',
-          success: async (res2) => {
-            if (res2.confirm) {
-              try {
-                await deleteRechargeRecord(r.ID)
-                uni.showToast({ title: '已删除', icon: 'success' })
-                await loadAll()
-              } catch (e: any) {
-                uni.showToast({ title: e.message || '删除失败', icon: 'none' })
-              }
-            }
-          }
-        })
+        deletingRecordId.value = r.ID
+        try {
+          await deleteRechargeRecord(r.ID)
+          uni.showToast({ title: '已删除', icon: 'success' })
+          await loadAll()
+        } catch (e: any) {
+          uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+        } finally {
+          deletingRecordId.value = null
+        }
       }
     }
   })
+}
+
+function canManageRecord(r: RechargeRecord) {
+  return !r.order_id
 }
 
 function copyPhone() {
@@ -593,7 +600,7 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .phone { display: block; font-size: 26rpx; color: #6B7280; margin-top: 8rpx; }
 .copy-icon { font-size: 22rpx; color: #4F46E5; margin-left: 8rpx; }
 .profile-actions { display: flex; justify-content: center; margin-top: 20rpx; }
-.profile-edit { display: inline-flex; align-items: center; justify-content: center; min-width: 176rpx; height: 60rpx; padding: 0 24rpx; border-radius: 999rpx; background: #EEF2FF; color: #4F46E5; font-size: 26rpx; font-weight: 600; }
+.profile-edit { display: inline-flex; align-items: center; justify-content: center; min-width: 196rpx; height: 68rpx; padding: 0 28rpx; border-radius: 999rpx; background: #EEF2FF; color: #4F46E5; font-size: 26rpx; font-weight: 700; box-shadow: inset 0 0 0 2rpx rgba(99, 102, 241, 0.08); }
 
 /* Stats row inside profile card */
 .stats-row { display: flex; align-items: center; padding: 28rpx 24rpx 32rpx; margin-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
@@ -642,15 +649,15 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .mc-stat-val { display: block; font-size: 28rpx; font-weight: 600; color: #4F46E5; }
 .mc-stat-label { display: block; font-size: 22rpx; color: #9CA3AF; margin-top: 4rpx; }
 .mc-btns { display: flex; gap: 16rpx; }
-.btn-recharge { flex: 1; background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 28rpx; }
-.btn-adjust { flex: 1; background: #fff; color: #F59E0B; border: 1rpx solid #F59E0B; border-radius: 12rpx; font-size: 28rpx; }
+.btn-recharge { flex: 1; min-height: 92rpx; background: linear-gradient(135deg, #4F46E5, #6366F1); color: #fff; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; box-shadow: 0 12rpx 26rpx rgba(79, 70, 229, 0.18); }
+.btn-adjust { flex: 1; min-height: 92rpx; background: #fff; color: #F59E0B; border: 2rpx solid #F59E0B; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; }
 .adjust-mode-tabs { display: flex; gap: 0; margin-bottom: 20rpx; background: #F3F4F6; border-radius: 12rpx; padding: 4rpx; }
 .adjust-tab { flex: 1; text-align: center; font-size: 26rpx; padding: 14rpx 0; border-radius: 10rpx; color: #6B7280; }
 .adjust-tab-active { background: #fff; color: #4F46E5; font-weight: 600; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.06); }
 .field-hint { font-size: 22rpx; color: #9CA3AF; display: block; margin-top: 4rpx; }
 .no-card { text-align: center; padding: 24rpx 0; }
 .no-card-text { font-size: 26rpx; color: #9CA3AF; display: block; margin-bottom: 16rpx; }
-.btn-open-card { background: linear-gradient(135deg, #4F46E5, #7C3AED); color: #fff; border-radius: 12rpx; font-size: 28rpx; }
+.btn-open-card { min-height: 92rpx; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: #fff; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; box-shadow: 0 12rpx 26rpx rgba(79, 70, 229, 0.18); }
 
 /* Records */
 .records { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
@@ -661,7 +668,7 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .record-item:last-child { border-bottom: none; }
 .record-left { display: flex; align-items: center; gap: 12rpx; }
 .record-actions { width: 100%; display: flex; justify-content: flex-end; gap: 16rpx; margin-top: 8rpx; }
-.record-btn { font-size: 22rpx; padding: 4rpx 16rpx; border-radius: 8rpx; }
+.record-btn { min-width: 100rpx; height: 56rpx; display: inline-flex; align-items: center; justify-content: center; font-size: 22rpx; padding: 0 20rpx; border-radius: 14rpx; font-weight: 700; }
 .record-btn-edit { color: #4F46E5; background: #EEF2FF; }
 .record-btn-del { color: #EF4444; background: #FEF2F2; }
 .record-type { font-size: 22rpx; padding: 4rpx 12rpx; border-radius: 8rpx; }
@@ -681,7 +688,7 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .modal-title { font-size: 32rpx; font-weight: 700; color: #1F2937; display: block; text-align: center; margin-bottom: 24rpx; }
 .form-item { margin-bottom: 20rpx; }
 .label { font-size: 26rpx; color: #374151; display: block; margin-bottom: 8rpx; }
-.input { font-size: 28rpx; color: #1F2937; height: 60rpx; background: #F9FAFB; border-radius: 8rpx; padding: 0 16rpx; }
+.input { font-size: 28rpx; color: #1F2937; height: 84rpx; background: #F9FAFB; border-radius: 16rpx; padding: 0 20rpx; border: 2rpx solid #E5E7EB; box-sizing: border-box; }
 .tpl-list { display: flex; flex-direction: column; gap: 12rpx; }
 .tpl-option { padding: 16rpx 20rpx; border: 2rpx solid #E5E7EB; border-radius: 12rpx; }
 .tpl-active { border-color: #4F46E5; background: #EEF2FF; }
@@ -689,10 +696,10 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .tpl-active .tpl-name { color: #4F46E5; }
 .tpl-meta { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
 .tag-modal-list { display: flex; flex-wrap: wrap; gap: 12rpx; }
-.tag-modal-item { padding: 10rpx 18rpx; border-radius: 999rpx; font-size: 24rpx; border: 1rpx solid transparent; }
+.tag-modal-item { min-height: 56rpx; padding: 0 20rpx; border-radius: 999rpx; font-size: 24rpx; border: 2rpx solid transparent; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .tag-modal-item-active { font-weight: 600; }
 .modal-btns { display: flex; gap: 16rpx; margin-top: 24rpx; }
-.modal-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 12rpx; font-size: 28rpx; }
+.modal-btn { flex: 1; min-height: 88rpx; text-align: center; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .cancel { background: #F3F4F6; color: #6B7280; }
 .confirm { background: #4F46E5; color: #fff; }
 

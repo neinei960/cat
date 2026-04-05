@@ -7,7 +7,7 @@ type RechargeRecord struct {
 	ShopID       uint    `json:"shop_id" gorm:"not null;index"`
 	CustomerID   uint    `json:"customer_id" gorm:"not null;index"`
 	CardID       uint    `json:"card_id" gorm:"not null;index"`
-	Type         int     `json:"type" gorm:"not null;comment:1充值 2消费 3退款"`
+	Type         int     `json:"type" gorm:"not null;comment:1充值 2消费 3退款 4调整"`
 	Amount       float64 `json:"amount" gorm:"type:decimal(10,2);not null"`
 	BalanceAfter float64 `json:"balance_after" gorm:"type:decimal(10,2)"`
 	OrderID      *uint   `json:"order_id" gorm:"index;comment:关联订单ID"`

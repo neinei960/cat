@@ -80,6 +80,19 @@ export const APPOINTMENT_STATUS_META: Record<number, AppointmentStatusMeta> = {
     blockBorder: 'rgba(2, 132, 199, 0.18)',
     blockShadow: '0 10rpx 18rpx rgba(2, 132, 199, 0.10)',
   },
+  7: {
+    label: '已开单',
+    badgeBg: '#EDE9FE',
+    badgeText: '#6D28D9',
+    badgeBorder: 'rgba(109, 40, 217, 0.18)',
+    barBg: 'linear-gradient(135deg, #F5F3FF 0%, #DDD6FE 100%)',
+    barText: '#6D28D9',
+    barShadow: '0 14rpx 28rpx rgba(109, 40, 217, 0.14)',
+    blockBg: 'linear-gradient(180deg, #F5F3FF 0%, #E9DDFF 100%)',
+    blockAccent: '#7C3AED',
+    blockBorder: 'rgba(124, 58, 237, 0.18)',
+    blockShadow: '0 10rpx 18rpx rgba(124, 58, 237, 0.10)',
+  },
   4: {
     label: '已取消',
     badgeBg: '#E5E7EB',
@@ -125,6 +138,7 @@ export const APPOINTMENT_STATUS_META: Record<number, AppointmentStatusMeta> = {
 
 export function getAppointmentStatusMeta(status?: number): AppointmentStatusMeta {
   if (typeof status !== 'number') return DEFAULT_STATUS_META
+  if (status === 6) return APPOINTMENT_STATUS_META[1]
   return APPOINTMENT_STATUS_META[status] || DEFAULT_STATUS_META
 }
 

@@ -6,6 +6,7 @@ export interface PetBathReport {
   shop_id: number
   image_url: string
   bath_date?: string
+  sort_order?: number
   CreatedAt: string
 }
 
@@ -33,5 +34,13 @@ export function deletePetBathReport(petId: number, reportId: number) {
   return request({
     url: `/b/pets/${petId}/bath-reports/${reportId}`,
     method: 'DELETE',
+  })
+}
+
+export function reorderPetBathReports(petId: number, reportIds: number[]) {
+  return request({
+    url: `/b/pets/${petId}/bath-reports/reorder`,
+    method: 'PUT',
+    data: { report_ids: reportIds },
   })
 }
