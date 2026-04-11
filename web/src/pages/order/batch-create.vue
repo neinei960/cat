@@ -53,6 +53,25 @@
               <text class="add-service-text">+ 添加服务</text>
             </view>
           </view>
+
+          <!-- 商品列表 -->
+          <view class="product-list" v-if="draft.products.length > 0">
+            <view class="product-row" v-for="(prod, pi) in draft.products" :key="`${draft.petId}-prod-${pi}`">
+              <text class="product-name">{{ prod.name }}</text>
+              <view class="product-edit">
+                <text class="product-price">¥{{ prod.price }}</text>
+                <view class="qty-ctrl">
+                  <text class="qty-btn" @click="changeProductQty(di, pi, -1)">−</text>
+                  <text class="qty-val">{{ prod.quantity }}</text>
+                  <text class="qty-btn" @click="changeProductQty(di, pi, 1)">+</text>
+                </view>
+                <text class="product-del" @click="removeProduct(di, pi)">✕</text>
+              </view>
+            </view>
+          </view>
+          <view class="add-service-row" @click="openAddProduct(di)">
+            <text class="add-service-text">+ 添加商品</text>
+          </view>
         </view>
       </view>
 
@@ -128,6 +147,56 @@
           </scroll-view>
         </view>
       </view>
+      <!-- 添加商品弹窗 -->
+      <view v-if="showAddProduct" class="modal-mask" @click="showAddProduct = false">
+        <view class="modal-body modal-body-tall" @click.stop>
+          <text class="modal-title">添加商品</text>
+          <input
+            :value="productKeyword"
+            class="modal-search"
+            placeholder="搜索商品名称 / 品牌 / 分类 / 规格"
+            confirm-type="search"
+            @input="onProductKeywordInput"
+            @confirm="onProductKeywordConfirm"
+          />
+          <scroll-view scroll-x class="cat-tabs" show-scrollbar="false">
+            <view class="cat-tabs-inner">
+              <view
+                :class="['cat-tab', activeProductCat === 0 ? 'cat-tab-active' : '']"
+                @click="setProductCategory(0)"
+              >全部</view>
+              <view
+                v-for="cat in productCategories"
+                :key="cat.ID"
+                :class="['cat-tab', activeProductCat === cat.ID ? 'cat-tab-active' : '']"
+                @click="setProductCategory(cat.ID)"
+              >{{ cat.name }}</view>
+            </view>
+          </scroll-view>
+          <view v-if="productLoading" class="modal-empty">搜索中...</view>
+          <view v-else-if="filteredProducts.length === 0" class="modal-empty">暂无商品</view>
+          <scroll-view scroll-y class="service-pick-list">
+            <view v-for="prod in filteredProducts" :key="prod.ID" class="service-pick-group">
+              <view class="service-pick-item" @click="toggleProductExpand(prod)">
+                <text class="service-pick-name">{{ prod.name }}</text>
+                <text class="service-pick-arrow" v-if="(prod.skus || prod.SKUs || []).filter(s => s.sellable !== false).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
+                <text class="service-pick-price" v-else @click.stop="toggleProductExpand(prod)">¥{{ (prod.skus || prod.SKUs || [])[0]?.price ?? '-' }}</text>
+              </view>
+              <view v-if="expandedProductId === prod.ID" class="price-rules">
+                <view
+                  class="price-rule-item"
+                  v-for="sku in (prod.skus || prod.SKUs || []).filter(s => s.sellable !== false)"
+                  :key="sku.ID"
+                  @click="addProductSKU(prod, sku)"
+                >
+                  <text class="rule-level">{{ sku.spec_name || '默认' }}</text>
+                  <text class="rule-price">¥{{ sku.price }}</text>
+                </view>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+      </view>
     </template>
   </view>
   </SideLayout>
@@ -139,6 +208,9 @@ import { computed, ref, reactive } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getAppointment, updateAppointmentNotes } from '@/api/appointment'
 import { createBatchOrdersFromAppointment, getOrder, updateOrder } from '@/api/order'
+import { getServiceList } from '@/api/service'
+import { getCategoryTree } from '@/api/service-category'
+import { getProductList, getProductCategories } from '@/api/product'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
 
 const appointmentId = ref(0)
@@ -177,12 +249,21 @@ interface DraftService {
   duration: number
 }
 
+interface DraftProduct {
+  product_id: number
+  sku_id: number
+  name: string
+  price: number
+  quantity: number
+}
+
 interface Draft {
   petId: number
   petName: string
   meta: string
   tags: Array<{ text: string; className: string; style?: string }>
   services: DraftService[]
+  products: DraftProduct[]
   amount: number
 }
 
@@ -230,7 +311,9 @@ function getPetTags(pet: any) {
 }
 
 function recalcAmount(draft: Draft) {
-  draft.amount = draft.services.reduce((s, svc) => s + svc.price, 0)
+  const svcTotal = draft.services.reduce((s, svc) => s + svc.price, 0)
+  const prodTotal = draft.products.reduce((s, p) => s + p.price * p.quantity, 0)
+  draft.amount = svcTotal + prodTotal
 }
 
 const totalAmount = computed(() => drafts.reduce((sum, d) => sum + d.amount, 0))
@@ -328,6 +411,119 @@ function addService(svc: any) {
   showAddService.value = false
 }
 
+// === 添加商品 ===
+const showAddProduct = ref(false)
+const addingProductDraftIndex = ref(0)
+const productCategories = ref<any[]>([])
+const activeProductCat = ref(0)
+const expandedProductId = ref(0)
+const productKeyword = ref('')
+const filteredProducts = ref<any[]>([])
+const productLoading = ref(false)
+let productSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+async function loadProductOptions() {
+  productLoading.value = true
+  try {
+    const params: any = { page: 1, page_size: 100 }
+    if (activeProductCat.value) params.category_id = activeProductCat.value
+    if (productKeyword.value.trim()) params.keyword = productKeyword.value.trim()
+    const res = await getProductList(params)
+    filteredProducts.value = (res.data?.list || []).filter((p: any) => p.status === 1)
+  } catch {
+    filteredProducts.value = []
+  } finally {
+    productLoading.value = false
+  }
+}
+
+function onProductKeywordInput(e: any) {
+  productKeyword.value = e.detail?.value || ''
+  if (productSearchTimer) clearTimeout(productSearchTimer)
+  productSearchTimer = setTimeout(() => {
+    loadProductOptions()
+  }, 250)
+}
+
+function onProductKeywordConfirm() {
+  if (productSearchTimer) clearTimeout(productSearchTimer)
+  loadProductOptions()
+}
+
+function setProductCategory(categoryID: number) {
+  activeProductCat.value = categoryID
+  loadProductOptions()
+}
+
+function openAddProduct(di: number) {
+  addingProductDraftIndex.value = di
+  expandedProductId.value = 0
+  productKeyword.value = ''
+  activeProductCat.value = 0
+  showAddProduct.value = true
+  loadProductOptions()
+}
+
+function toggleProductExpand(prod: any) {
+  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  if (skus.length > 1) {
+    expandedProductId.value = expandedProductId.value === prod.ID ? 0 : prod.ID
+  } else if (skus.length === 1) {
+    addProductSKU(prod, skus[0])
+  } else {
+    addProductDirect(prod)
+  }
+}
+
+function addProductDirect(prod: any) {
+  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  const sku = skus[0]
+  const price = sku?.price ?? prod.base_price ?? 0
+  drafts[addingProductDraftIndex.value].products.push({
+    product_id: prod.ID,
+    sku_id: sku?.ID || 0,
+    name: sku?.spec_name ? `${prod.name}(${sku.spec_name})` : prod.name,
+    price,
+    quantity: 1,
+  })
+  recalcAmount(drafts[addingProductDraftIndex.value])
+  uni.showToast({ title: '已添加', icon: 'success', duration: 800 })
+}
+
+function addProductSKU(prod: any, sku: any) {
+  drafts[addingProductDraftIndex.value].products.push({
+    product_id: prod.ID,
+    sku_id: sku.ID,
+    name: sku.spec_name ? `${prod.name}(${sku.spec_name})` : prod.name,
+    price: sku.price,
+    quantity: 1,
+  })
+  recalcAmount(drafts[addingProductDraftIndex.value])
+  expandedProductId.value = 0
+  uni.showToast({ title: '已添加', icon: 'success', duration: 800 })
+}
+
+function changeProductQty(di: number, pi: number, delta: number) {
+  const prod = drafts[di].products[pi]
+  prod.quantity = Math.max(1, prod.quantity + delta)
+  recalcAmount(drafts[di])
+}
+
+function removeProduct(di: number, pi: number) {
+  const prod = drafts[di].products[pi]
+  uni.showModal({
+    title: '删除商品',
+    content: `确定删除「${prod.name}」？`,
+    confirmColor: '#EF4444',
+    success: (res) => {
+      if (res.confirm) {
+        drafts[di].products.splice(pi, 1)
+        recalcAmount(drafts[di])
+      }
+    }
+  })
+}
+
 // === 加载 ===
 async function loadData() {
   if (!appointmentId.value) return
@@ -341,15 +537,16 @@ async function loadData() {
     existingOrder.value = orderRes?.data || null
     noteDraft.value = appt.value?.notes || ''
 
-    // 加载服务列表和分类（用于添加服务）
+    // 加载服务列表、分类、商品（用于添加服务/商品）
     try {
-      const { request } = await import('@/api/request')
-      const [svcRes, catRes] = await Promise.all([
-        request<any>({ url: '/b/services', params: { page: 1, page_size: 200 } }),
-        request<any>({ url: '/b/service-categories' }),
+      const [svcRes, catRes, prodCatRes] = await Promise.all([
+        getServiceList({ page: 1, page_size: 200 } as any),
+        getCategoryTree(),
+        getProductCategories(),
       ])
-      allServices.value = (svcRes.data?.list || svcRes.data || []).filter((s: any) => s.status === 1)
+      allServices.value = (svcRes.data?.list || []).filter((s: any) => s.status === 1)
       categoryTree.value = catRes.data || []
+      productCategories.value = (prodCatRes.data || []).filter((c: any) => c.status === 1)
     } catch { /* ignore */ }
 
     const petMap = new Map<string, any>()
@@ -365,22 +562,37 @@ async function loadData() {
     if (existingOrder.value?.pet_groups?.length) {
       for (const group of existingOrder.value.pet_groups) {
         const petItem = petMap.get(group.pet_name)
-        const svcs = (group.items || []).map((item: any) => {
-          const service = allServices.value.find((svc: any) => svc.ID === item.item_id)
-          return {
-            service_id: item.item_id,
-            service_name: item.name,
-            price: Number(item.unit_price || item.amount || 0),
-            duration: Number(service?.duration || 0),
+        const svcs: DraftService[] = []
+        const prods: DraftProduct[] = []
+        for (const item of (group.items || [])) {
+          if (item.item_type === 2) {
+            prods.push({
+              product_id: item.item_id,
+              sku_id: 0,
+              name: item.name,
+              price: Number(item.unit_price || 0),
+              quantity: item.quantity || 1,
+            })
+          } else {
+            const service = allServices.value.find((svc: any) => svc.ID === item.item_id)
+            svcs.push({
+              service_id: item.item_id,
+              service_name: item.name,
+              price: Number(item.unit_price || item.amount || 0),
+              duration: Number(service?.duration || 0),
+            })
           }
-        })
+        }
+        const svcTotal = svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0)
+        const prodTotal = prods.reduce((s: number, p: DraftProduct) => s + p.price * p.quantity, 0)
         drafts.push({
           petId: petItem?.pet_id || 0,
           petName: group.pet_name,
           meta: getPetMeta(petItem?.pet),
           tags: getPetTags(petItem?.pet),
           services: svcs,
-          amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
+          products: prods,
+          amount: svcTotal + prodTotal,
         })
       }
     } else {
@@ -397,6 +609,7 @@ async function loadData() {
           meta: getPetMeta(petItem.pet),
           tags: getPetTags(petItem.pet),
           services: svcs,
+          products: [],
           amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
         })
       }
@@ -414,15 +627,22 @@ async function submitBatch() {
 
     let res: any
     if (isEditing.value) {
-      const items = drafts.flatMap((draft) =>
-        draft.services.map((svc) => ({
+      const items = drafts.flatMap((draft) => [
+        ...draft.services.map((svc) => ({
           item_type: 1,
           item_id: svc.service_id,
           name: `${draft.petName} · ${svc.service_name}`,
           quantity: 1,
           unit_price: svc.price,
         })),
-      )
+        ...draft.products.map((p) => ({
+          item_type: 2,
+          item_id: p.product_id,
+          name: `${draft.petName} · ${p.name}`,
+          quantity: p.quantity,
+          unit_price: p.price,
+        })),
+      ])
       res = await updateOrder(editingOrderId.value, {
         customer_id: existingOrder.value?.customer_id || appt.value?.customer_id,
         staff_id: existingOrder.value?.staff_id || appt.value?.staff_id,
@@ -438,6 +658,13 @@ async function submitBatch() {
             service_name: s.service_name,
             price: s.price,
             duration: s.duration,
+          })),
+          products: d.products.map(p => ({
+            product_id: p.product_id,
+            sku_id: p.sku_id,
+            name: p.name,
+            price: p.price,
+            quantity: p.quantity,
           })),
         })),
       })
@@ -517,6 +744,18 @@ onLoad((query) => {
 .add-service-row { padding: 16rpx 0 4rpx; text-align: center; }
 .add-service-text { font-size: 24rpx; color: #4F46E5; }
 
+.product-list { margin-top: 12rpx; border-top: 1rpx solid #EEF2F7; padding-top: 8rpx; }
+.product-row { display: flex; justify-content: space-between; align-items: center; gap: 12rpx; padding: 10rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.product-row:last-child { border-bottom: none; }
+.product-name { font-size: 24rpx; color: #1F2937; flex: 1; min-width: 0; }
+.product-edit { display: flex; align-items: center; gap: 10rpx; }
+.product-price { font-size: 24rpx; color: #059669; font-weight: 600; padding: 4rpx 12rpx; background: #ECFDF5; border-radius: 8rpx; }
+.product-del { font-size: 24rpx; color: #EF4444; padding: 4rpx 8rpx; }
+.qty-ctrl { display: flex; align-items: center; gap: 0; background: #F3F4F6; border-radius: 10rpx; overflow: hidden; }
+.qty-btn { width: 48rpx; height: 44rpx; display: flex; align-items: center; justify-content: center; font-size: 28rpx; color: #374151; }
+.qty-btn:active { background: #E5E7EB; }
+.qty-val { width: 48rpx; text-align: center; font-size: 24rpx; font-weight: 600; color: #111827; }
+
 .notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-bottom: 12rpx; }
 .notes-title { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; }
 .notes-tip { font-size: 22rpx; color: #9CA3AF; flex-shrink: 0; }
@@ -582,6 +821,7 @@ onLoad((query) => {
 }
 .modal-btn.cancel { background: #F8FAFC; color: #64748B; border: 2rpx solid #CBD5E1; }
 .modal-btn.confirm { background: linear-gradient(135deg, #4F46E5, #6366F1); color: #fff; box-shadow: 0 12rpx 24rpx rgba(79, 70, 229, 0.2); }
+.modal-search { width: 100%; min-height: 64rpx; padding: 12rpx 18rpx; background: #F3F4F6; border-radius: 12rpx; font-size: 26rpx; color: #1F2937; box-sizing: border-box; margin-bottom: 12rpx; }
 .modal-empty { text-align: center; padding: 40rpx 0; color: #9CA3AF; font-size: 26rpx; }
 
 .cat-tabs { margin-bottom: 12rpx; white-space: nowrap; }

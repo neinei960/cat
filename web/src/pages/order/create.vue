@@ -11,10 +11,13 @@
         </view>
 
         <view class="selector-block">
-          <view class="selector-head">
-            <text class="selector-title">客户</text>
-            <text v-if="selectedCustomer" class="selector-link" @click="clearCustomer">清空</text>
+        <view class="selector-head">
+          <text class="selector-title">客户</text>
+          <view v-if="selectedCustomer" class="selector-actions">
+            <text class="selector-link" @click="goMemberCardManage">会员卡</text>
+            <text class="selector-link" @click="clearCustomer">清空</text>
           </view>
+        </view>
           <view v-if="selectedCustomer" class="selected-card">
             <view class="selected-top">
               <text class="selected-name">{{ selectedCustomer.nickname || '未命名客户' }}</text>
@@ -31,7 +34,7 @@
               <view class="search-accent">搜客户</view>
               <input
                 v-model="customerKeyword"
-                class="search-input"
+                class="search-input search-input-centered"
                 placeholder="输入客户昵称或手机号搜索"
                 confirm-type="search"
                 @input="searchCustomers"
@@ -78,7 +81,7 @@
               <view class="search-accent">{{ selectedCustomer ? '当前客户' : '搜猫咪' }}</view>
               <input
                 v-model="petKeyword"
-                class="search-input"
+                class="search-input search-input-centered"
                 :placeholder="selectedCustomer ? '搜索该客户的猫咪' : '输入猫咪名搜索'"
                 confirm-type="search"
                 @input="searchPets"
@@ -119,7 +122,7 @@
           <view class="search-accent">搜商品</view>
           <input
             v-model="productKeyword"
-            class="search-input"
+            class="search-input search-input-centered"
             placeholder="搜索商品名称 / 品牌"
           />
         </view>
@@ -149,6 +152,7 @@
               <text class="product-meta">{{ product.brand || product.category?.name || '零售商品' }}</text>
               <text class="product-meta">{{ getSellableSkus(product).length }}个可售规格</text>
             </view>
+            <view v-if="getProductCartCount(product.ID)" class="product-badge">{{ getProductCartCount(product.ID) }}</view>
           </view>
         </view>
 
@@ -278,39 +282,11 @@
         </view>
       </view>
 
-      <view class="section" v-if="selectedPet || cartItems.length > 0 || selectedServiceId">
-        <view class="section-title-row">
-          <text class="section-title no-margin">附加费用</text>
-          <view class="addon-add-btn" @click="onAddAddon">
-            <text class="addon-add-icon">+</text>
-          </view>
-        </view>
-        <view class="addon-grid">
-          <view
-            class="addon-item"
-            :class="{ 'addon-item--deleting': longPressId === addon.id }"
-            v-for="addon in addonInputs"
-            :key="addon.id"
-            @longpress="onLongPress(addon.id)"
-          >
-            <view v-if="longPressId === addon.id && !isDesktopInteraction" class="addon-delete-badge" @click.stop="onDeleteAddon(addon)">
-              <text class="addon-delete-icon">−</text>
-            </view>
-            <view v-if="isDesktopInteraction" class="addon-delete-inline" @click.stop="onDeleteAddon(addon)">×</view>
-            <text class="addon-label">{{ addon.name }}</text>
-            <input v-model="addon.amount" type="digit" placeholder="0" class="addon-input" :disabled="longPressId === addon.id" />
-          </view>
-        </view>
-        <view v-if="longPressId !== null && !isDesktopInteraction" class="addon-cancel-hint" @click="longPressId = null">
-          <text class="addon-cancel-text">点击此处取消删除模式</text>
-        </view>
-      </view>
-
       <view class="section summary" v-if="hasChargeItems">
         <view class="section-head compact">
           <view>
             <text class="section-title">金额汇总</text>
-            <text class="section-desc">服务、商品和附加费分开统计。</text>
+            <text class="section-desc">服务和商品分开统计。</text>
           </view>
         </view>
         <view class="summary-row" v-if="serviceSubtotal > 0">
@@ -328,10 +304,6 @@
         <view class="summary-row" v-if="productDiscountAmount > 0">
           <text>商品优惠</text>
           <text class="discount">-¥{{ productDiscountAmount.toFixed(2) }}</text>
-        </view>
-        <view class="summary-row" v-if="addonTotal > 0">
-          <text>附加费</text>
-          <text>¥{{ addonTotal.toFixed(2) }}</text>
         </view>
         <view class="summary-row">
           <text>订单总价</text>
@@ -369,18 +341,17 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref, computed, onMounted } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerList, getCustomerPets } from '@/api/customer'
 import { getPetList } from '@/api/pet'
 import { getProductCategories, getProductList } from '@/api/product'
 import { createOrder, getOrder, updateOrder } from '@/api/order'
-import { getAddonList, createAddon, deleteAddon, priceLookup } from '@/api/addon'
+import { priceLookup } from '@/api/addon'
 import { getServiceList, getPriceRules } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { getStaffList } from '@/api/staff'
 import { getCustomerCard } from '@/api/member-card'
 import { getAppointment } from '@/api/appointment'
-import { useDesktopInteraction } from '@/utils/interaction'
 
 type CustomerOption = Customer
 type PetOption = Pet
@@ -426,19 +397,19 @@ const customPriceInput = ref('')
 
 const staffList = ref<any[]>([])
 const selectedStaffIdx = ref(0)
-const addonInputs = ref<{ id: number; name: string; amount: string }[]>([])
-const longPressId = ref<number | null>(null)
 const remark = ref('')
 const submitting = ref(false)
 const memberBalance = ref(0)
 const customerCard = ref<MemberCard | null>(null)
 const prefillAppointmentId = ref(0)
 const editingOrderId = ref(0)
+const prefillCustomerId = ref(0)
+const refreshMemberCardHint = ref(false)
+const ORDER_CREATE_REFRESH_KEY = 'order_create_refresh_member_card'
+const ORDER_CREATE_RETURN_CUSTOMER_KEY = 'order_create_return_customer_id'
 
 let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
 let petSearchTimer: ReturnType<typeof setTimeout> | null = null
-
-const { isDesktopInteraction } = useDesktopInteraction()
 
 const isEditing = computed(() => editingOrderId.value > 0)
 const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
@@ -487,10 +458,9 @@ const filteredProducts = computed(() => {
   })
 })
 
-const addonTotal = computed(() => addonInputs.value.reduce((sum, addon) => sum + (parseFloat(addon.amount) || 0), 0))
 const serviceSubtotal = computed(() => selectedServiceId.value > 0 ? roundCurrency(servicePrice.value) : 0)
 const productSubtotal = computed(() => roundCurrency(cartItems.value.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)))
-const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value + addonTotal.value))
+const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value))
 
 const serviceDiscountRate = computed(() => {
   const rate = Number(selectedCustomer.value?.discount_rate || 1)
@@ -513,6 +483,18 @@ onLoad((query) => {
   if (query?.order_id) {
     editingOrderId.value = parseInt(String(query.order_id)) || 0
   }
+  if (query?.customer_id) {
+    prefillCustomerId.value = parseInt(String(query.customer_id)) || 0
+  }
+  refreshMemberCardHint.value = query?.refresh_member_card === '1'
+  if (!prefillCustomerId.value) {
+    prefillCustomerId.value = parseInt(String(uni.getStorageSync(ORDER_CREATE_RETURN_CUSTOMER_KEY) || 0)) || 0
+  }
+  if (!refreshMemberCardHint.value) {
+    refreshMemberCardHint.value = uni.getStorageSync(ORDER_CREATE_REFRESH_KEY) === '1'
+  }
+  uni.removeStorageSync(ORDER_CREATE_RETURN_CUSTOMER_KEY)
+  uni.removeStorageSync(ORDER_CREATE_REFRESH_KEY)
 })
 
 onMounted(async () => {
@@ -520,14 +502,29 @@ onMounted(async () => {
     loadServiceData(),
     loadProductData(),
     loadStaffs(),
-    loadAddons(),
   ])
 
   if (editingOrderId.value) {
     await prefillFromOrder(editingOrderId.value)
   } else if (prefillAppointmentId.value) {
     await prefillFromAppointment(prefillAppointmentId.value)
+  } else if (prefillCustomerId.value) {
+    try {
+      const res = await getCustomer(prefillCustomerId.value)
+      if (res.data) {
+        await applyCustomerSelection(res.data as CustomerOption)
+      }
+    } catch {}
   }
+
+  if (refreshMemberCardHint.value) {
+    uni.showToast({ title: '已同步最新会员折扣', icon: 'none' })
+    refreshMemberCardHint.value = false
+  }
+})
+
+onShow(async () => {
+  await refreshSelectedCustomerContext()
 })
 
 async function loadServiceData() {
@@ -560,31 +557,6 @@ async function loadStaffs() {
     const res = await getStaffList({ page: 1, page_size: 50 } as any)
     staffList.value = (res.data?.list || []).filter((staff: any) => staff.status === 1)
   } catch {}
-}
-
-async function loadAddons() {
-  try {
-    const res = await getAddonList()
-    if (Array.isArray(res.data)) {
-      const amountMap = new Map(addonInputs.value.map((item) => [item.id, item.amount]))
-      addonInputs.value = res.data.map((item: any) => ({
-        id: item.ID,
-        name: item.name,
-        amount: amountMap.get(item.ID) || '',
-      }))
-    }
-  } catch {
-    if (addonInputs.value.length === 0) {
-      addonInputs.value = [
-        { id: -1, name: '超重费', amount: '' },
-        { id: -2, name: '去油费', amount: '' },
-        { id: -3, name: '药浴', amount: '' },
-        { id: -4, name: '刷牙', amount: '' },
-        { id: -5, name: '开结', amount: '' },
-        { id: -6, name: '攻击费', amount: '' },
-      ]
-    }
-  }
 }
 
 function selectCategory(categoryId: number) {
@@ -632,6 +604,21 @@ async function applyCustomerSelection(customer: CustomerOption) {
   }
 }
 
+async function refreshSelectedCustomerContext() {
+  const customerId = Number(selectedCustomer.value?.ID || 0)
+  if (!customerId) return
+  try {
+    const res = await getCustomer(customerId)
+    if (res.data) {
+      selectedCustomer.value = res.data as CustomerOption
+    }
+  } catch {}
+  await Promise.all([
+    loadCustomerPets(customerId),
+    loadCustomerCard(customerId),
+  ])
+}
+
 async function loadCustomerPets(customerId: number) {
   if (!customerId) {
     customerPets.value = []
@@ -666,6 +653,12 @@ function clearCustomer() {
   if (selectedPet.value) {
     clearPet()
   }
+}
+
+function goMemberCardManage() {
+  const customerId = Number(selectedCustomer.value?.ID || selectedPet.value?.customer_id || 0)
+  const query = customerId > 0 ? `?return_to=order_create&customer_id=${customerId}` : '?return_to=order_create'
+  uni.navigateTo({ url: `/pages/setting/member-card${query}` })
 }
 
 async function searchPets() {
@@ -829,6 +822,10 @@ function openProductPicker(product: ProductOption) {
   })
 }
 
+function getProductCartCount(productId: number) {
+  return cartItems.value.filter(item => item.product_id === productId).reduce((sum, item) => sum + item.quantity, 0)
+}
+
 function addProductToCart(product: ProductOption, sku: ProductSkuOption) {
   const existing = cartItems.value.find((item) => item.sku_id === sku.ID)
   if (existing) {
@@ -844,7 +841,6 @@ function addProductToCart(product: ProductOption, sku: ProductSkuOption) {
       unit_price: Number(sku.price || 0),
     })
   }
-  uni.showToast({ title: '已加入商品', icon: 'success' })
 }
 
 function changeCartQuantity(item: CartItem, delta: number) {
@@ -858,49 +854,6 @@ function changeCartQuantity(item: CartItem, delta: number) {
 
 function removeCartItem(target: CartItem) {
   cartItems.value = cartItems.value.filter((item) => item !== target)
-}
-
-function onAddAddon() {
-  uni.showModal({
-    title: '添加附加费类型',
-    editable: true,
-    placeholderText: '输入名称',
-    success: async (res) => {
-      if (res.confirm && res.content?.trim()) {
-        try {
-          await createAddon({ name: res.content.trim(), default_price: 0, is_variable: true } as any)
-          await loadAddons()
-        } catch {
-          addonInputs.value.push({ id: Date.now(), name: res.content.trim(), amount: '' })
-        }
-      }
-    },
-  })
-}
-
-function onLongPress(id: number) {
-  longPressId.value = id
-}
-
-function onDeleteAddon(addon: { id: number; name: string }) {
-  uni.showModal({
-    title: '删除附加费',
-    content: `删除「${addon.name}」？`,
-    confirmColor: '#EF4444',
-    success: async (res) => {
-      if (res.confirm) {
-        if (addon.id > 0) {
-          try {
-            await deleteAddon(addon.id)
-            await loadAddons()
-          } catch {}
-        } else {
-          addonInputs.value = addonInputs.value.filter((item) => item.id !== addon.id)
-        }
-      }
-      longPressId.value = null
-    },
-  })
 }
 
 async function prefillFromAppointment(appointmentId: number) {
@@ -1004,20 +957,6 @@ async function prefillFromOrder(orderId: number) {
       })
     }
 
-    const addonAmountMap = new Map<string, string>()
-    for (const item of order.items || []) {
-      if (item.item_type === 3) {
-        addonAmountMap.set(item.name, String(item.amount || item.unit_price || 0))
-      }
-    }
-    for (const addon of addonInputs.value) {
-      addon.amount = addonAmountMap.get(addon.name) || ''
-      addonAmountMap.delete(addon.name)
-    }
-    for (const [name, amount] of addonAmountMap.entries()) {
-      addonInputs.value.push({ id: Date.now() + addonInputs.value.length, name, amount })
-    }
-
     if (order.staff_id) {
       const idx = staffList.value.findIndex((staff: any) => staff.ID === order.staff_id)
       if (idx >= 0) {
@@ -1062,10 +1001,6 @@ async function onSubmit() {
 
   submitting.value = true
   try {
-    const addons = addonInputs.value
-      .filter((addon) => parseFloat(addon.amount) > 0)
-      .map((addon) => ({ name: addon.name, amount: parseFloat(addon.amount) }))
-
     const items: any[] = []
     if (hasServiceItem.value) {
       items.push({
@@ -1091,7 +1026,6 @@ async function onSubmit() {
       customer_id: selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined,
       staff_id: selectedStaff.value?.ID || undefined,
       remark: remark.value,
-      addons,
       items,
     } as any
 
@@ -1169,6 +1103,11 @@ function roundCurrency(value: number) {
   align-items: center;
   margin-bottom: 12rpx;
 }
+.selector-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+}
 .selector-title {
   font-size: 26rpx;
   font-weight: 600;
@@ -1231,6 +1170,10 @@ function roundCurrency(value: number) {
   color: #111827;
   overflow: visible;
 }
+.search-input-centered {
+  display: flex;
+  align-items: center;
+}
 .search-input :deep(.uni-input-wrapper) {
   min-height: 88rpx;
   padding: 0;
@@ -1244,16 +1187,46 @@ function roundCurrency(value: number) {
   display: flex;
   align-items: center;
 }
+.search-input-centered :deep(.uni-input-wrapper) {
+  min-height: 88rpx;
+  align-items: center !important;
+}
+.search-input-centered :deep(.uni-input-form) {
+  min-height: 88rpx;
+  align-items: center !important;
+}
 .search-input :deep(.uni-input-input) {
   width: 100%;
   min-height: 44rpx;
   line-height: 44rpx;
   font-size: 28rpx;
   color: #111827;
+  text-align: center;
+}
+.search-input-centered :deep(.uni-input-input) {
+  min-height: 88rpx !important;
+  height: 88rpx !important;
+  line-height: 88rpx !important;
+  text-align: center !important;
+  padding: 0 12rpx !important;
 }
 .search-input :deep(.uni-input-placeholder) {
   font-size: 26rpx;
   color: #9CA3AF;
+  text-align: center;
+  width: 100%;
+}
+.search-input-centered :deep(.uni-input-placeholder) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 88rpx !important;
+  height: 88rpx !important;
+  line-height: 88rpx !important;
+  text-align: center !important;
+  width: 100% !important;
+  padding: 0 12rpx !important;
+  box-sizing: border-box;
 }
 .option-list {
   margin-top: 12rpx;
@@ -1636,9 +1609,25 @@ function roundCurrency(value: number) {
   margin-top: 14rpx;
 }
 .product-card {
+  position: relative;
   border: 2rpx solid #E5E7EB;
   border-radius: 16rpx;
   padding: 18rpx 20rpx;
+}
+.product-badge {
+  position: absolute;
+  top: -10rpx;
+  right: -10rpx;
+  min-width: 36rpx;
+  height: 36rpx;
+  line-height: 36rpx;
+  text-align: center;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #fff;
+  background: #4F46E5;
+  border-radius: 999rpx;
+  padding: 0 8rpx;
 }
 .product-card-top,
 .product-card-bottom {
@@ -1749,88 +1738,6 @@ function roundCurrency(value: number) {
   align-items: center;
   margin-bottom: 16rpx;
 }
-.addon-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
-}
-.addon-item {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  width: calc(50% - 8rpx);
-  position: relative;
-  background: #F8FAFC;
-  border: 1rpx solid #E5E7EB;
-  border-radius: 18rpx;
-  padding: 16rpx;
-  box-sizing: border-box;
-}
-.addon-item--deleting { background: #FFF1F2; border-color: #FECDD3; }
-.addon-delete-inline {
-  position: absolute;
-  top: -12rpx;
-  right: -12rpx;
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  background: #111827;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-  font-size: 24rpx;
-  font-weight: 700;
-}
-.addon-delete-badge {
-  position: absolute;
-  top: -12rpx;
-  left: -12rpx;
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  background: #EF4444;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-}
-.addon-delete-icon { color: #fff; font-size: 28rpx; font-weight: 700; }
-.addon-label { font-size: 24rpx; color: #374151; width: 100rpx; }
-.addon-input {
-  flex: 1;
-  background: #fff;
-  border-radius: 12rpx;
-  border: 2rpx solid #E5E7EB;
-  min-height: 60rpx;
-  padding: 0 14rpx;
-  text-align: right;
-  font-size: 26rpx;
-}
-.addon-add-btn {
-  width: 56rpx;
-  height: 56rpx;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366F1, #4F46E5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10rpx 22rpx rgba(79, 70, 229, 0.22);
-}
-.addon-add-icon {
-  color: #fff;
-  font-size: 32rpx;
-  font-weight: 700;
-}
-.addon-cancel-hint {
-  margin-top: 12rpx;
-  padding: 12rpx;
-  text-align: center;
-  border: 1rpx dashed #FECDD3;
-  border-radius: 12rpx;
-}
-.addon-cancel-text { font-size: 24rpx; color: #EF4444; }
 .summary-row {
   display: flex;
   justify-content: space-between;

@@ -172,7 +172,7 @@ func (h *CAppointmentHandler) CancelAppointment(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&req)
 
-	if err := h.apptService.UpdateStatus(uint(id), 4, "", req.Reason, "customer"); err != nil {
+	if err := h.apptService.UpdateStatusWithOperator(uint(id), 4, "", req.Reason, "customer", 0); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}

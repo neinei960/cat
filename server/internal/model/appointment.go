@@ -27,6 +27,7 @@ type Appointment struct {
 
 	Services []AppointmentService `json:"services,omitempty" gorm:"foreignKey:AppointmentID"`
 	Pets     []AppointmentPet     `json:"pets,omitempty" gorm:"foreignKey:AppointmentID"`
+	Logs     []AppointmentStatusLog `json:"logs,omitempty" gorm:"foreignKey:AppointmentID"`
 
 	PetCount   int    `json:"pet_count" gorm:"-"`
 	PetSummary string `json:"pet_summary" gorm:"-"`

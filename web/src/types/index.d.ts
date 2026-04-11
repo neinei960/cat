@@ -66,6 +66,9 @@ interface Customer {
   last_visit_at: string
   member_balance: number
   discount_rate: number
+  address: string
+  address_detail: string
+  door_code: string
   member_card_id?: number
   member_card?: MemberCard
   customer_tags?: CustomerTag[]
@@ -277,6 +280,7 @@ interface BoardingCabinet {
   room_count: number
   capacity: number
   base_price: number
+  extra_pet_price: number
   status: string
   remark: string
   occupied_rooms?: number
@@ -324,6 +328,7 @@ interface BoardingPricePreview {
   regular_nights: number
   holiday_nights: number
   base_amount: number
+  extra_pet_amount: number
   holiday_surcharge_amount: number
   discount_amount: number
   pay_amount: number
@@ -364,8 +369,10 @@ interface BoardingOrder {
   base_amount: number
   holiday_surcharge_amount: number
   discount_amount: number
+  manual_discount_amount: number
   pay_amount: number
   status: string
+  has_deworming?: boolean | null
   remark: string
   policy_snapshot_json: string
   price_snapshot_json: string
@@ -384,6 +391,7 @@ interface BoardingDashboardGroup {
   room_count: number
   capacity: number
   base_price: number
+  extra_pet_price: number
   status: string
   remark: string
   occupied_rooms: number
@@ -393,9 +401,11 @@ interface BoardingDashboardGroup {
 }
 
 interface FeedingPricingSetting {
-  base_visit_price: number
-  extra_pet_price: number
-  holiday_surcharge: number
+  base_day_price: number
+  holiday_day_price: number
+  discount_day_price: number
+  discount_holiday_price: number
+  discount_start_day: number
 }
 
 interface FeedingItemTemplate {
@@ -496,6 +506,12 @@ interface FeedingPlan {
   remark: string
   pricing_snapshot_json: string
   selected_items_json: string
+  selected_dates_json: string
+  play_dates_json: string
+  play_mode: string
+  play_count: number
+  other_price: number
+  deposit: number
   total_amount: number
   unpaid_amount: number
   customer?: Customer

@@ -143,7 +143,7 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCardTemplates, createCardTemplate, updateCardTemplate, deleteCardTemplate, setTemplateDiscounts } from '@/api/member-card'
 import { getCategoryTree } from '@/api/service-category'
 
@@ -152,6 +152,10 @@ const loading = ref(true)
 const showAdd = ref(false)
 const showEdit = ref(false)
 const editId = ref(0)
+const returnToOrderCreate = ref(false)
+const returnCustomerId = ref(0)
+const ORDER_CREATE_REFRESH_KEY = 'order_create_refresh_member_card'
+const ORDER_CREATE_RETURN_CUSTOMER_KEY = 'order_create_return_customer_id'
 
 const modalForm = ref({ name: '', card_type: '1', min_recharge: '', discount_rate: '', product_discount_rate: '1', valid_days: '0', total_times: '', times_price: '', color: 'linear-gradient(135deg, #4F46E5, #7C3AED)' })
 
@@ -168,6 +172,11 @@ const colorPresets = [
 function getCardColor(tpl: MemberCardTemplate) {
   return tpl.color || 'linear-gradient(135deg, #4F46E5, #7C3AED)'
 }
+
+onLoad((query) => {
+  returnToOrderCreate.value = query?.return_to === 'order_create'
+  returnCustomerId.value = parseInt(String(query?.customer_id || 0)) || 0
+})
 
 onShow(loadData)
 
@@ -270,6 +279,18 @@ async function onSubmit() {
       await setTemplateDiscounts(tplId, discounts)
     }
     uni.showToast({ title: '保存成功', icon: 'success' })
+    if (returnToOrderCreate.value) {
+      uni.setStorageSync(ORDER_CREATE_REFRESH_KEY, '1')
+      if (returnCustomerId.value > 0) {
+        uni.setStorageSync(ORDER_CREATE_RETURN_CUSTOMER_KEY, String(returnCustomerId.value))
+      } else {
+        uni.removeStorageSync(ORDER_CREATE_RETURN_CUSTOMER_KEY)
+      }
+      setTimeout(() => {
+        uni.reLaunch({ url: '/pages/order/create' })
+      }, 250)
+      return
+    }
     closeModal()
     await loadData()
   } catch (e: any) {
@@ -319,8 +340,29 @@ function deleteTpl(tpl: MemberCardTemplate) {
 .action-btn.danger { color: #EF4444; }
 
 /* Modal */
-.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 999; overflow: hidden; }
-.modal-body { background: #fff; border-radius: 20rpx; padding: 40rpx; width: 600rpx; max-height: 80vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+  box-sizing: border-box;
+  z-index: 5000;
+  overflow: hidden;
+}
+.modal-body {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 40rpx 40rpx calc(40rpx + env(safe-area-inset-bottom));
+  width: min(600rpx, 100%);
+  max-width: calc(100vw - 64rpx);
+  max-height: calc(100vh - 96rpx - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
 .modal-title { font-size: 32rpx; font-weight: 700; color: #1F2937; display: block; text-align: center; margin-bottom: 24rpx; }
 .form-item { margin-bottom: 20rpx; }
 .label { font-size: 26rpx; color: #374151; display: block; margin-bottom: 8rpx; }
@@ -329,7 +371,16 @@ function deleteTpl(tpl: MemberCardTemplate) {
 .color-swatch { width: 72rpx; height: 72rpx; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; border: 3rpx solid transparent; transition: all 0.2s; }
 .swatch-active { border-color: #1F2937; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.3); transform: scale(1.1); }
 .swatch-label { font-size: 20rpx; color: #fff; font-weight: 600; }
-.modal-btns { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.modal-btns {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+  position: sticky;
+  bottom: calc(-24rpx - env(safe-area-inset-bottom));
+  padding-top: 16rpx;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: linear-gradient(180deg, rgba(255,255,255,0.88), #fff 28rpx);
+}
 .modal-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 12rpx; font-size: 28rpx; }
 .cancel { background: #F3F4F6; color: #6B7280; }
 .confirm { background: #4F46E5; color: #fff; }
@@ -360,5 +411,15 @@ function deleteTpl(tpl: MemberCardTemplate) {
 
 @media (max-width: 600px) {
   .card { width: 100%; }
+  .modal-mask {
+    align-items: flex-end;
+    padding: 24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  }
+  .modal-body {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - 112rpx - env(safe-area-inset-bottom));
+    border-radius: 24rpx 24rpx 0 0;
+  }
 }
 </style>

@@ -43,6 +43,7 @@ func main() {
 		&model.StaffService{},
 		&model.StaffSchedule{},
 		&model.Appointment{},
+		&model.AppointmentStatusLog{},
 		&model.AppointmentCalendarMark{},
 		&model.AppointmentService{},
 		&model.AppointmentPet{},
@@ -88,6 +89,21 @@ func main() {
 				log.Printf("Cleanup expired customers error: %v", err)
 			} else if n > 0 {
 				log.Printf("Cleaned up %d expired deleted customers", n)
+			}
+		}
+	}()
+
+	// 定时清理已删除超过2天的订单回收站数据
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		repo := repository.NewOrderRepository()
+		for range ticker.C {
+			before := time.Now().Add(-48 * time.Hour)
+			if n, err := repo.CleanupExpired(before); err != nil {
+				log.Printf("Cleanup expired orders error: %v", err)
+			} else if n > 0 {
+				log.Printf("Cleaned up %d expired deleted orders", n)
 			}
 		}
 	}()

@@ -72,6 +72,10 @@ export function getAppointment(id: number) {
   return request<any>({ url: `/b/appointments/${id}` })
 }
 
+export function getAppointmentStatusLogs(id: number) {
+  return request<any[]>({ url: `/b/appointments/${id}/status-logs` })
+}
+
 export function deleteAppointment(id: number) {
   return request<any>({ url: `/b/appointments/${id}`, method: 'DELETE' })
 }

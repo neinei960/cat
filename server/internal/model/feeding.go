@@ -23,6 +23,7 @@ const (
 	FeedingWindowMorning   = "morning"
 	FeedingWindowAfternoon = "afternoon"
 	FeedingWindowEvening   = "evening"
+	FeedingWindowAllDay    = "all_day"
 )
 
 type FeedingSetting struct {
@@ -48,6 +49,12 @@ type FeedingPlan struct {
 	Remark              string            `json:"remark" gorm:"type:text"`
 	PricingSnapshotJSON string            `json:"pricing_snapshot_json" gorm:"type:text"`
 	SelectedItemsJSON   string            `json:"selected_items_json" gorm:"type:text"`
+	SelectedDatesJSON   string            `json:"selected_dates_json" gorm:"type:text"`
+	PlayDatesJSON       string            `json:"play_dates_json" gorm:"type:text"`
+	PlayMode            string            `json:"play_mode" gorm:"size:20"`
+	PlayCount           int               `json:"play_count" gorm:"default:0"`
+	OtherPrice          float64           `json:"other_price" gorm:"type:decimal(10,2);default:0"`
+	Deposit             float64           `json:"deposit" gorm:"type:decimal(10,2);default:0"`
 	TotalAmount         float64           `json:"total_amount" gorm:"type:decimal(10,2);default:0"`
 	UnpaidAmount        float64           `json:"unpaid_amount" gorm:"type:decimal(10,2);default:0"`
 	Customer            *Customer         `json:"customer,omitempty" gorm:"foreignKey:CustomerID"`

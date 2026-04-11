@@ -520,7 +520,7 @@ func (s *AppointmentService) Delete(apptID, shopID uint) error {
 	if err != nil || appt.ShopID != shopID {
 		return errors.New("预约不存在")
 	}
-	if appt.Status == 2 || appt.Status == 3 || appt.Status == 7 {
+	if appt.Status == 2 || appt.Status == 7 {
 		return errors.New("当前状态不允许删除预约")
 	}
 
@@ -635,10 +635,15 @@ func (s *AppointmentService) ListPaged(shopID uint, status *int, dateFrom, dateT
 
 // UpdateStatus handles appointment status transitions.
 func (s *AppointmentService) UpdateStatus(id uint, newStatus int, staffNotes, cancelReason, cancelledBy string) error {
+	return s.UpdateStatusWithOperator(id, newStatus, staffNotes, cancelReason, cancelledBy, 0)
+}
+
+func (s *AppointmentService) UpdateStatusWithOperator(id uint, newStatus int, staffNotes, cancelReason, cancelledBy string, operatorID uint) error {
 	appt, err := s.apptRepo.FindByID(id)
 	if err != nil {
 		return errors.New("预约不存在")
 	}
+	oldStatus := appt.Status
 
 	valid := false
 	switch newStatus {
@@ -650,8 +655,16 @@ func (s *AppointmentService) UpdateStatus(id uint, newStatus int, staffNotes, ca
 		valid = appt.Status == 2
 	case 4: // 已取消 ← 待确认/已确认（兼容历史已到店）
 		valid = appt.Status == 0 || appt.Status == 1 || appt.Status == 6
-	case 5: // 未到店 ← 允许从任意未终止状态标记
-		valid = appt.Status != 4 && appt.Status != 5
+	case 5: // 未到店 ← 仅允许未结算且未开单的预约标记
+		if appt.Status == 4 || appt.Status == 5 || appt.Status == 7 {
+			valid = false
+			break
+		}
+		orderCount, countErr := s.orderRepo.CountByAppointment(appt.ID)
+		if countErr != nil {
+			return fmt.Errorf("查询预约关联订单失败: %w", countErr)
+		}
+		valid = orderCount == 0
 	}
 	if !valid {
 		return fmt.Errorf("无法从状态 %d 变更为 %d", appt.Status, newStatus)
@@ -666,7 +679,47 @@ func (s *AppointmentService) UpdateStatus(id uint, newStatus int, staffNotes, ca
 		appt.CancelledBy = cancelledBy
 	}
 
-	return s.apptRepo.Update(appt)
+	if err := s.apptRepo.Update(appt); err != nil {
+		return err
+	}
+
+	if oldStatus != newStatus {
+		note := staffNotes
+		if note == "" {
+			note = cancelReason
+		}
+		if err := database.DB.Create(&model.AppointmentStatusLog{
+			ShopID:        appt.ShopID,
+			AppointmentID: appt.ID,
+			OperatorID:    operatorID,
+			FromStatus:    oldStatus,
+			ToStatus:      newStatus,
+			Action:        "status_change",
+			Note:          note,
+		}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *AppointmentService) ListStatusLogs(appointmentID, shopID uint) ([]model.AppointmentStatusLog, error) {
+	appt, err := s.apptRepo.FindByID(appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if shopID > 0 && appt.ShopID != shopID {
+		return nil, errors.New("无权查看该预约日志")
+	}
+
+	var logs []model.AppointmentStatusLog
+	err = database.DB.
+		Preload("Operator").
+		Where("appointment_id = ?", appointmentID).
+		Order("id DESC").
+		Find(&logs).Error
+	return logs, err
 }
 
 // AssignStaff assigns a staff to an appointment.

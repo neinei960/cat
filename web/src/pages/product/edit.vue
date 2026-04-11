@@ -84,7 +84,7 @@
         <text class="label">规格值</text>
         <view class="spec-tags">
           <view class="spec-tag" v-for="(spec, idx) in multiSkus" :key="idx">
-            <text class="spec-tag-name">{{ spec.spec_name || '规格' + (idx + 1) }}</text>
+            <text class="spec-tag-name" @click="renameSpecItem(idx)">{{ spec.spec_name || '规格' + (idx + 1) }}</text>
             <text class="spec-tag-del" @click="removeSpecItem(idx)">×</text>
           </view>
           <view class="spec-tag-add" @click="addSpecItem">+ 添加</view>
@@ -92,7 +92,7 @@
 
         <view v-for="(sku, idx) in multiSkus" :key="idx" class="sku-card">
           <view class="sku-card-top">
-            <text class="sku-name">{{ sku.spec_name || '规格' + (idx + 1) }}</text>
+            <text class="sku-name" @click="renameSpecItem(idx)">{{ sku.spec_name || '规格' + (idx + 1) }}</text>
             <view class="sku-sellable-row">
               <text class="sku-sellable-label">可售</text>
               <switch :checked="sku.sellable" @change="sku.sellable = $event.detail.value" color="#4F46E5" />
@@ -226,6 +226,27 @@ function addSpecItem() {
 
 function removeSpecItem(idx: number) {
   multiSkus.value.splice(idx, 1)
+}
+
+function renameSpecItem(idx: number) {
+  const current = multiSkus.value[idx]
+  if (!current) return
+  uni.showModal({
+    title: '编辑规格名称',
+    editable: true,
+    placeholderText: '请输入规格名称',
+    content: current.spec_name || '',
+    success: (res) => {
+      if (!res.confirm) return
+      const nextName = res.content?.trim() || ''
+      if (!nextName) {
+        uni.showToast({ title: '规格名称不能为空', icon: 'none' })
+        return
+      }
+      multiSkus.value[idx].spec_name = nextName
+      uni.showToast({ title: '规格名称已更新', icon: 'success' })
+    },
+  })
 }
 
 onLoad(async (query) => {
@@ -391,7 +412,10 @@ async function onDelete() {
   background: #F3F4F6; border-radius: 20rpx; padding: 8rpx 20rpx;
   font-size: 26rpx; color: #374151;
 }
-.spec-tag-name { }
+.spec-tag-name {
+  color: #4F46E5;
+  font-weight: 600;
+}
 .spec-tag-del { color: #9CA3AF; margin-left: 8rpx; font-size: 28rpx; }
 .spec-tag-add {
   background: #EEF2FF; color: #4F46E5; border-radius: 20rpx;
@@ -405,6 +429,10 @@ async function onDelete() {
 }
 .sku-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
 .sku-name { font-size: 28rpx; font-weight: 600; color: #1F2937; }
+.spec-tag-name,
+.sku-name {
+  cursor: pointer;
+}
 .sku-sellable-row { display: flex; align-items: center; gap: 8rpx; }
 .sku-sellable-label { font-size: 24rpx; color: #6B7280; }
 

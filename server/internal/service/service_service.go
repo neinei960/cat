@@ -25,8 +25,11 @@ func (s *ServiceService) List(shopID uint, page, pageSize int, orderBy string) (
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
+	if pageSize < 1 {
 		pageSize = 20
+	}
+	if pageSize > 500 {
+		pageSize = 500
 	}
 	return s.repo.FindByShopID(shopID, page, pageSize, orderBy)
 }

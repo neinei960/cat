@@ -4,6 +4,7 @@
     <view class="header">
       <text class="title">订单管理</text>
       <view class="header-right">
+        <view class="btn-trash" @click="goTrash">回收站</view>
         <view class="btn-filter" @click="showFilter = true">
           <text>筛选</text>
           <text v-if="activeFilterCount > 0" class="filter-badge">{{ activeFilterCount }}</text>
@@ -31,6 +32,7 @@
       <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已支付</view>
       <view :class="['tab', filter.status === 3 ? 'active' : '']" @click="filter.status = 3; loadData()">已退款</view>
       <view class="tab-sep"></view>
+      <view :class="['tab tab-feeding', filter.orderKind === 'feeding' ? 'active' : '']" @click="toggleFeeding">喂养</view>
       <view :class="['tab tab-meituan', filter.payMethod === 'meituan' ? 'active' : '']" @click="toggleMeituan">美团</view>
     </view>
 
@@ -88,7 +90,7 @@
               @click.stop="editOrder(item)"
             >修改</view>
             <view
-              v-else-if="isDesktopInteraction && (item.status === 2 || item.status === 3)"
+              v-else-if="isDesktopInteraction && (item.status === 1 || item.status === 2 || item.status === 3)"
               class="card-action-btn danger"
               @click.stop="confirmDeleteOrder(item)"
             >删除</view>
@@ -114,7 +116,10 @@
               :class="['pay-method-badge', `pay-method-badge-${resolvePayMethodKey(item.pay_method)}`]"
             >{{ payMethodBadgeMap[resolvePayMethodKey(item.pay_method)] }}</text>
           </view>
-          <text class="amount">¥{{ item.pay_amount }}</text>
+          <view class="footer-right">
+            <view v-if="item.status === 0" class="card-edit-btn" @click.stop="editOrder(item)">修改订单</view>
+            <text class="amount">¥{{ item.pay_amount }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -184,6 +189,7 @@ const filter = reactive({
   payMethod: '',
   categoryId: 0,
   productKeyword: '',
+  orderKind: '',
 })
 
 const activeFilterCount = computed(() => {
@@ -198,6 +204,11 @@ const activeFilterCount = computed(() => {
 
 function getStaffName(id: number) {
   return staffList.value.find((s: any) => s.ID === id)?.name || '未知'
+}
+
+function toggleFeeding() {
+  filter.orderKind = filter.orderKind === 'feeding' ? '' : 'feeding'
+  loadData()
 }
 
 function toggleMeituan() {
@@ -249,6 +260,7 @@ async function loadData() {
     if (filter.staffId > 0) params.staff_id = filter.staffId
     if (filter.payMethod) params.pay_method = filter.payMethod
     if (filter.productKeyword.trim()) params.product_keyword = filter.productKeyword.trim()
+    if (filter.orderKind) params.order_kind = filter.orderKind
     const res = await getOrderList(params)
     list.value = res.data.list || []
   } finally { loading.value = false }
@@ -261,6 +273,7 @@ function onSearchInput() {
 }
 function clearSearch() { keyword.value = ''; loadData() }
 function goCreate() { uni.navigateTo({ url: '/pages/order/create' }) }
+function goTrash() { uni.navigateTo({ url: '/pages/order/trash' }) }
 function goDetail(id: number) { uni.navigateTo({ url: `/pages/order/detail?id=${id}` }) }
 
 function getEditUrl(item: any) {
@@ -277,7 +290,7 @@ function editOrder(item: any) {
 function confirmDeleteOrder(item: any) {
   uni.showModal({
     title: '删除订单',
-    content: `确认删除订单 ${item.order_no} 吗？`,
+    content: `确认删除订单 ${item.order_no} 吗？\n可在回收站中 2 天内恢复。`,
     success: async (res) => {
       if (!res.confirm) return
       try {
@@ -320,25 +333,13 @@ function clearCardLongPress() {
 function openCardActions(item: any) {
   clearCardLongPress()
   suppressCardClickUntil = Date.now() + 800
-  if (item.status === 0) {
-    uni.showActionSheet({
-      itemList: ['修改订单'],
-      success: ({ tapIndex }) => {
-        if (tapIndex !== 0) return
-        editOrder(item)
-      },
-    })
-    return
-  }
-  if (item.status !== 2 && item.status !== 3) {
-    uni.showToast({ title: '当前状态不可操作', icon: 'none' })
-    return
-  }
+  const actions = item.status === 0 ? ['修改订单', '删除订单'] : ['删除订单']
   uni.showActionSheet({
-    itemList: ['删除订单'],
+    itemList: actions,
     success: ({ tapIndex }) => {
-      if (tapIndex !== 0) return
-      confirmDeleteOrder(item)
+      const action = actions[tapIndex]
+      if (action === '修改订单') editOrder(item)
+      else if (action === '删除订单') confirmDeleteOrder(item)
     },
   })
 }
@@ -384,18 +385,21 @@ onShow(loadData)
   box-sizing: border-box;
 }
 .btn-add { color: #fff; background: linear-gradient(135deg, #4F46E5, #6366F1); box-shadow: 0 10rpx 24rpx rgba(79, 70, 229, 0.2); }
+.btn-trash { color: #6B7280; background: #F3F4F6; }
 .btn-filter { gap: 6rpx; color: #374151; background: #F8FAFC; border: 2rpx solid #E2E8F0; }
 .filter-badge { background: #EF4444; color: #fff; font-size: 20rpx; min-width: 28rpx; height: 28rpx; border-radius: 999rpx; display: flex; align-items: center; justify-content: center; padding: 0 6rpx; }
 .active-filters { display: flex; flex-wrap: wrap; gap: 8rpx; align-items: center; margin-bottom: 16rpx; }
 .active-filters-text { font-size: 22rpx; color: #6B7280; }
 .filter-tag { font-size: 22rpx; color: #4F46E5; background: #EEF2FF; padding: 6rpx 16rpx; border-radius: 20rpx; }
 .search-bar { position: relative; margin-bottom: 16rpx; }
-.search-input { background: #fff; border-radius: 12rpx; padding: 16rpx 60rpx 16rpx 24rpx; font-size: 26rpx; color: #1F2937; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
+.search-input { background: #fff; border-radius: 12rpx; padding: 16rpx 60rpx 16rpx 24rpx; font-size: 26rpx; color: #1F2937; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); min-height: 72rpx; box-sizing: border-box; }
 .search-clear { position: absolute; right: 20rpx; top: 50%; transform: translateY(-50%); font-size: 28rpx; color: #9CA3AF; padding: 8rpx; }
 .tabs { display: flex; gap: 12rpx; margin-bottom: 24rpx; align-items: center; flex-wrap: wrap; }
 .tab { font-size: 24rpx; padding: 10rpx 20rpx; border-radius: 20rpx; background: #F3F4F6; color: #6B7280; }
 .tab.active { background: #4F46E5; color: #fff; }
 .tab-sep { width: 1rpx; height: 28rpx; background: #E5E7EB; }
+.tab-feeding { background: #F0FDF4; color: #15803D; border: 1rpx solid #BBF7D0; }
+.tab-feeding.active { background: #15803D; color: #fff; border-color: #15803D; }
 .tab-meituan { background: #FFF7ED; color: #EA580C; border: 1rpx solid #FED7AA; }
 .tab-meituan.active { background: #EA580C; color: #fff; border-color: #EA580C; }
 .loading, .empty { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 16rpx; }
@@ -491,6 +495,9 @@ onShow(loadData)
   background: #F8FAFC;
   border-color: #CBD5E1;
 }
+.footer-right { display: flex; align-items: center; gap: 16rpx; }
+.card-edit-btn { font-size: 22rpx; color: #4F46E5; padding: 6rpx 16rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
+.card-edit-btn:active { background: #C7D2FE; }
 .amount { font-size: 36rpx; font-weight: 700; color: #4F46E5; }
 
 @media (max-width: 768px) {

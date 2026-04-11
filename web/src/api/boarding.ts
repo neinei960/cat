@@ -59,6 +59,7 @@ export function createBoardingOrder(data: {
   check_in_at: string
   check_out_at: string
   policy_ids?: number[]
+  has_deworming?: boolean | null
   remark?: string
 }) {
   return request<BoardingOrder>({ url: '/b/boarding/orders', method: 'POST', data })
@@ -76,8 +77,8 @@ export function getBoardingDashboard() {
   return request<BoardingDashboardGroup[]>({ url: '/b/boarding/dashboard' })
 }
 
-export function checkInBoardingOrder(id: number) {
-  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/check-in`, method: 'PUT', data: {} })
+export function checkInBoardingOrder(id: number, data?: { discount_amount?: number }) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/check-in`, method: 'PUT', data: data || {} })
 }
 
 export function checkOutBoardingOrder(id: number, actualCheckOutAt: string) {

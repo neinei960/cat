@@ -4,12 +4,14 @@ import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type FeedingPlanFilter struct {
-	Status string
-	Page   int
-	Size   int
+	Status     string
+	CustomerID uint
+	Page       int
+	Size       int
 }
 
 type FeedingVisitFilter struct {
@@ -29,7 +31,8 @@ func NewFeedingRepository() *FeedingRepository {
 
 func (r *FeedingRepository) GetSetting(shopID uint) (*model.FeedingSetting, error) {
 	var setting model.FeedingSetting
-	err := database.DB.Where("shop_id = ?", shopID).First(&setting).Error
+	err := database.DB.Session(&gorm.Session{Logger: database.DB.Logger.LogMode(logger.Silent)}).
+		Where("shop_id = ?", shopID).First(&setting).Error
 	return &setting, err
 }
 
@@ -68,6 +71,9 @@ func (r *FeedingRepository) ListPlans(shopID uint, filter FeedingPlanFilter) ([]
 	db := database.DB.Model(&model.FeedingPlan{}).Where("shop_id = ?", shopID)
 	if filter.Status != "" {
 		db = db.Where("status = ?", filter.Status)
+	}
+	if filter.CustomerID > 0 {
+		db = db.Where("customer_id = ?", filter.CustomerID)
 	}
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err

@@ -4,14 +4,14 @@
       <view class="header">
         <view>
           <text class="title">寄养房型设置</text>
-          <text class="subtitle">按房型录入库存。开单时系统会按同时段已入住和待入住数量，自动扣减可售间数。</text>
+          <text class="subtitle">按房型录入库存和加价。开单时系统会按同时段已入住和待入住数量，自动扣减可售间数。</text>
         </view>
         <view class="btn btn-primary" @click="startCreate">+ 添加房型</view>
       </view>
 
       <view v-if="editing" class="form-card">
         <text class="section-title">{{ form.id ? '编辑寄养房型' : '新增寄养房型' }}</text>
-        <text class="section-tip">例子：阳光单间 6 间 / 每间最多住 1 只 / 168 元每晚。</text>
+        <text class="section-tip">例子：阳光单间 6 间 / 每间最多住 2 只 / 每晚 80 元 / 第 2 只每天加 10 元。</text>
 
         <view class="field">
           <text class="field-label">房型名称</text>
@@ -35,6 +35,12 @@
           <text class="field-label">每晚价格</text>
           <text class="field-tip">普通日每间每晚的基础寄养价格。</text>
           <input v-model="form.base_price" class="input input-amount" type="digit" placeholder="例如：168" />
+        </view>
+
+        <view class="field">
+          <text class="field-label">第二只加价</text>
+          <text class="field-tip">如果同一间会住两只猫，这里填第 2 只猫每晚加收多少。不填或填 0 就是不加价。</text>
+          <input v-model="form.extra_pet_price" class="input input-amount" type="digit" placeholder="例如：10" />
         </view>
 
         <view class="field">
@@ -62,7 +68,7 @@
           <view class="group-head">
             <view>
               <text class="group-title">{{ item.cabinet_type }}</text>
-              <text class="group-meta">共 {{ item.room_count || 1 }} 间 · 每间可住 {{ item.capacity }} 只 · ¥{{ item.base_price }}/晚</text>
+              <text class="group-meta">共 {{ item.room_count || 1 }} 间 · 每间可住 {{ item.capacity }} 只 · ¥{{ item.base_price }}/晚{{ item.extra_pet_price > 0 ? ` · 第二只 +¥${item.extra_pet_price}/晚` : '' }}</text>
             </view>
             <view class="row-action" @click="edit(item)">编辑</view>
           </view>
@@ -81,7 +87,7 @@ import { createBoardingCabinet, getBoardingCabinets, updateBoardingCabinet } fro
 
 const cabinets = ref<BoardingCabinet[]>([])
 const editing = ref(false)
-const form = ref<any>({ id: 0, cabinet_type: '', room_count: '1', capacity: '1', base_price: '0', status: 'enabled', remark: '' })
+const form = ref<any>({ id: 0, cabinet_type: '', room_count: '1', capacity: '1', base_price: '0', extra_pet_price: '0', status: 'enabled', remark: '' })
 const statusOptions = ['启用', '清洁中', '停用']
 const statusValues = ['enabled', 'cleaning', 'disabled']
 const statusIndex = computed(() => Math.max(statusValues.indexOf(form.value.status), 0))
@@ -96,7 +102,7 @@ function onStatusChange(e: any) {
 
 function startCreate() {
   editing.value = true
-  form.value = { id: 0, cabinet_type: '', room_count: '1', capacity: '1', base_price: '0', status: 'enabled', remark: '' }
+  form.value = { id: 0, cabinet_type: '', room_count: '1', capacity: '1', base_price: '0', extra_pet_price: '0', status: 'enabled', remark: '' }
 }
 
 function edit(item: BoardingCabinet) {
@@ -107,6 +113,7 @@ function edit(item: BoardingCabinet) {
     room_count: String(item.room_count || 1),
     capacity: String(item.capacity),
     base_price: String(item.base_price),
+    extra_pet_price: String(item.extra_pet_price || 0),
     status: item.status,
     remark: item.remark || '',
   }
@@ -127,6 +134,7 @@ async function save() {
     room_count: Number(form.value.room_count) || 1,
     capacity: Number(form.value.capacity) || 1,
     base_price: Number(form.value.base_price) || 0,
+    extra_pet_price: Number(form.value.extra_pet_price) || 0,
     status: form.value.status,
     remark: form.value.remark,
   }
@@ -158,8 +166,32 @@ onShow(loadData)
 .field { margin-bottom: 18rpx; }
 .field-label { display: block; font-size: 24rpx; font-weight: 600; color: #1F2937; margin-bottom: 6rpx; }
 .field-tip { display: block; font-size: 20rpx; color: #9CA3AF; margin-bottom: 10rpx; line-height: 1.5; }
-.input, .textarea, .picker { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 26rpx; color: #111827; min-height: 60rpx; }
-.textarea { min-height: 120rpx; }
+.input, .picker { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 0 20rpx; font-size: 26rpx; color: #111827; min-height: 76rpx; display: flex; align-items: center; }
+.textarea { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 26rpx; color: #111827; min-height: 120rpx; }
+.input :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+}
+.input :deep(.uni-input-input) {
+  width: 100%;
+  min-height: 40rpx;
+  font-size: 26rpx;
+  line-height: 40rpx;
+  color: #111827;
+  text-align: left !important;
+}
+.input :deep(.uni-input-placeholder) {
+  width: 100%;
+  font-size: 26rpx;
+  color: #9CA3AF;
+  text-align: left !important;
+}
+.input-amount :deep(.uni-input-input),
+.input-amount :deep(.uni-input-placeholder) {
+  text-align: right !important;
+}
 .actions { display: flex; gap: 12rpx; }
 .group-list { display: flex; flex-direction: column; gap: 18rpx; }
 .group-head { display: flex; justify-content: space-between; gap: 12rpx; align-items: flex-start; margin-bottom: 8rpx; }

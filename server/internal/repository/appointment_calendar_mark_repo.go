@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
+	"gorm.io/gorm/clause"
 )
 
 func (r *AppointmentRepository) FindCalendarMarks(shopID uint, startDate, endDate string) ([]model.AppointmentCalendarMark, error) {
@@ -20,7 +21,18 @@ func (r *AppointmentRepository) SetCalendarMark(shopID uint, date string, marked
 			ShopID: shopID,
 			Date:   date,
 		}
-		return database.DB.Where("shop_id = ? AND date = ?", shopID, date).FirstOrCreate(&mark).Error
+		return database.DB.
+			Unscoped().
+			Clauses(clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "shop_id"},
+					{Name: "date"},
+				},
+				DoUpdates: clause.Assignments(map[string]any{
+					"deleted_at": nil,
+				}),
+			}).
+			Create(&mark).Error
 	}
 	return database.DB.Where("shop_id = ? AND date = ?", shopID, date).Delete(&model.AppointmentCalendarMark{}).Error
 }

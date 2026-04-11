@@ -23,6 +23,9 @@ type Customer struct {
 	MemberBalance float64    `json:"member_balance" gorm:"type:decimal(10,2);default:0;comment:会员余额"`
 	DiscountRate  float64    `json:"discount_rate" gorm:"type:decimal(3,2);default:1;comment:折扣率 1/0.9/0.86"`
 	MemberCardID  *uint      `json:"member_card_id" gorm:"index;comment:当前会员卡ID"`
+	Address       string     `json:"address" gorm:"size:500;comment:上门地址"`
+	AddressDetail string     `json:"address_detail" gorm:"size:500;comment:地址补充(停车/楼栋)"`
+	DoorCode      string     `json:"door_code" gorm:"size:100;comment:门锁密码/门卡"`
 
 	Shop         *Shop         `json:"shop,omitempty" gorm:"foreignKey:ShopID"`
 	MemberCard   *MemberCard   `json:"member_card,omitempty" gorm:"foreignKey:MemberCardID"`

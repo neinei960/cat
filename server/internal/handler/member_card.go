@@ -22,13 +22,31 @@ func NewMemberCardHandler() *MemberCardHandler {
 // ========== Template CRUD ==========
 
 type templateReq struct {
-	Name         string  `json:"name" binding:"required"`
-	MinRecharge  float64 `json:"min_recharge" binding:"required"`
-	DiscountRate float64 `json:"discount_rate" binding:"required"`
-	ValidDays    int     `json:"valid_days"`
-	SortOrder    int     `json:"sort_order"`
-	Status       int     `json:"status"`
-	Color        string  `json:"color"`
+	Name                string  `json:"name" binding:"required"`
+	CardType            int     `json:"card_type"`
+	MinRecharge         float64 `json:"min_recharge" binding:"required"`
+	DiscountRate        float64 `json:"discount_rate" binding:"required"`
+	ProductDiscountRate float64 `json:"product_discount_rate"`
+	ValidDays           int     `json:"valid_days"`
+	SortOrder           int     `json:"sort_order"`
+	Status              int     `json:"status"`
+	TotalTimes          int     `json:"total_times"`
+	TimesPrice          float64 `json:"times_price"`
+	Color               string  `json:"color"`
+}
+
+func sanitizeTemplateDiscountRate(rate float64) float64 {
+	if rate > 0 && rate < 1 {
+		return rate
+	}
+	return 1
+}
+
+func sanitizeTemplateCardType(cardType int) int {
+	if cardType == 2 {
+		return 2
+	}
+	return 1
 }
 
 func (h *MemberCardHandler) CreateTemplate(c *gin.Context) {
@@ -41,15 +59,28 @@ func (h *MemberCardHandler) CreateTemplate(c *gin.Context) {
 	if color == "" {
 		color = "linear-gradient(135deg, #4F46E5, #7C3AED)"
 	}
+	cardType := sanitizeTemplateCardType(req.CardType)
+	minRecharge := req.MinRecharge
+	totalTimes := 0
+	timesPrice := 0.0
+	if cardType == 2 {
+		minRecharge = 0
+		totalTimes = req.TotalTimes
+		timesPrice = req.TimesPrice
+	}
 	tpl := &model.MemberCardTemplate{
-		ShopID:       c.GetUint("shop_id"),
-		Name:         req.Name,
-		MinRecharge:  req.MinRecharge,
-		DiscountRate: req.DiscountRate,
-		ValidDays:    req.ValidDays,
-		SortOrder:    req.SortOrder,
-		Color:        color,
-		Status:       1,
+		ShopID:              c.GetUint("shop_id"),
+		Name:                req.Name,
+		CardType:            cardType,
+		MinRecharge:         minRecharge,
+		DiscountRate:        req.DiscountRate,
+		ProductDiscountRate: sanitizeTemplateDiscountRate(req.ProductDiscountRate),
+		ValidDays:           req.ValidDays,
+		SortOrder:           req.SortOrder,
+		TotalTimes:          totalTimes,
+		TimesPrice:          timesPrice,
+		Color:               color,
+		Status:              1,
 	}
 	if err := database.DB.Create(tpl).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "创建失败")
@@ -117,9 +148,20 @@ func (h *MemberCardHandler) UpdateTemplate(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
+	cardType := sanitizeTemplateCardType(req.CardType)
 	tpl.Name = req.Name
-	tpl.MinRecharge = req.MinRecharge
+	tpl.CardType = cardType
+	if cardType == 2 {
+		tpl.MinRecharge = 0
+		tpl.TotalTimes = req.TotalTimes
+		tpl.TimesPrice = req.TimesPrice
+	} else {
+		tpl.MinRecharge = req.MinRecharge
+		tpl.TotalTimes = 0
+		tpl.TimesPrice = 0
+	}
 	tpl.DiscountRate = req.DiscountRate
+	tpl.ProductDiscountRate = sanitizeTemplateDiscountRate(req.ProductDiscountRate)
 	tpl.ValidDays = req.ValidDays
 	tpl.SortOrder = req.SortOrder
 	if req.Color != "" {
@@ -128,7 +170,37 @@ func (h *MemberCardHandler) UpdateTemplate(c *gin.Context) {
 	if req.Status > 0 {
 		tpl.Status = req.Status
 	}
-	database.DB.Save(&tpl)
+
+	tx := database.DB.Begin()
+	if err := tx.Save(&tpl).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "保存失败")
+		return
+	}
+
+	if err := tx.Model(&model.MemberCard{}).
+		Where("template_id = ? AND status = 1", tpl.ID).
+		Updates(map[string]interface{}{
+			"discount_rate":         tpl.DiscountRate,
+			"product_discount_rate": tpl.ProductDiscountRate,
+		}).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "同步会员卡折扣失败")
+		return
+	}
+
+	activeCardIDs := tx.Model(&model.MemberCard{}).
+		Select("id").
+		Where("template_id = ? AND status = 1", tpl.ID)
+	if err := tx.Model(&model.Customer{}).
+		Where("member_card_id IN (?)", activeCardIDs).
+		Update("discount_rate", tpl.DiscountRate).Error; err != nil {
+		tx.Rollback()
+		response.Error(c, http.StatusInternalServerError, "同步客户折扣失败")
+		return
+	}
+
+	tx.Commit()
 	response.Success(c, tpl)
 }
 

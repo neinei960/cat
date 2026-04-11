@@ -361,7 +361,7 @@ onReachBottom(loadMore)
 .btn-trash { font-size: 22rpx; color: #6B7280; background: #F3F4F6; padding: 10rpx 16rpx; border-radius: 999rpx; line-height: 1; }
 .btn-add { font-size: 24rpx; color: #fff; background: #4F46E5; padding: 10rpx 18rpx; border-radius: 999rpx; line-height: 1; }
 .search-bar { margin-bottom: 18rpx; }
-.search-input { background: #fff; border-radius: 12rpx; padding: 14rpx 20rpx; font-size: 26rpx; }
+.search-input { background: #fff; border-radius: 12rpx; padding: 14rpx 20rpx; font-size: 26rpx; color: #1F2937; min-height: 72rpx; box-sizing: border-box; }
 .filter-section { margin-bottom: 18rpx; }
 .filter-label { display: block; margin-bottom: 10rpx; font-size: 22rpx; color: #6B7280; }
 .filter-scroll { white-space: nowrap; }

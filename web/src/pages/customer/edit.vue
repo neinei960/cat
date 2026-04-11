@@ -20,6 +20,20 @@
         <text class="label">备注</text>
         <textarea v-model="form.remark" placeholder="客户备注" class="textarea" />
       </view>
+      <view class="form-item">
+        <text class="label">上门地址</text>
+        <input v-model="form.address" placeholder="地址（与喂养地址互通）" class="input" />
+      </view>
+      <view class="form-item address-row">
+        <view class="address-field">
+          <text class="label">入户密码</text>
+          <input v-model="form.door_code" placeholder="门锁/门卡" class="input" />
+        </view>
+        <view class="address-field">
+          <text class="label">补充信息</text>
+          <input v-model="form.address_detail" placeholder="停车/楼栋" class="input" />
+        </view>
+      </view>
       <view class="form-item form-item-tags">
         <view class="label-row">
           <text class="label">客户标签</text>
@@ -75,7 +89,7 @@ const id = ref(0)
 const submitting = ref(false)
 const genders = ['未知', '男', '女']
 const availableTags = ref<CustomerTag[]>([])
-const form = ref({ nickname: '', phone: '', gender: 0, remark: '', customer_tag_ids: [] as number[] })
+const form = ref({ nickname: '', phone: '', gender: 0, remark: '', address: '', address_detail: '', door_code: '', customer_tag_ids: [] as number[] })
 const selectedTags = computed(() => availableTags.value.filter(tag => form.value.customer_tag_ids.includes(tag.ID)))
 
 onLoad((query) => {
@@ -94,6 +108,7 @@ async function loadData() {
   form.value = {
     nickname: res.data.nickname, phone: res.data.phone,
     gender: res.data.gender, remark: res.data.remark,
+    address: res.data.address || '', address_detail: res.data.address_detail || '', door_code: res.data.door_code || '',
     customer_tag_ids: (res.data.customer_tags || []).map(tag => tag.ID),
   }
 }
@@ -157,5 +172,7 @@ async function onSubmit() {
 .tag-empty { font-size: 24rpx; color: #9CA3AF; display: block; }
 .tag-empty-btn { flex-shrink: 0; font-size: 22rpx; color: #4F46E5; background: #EEF2FF; padding: 10rpx 16rpx; border-radius: 999rpx; }
 .tag-desc { font-size: 22rpx; color: #6B7280; display: block; line-height: 1.6; margin-top: 14rpx; }
+.address-row { display: flex; gap: 16rpx; }
+.address-field { flex: 1; min-width: 0; }
 .btn-submit { background: #4F46E5; color: #fff; border-radius: 12rpx; font-size: 30rpx; margin-top: 16rpx; }
 </style>

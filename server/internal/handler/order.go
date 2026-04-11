@@ -38,9 +38,18 @@ type serviceOverride struct {
 	Duration    int     `json:"duration"`
 }
 
+type productOverride struct {
+	ProductID uint    `json:"product_id"`
+	SKUID     uint    `json:"sku_id"`
+	Name      string  `json:"name"`
+	Price     float64 `json:"price"`
+	Quantity  int     `json:"quantity"`
+}
+
 type petOverride struct {
 	PetID    uint              `json:"pet_id"`
 	Services []serviceOverride `json:"services"`
+	Products []productOverride `json:"products"`
 }
 
 type fromApptReq struct {
@@ -70,8 +79,8 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 		return
 	}
 
-	// 构建服务覆盖 map: petId -> []services
-	overrideMap := make(map[uint][]service.ServiceOverride)
+	// 构建覆盖 map: petId -> { services, products }
+	overrideMap := make(map[uint]service.PetOverrideData)
 	for _, po := range req.Overrides {
 		svcList := make([]service.ServiceOverride, 0, len(po.Services))
 		for _, so := range po.Services {
@@ -82,7 +91,20 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 				Duration:    so.Duration,
 			})
 		}
-		overrideMap[po.PetID] = svcList
+		prodList := make([]service.ProductOverride, 0, len(po.Products))
+		for _, p := range po.Products {
+			prodList = append(prodList, service.ProductOverride{
+				ProductID: p.ProductID,
+				SKUID:     p.SKUID,
+				Name:      p.Name,
+				Price:     p.Price,
+				Quantity:  p.Quantity,
+			})
+		}
+		overrideMap[po.PetID] = service.PetOverrideData{
+			Services: svcList,
+			Products: prodList,
+		}
 	}
 
 	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, overrideMap)
@@ -451,7 +473,11 @@ func (h *OrderHandler) PriceLookup(c *gin.Context) {
 
 func (h *OrderHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	includeDeleted := c.Query("include_deleted") == "1"
 	order, err := h.orderService.GetByID(uint(id))
+	if err != nil && includeDeleted {
+		order, err = h.orderService.GetByIDIncludeDeleted(uint(id))
+	}
 	if err != nil {
 		response.Error(c, http.StatusNotFound, "订单不存在")
 		return
@@ -465,13 +491,16 @@ func (h *OrderHandler) List(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	keyword := c.Query("keyword")
 	staffID, _ := strconv.ParseUint(c.Query("staff_id"), 10, 64)
+	customerID, _ := strconv.ParseUint(c.Query("customer_id"), 10, 64)
 
 	f := repository.OrderFilter{
 		DateFrom:       c.Query("date_from"),
 		DateTo:         c.Query("date_to"),
+		CustomerID:     uint(customerID),
 		StaffID:        uint(staffID),
 		PayMethod:      c.Query("pay_method"),
 		ProductKeyword: c.Query("product_keyword"),
+		OrderKind:      c.Query("order_kind"),
 	}
 	if s := c.Query("status"); s != "" {
 		v, _ := strconv.Atoi(s)
@@ -588,7 +617,31 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 
 func (h *OrderHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err := h.orderService.Delete(c.GetUint("shop_id"), uint(id)); err != nil {
+	role, _ := c.Get("role")
+	roleText, _ := role.(string)
+	if err := h.orderService.Delete(c.GetUint("shop_id"), uint(id), roleText); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, nil)
+}
+
+func (h *OrderHandler) ListDeleted(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	list, total, err := h.orderService.ListDeleted(shopID, page, pageSize)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, gin.H{"list": list, "total": total})
+}
+
+func (h *OrderHandler) Restore(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err := h.orderService.Restore(c.GetUint("shop_id"), uint(id)); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}

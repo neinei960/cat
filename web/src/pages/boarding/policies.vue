@@ -180,8 +180,32 @@ onShow(loadData)
 .title { font-size: 34rpx; font-weight: 700; color: #111827; }
 .card { background: #fff; border-radius: 18rpx; padding: 24rpx; box-shadow: 0 12rpx 28rpx rgba(15, 23, 42, 0.04); }
 .section-title { display: block; font-size: 28rpx; font-weight: 700; color: #111827; margin-bottom: 14rpx; }
-.input, .picker, .textarea { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 26rpx; color: #111827; min-height: 60rpx; }
-.textarea { min-height: 120rpx; }
+.input, .picker { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 0 20rpx; font-size: 26rpx; color: #111827; min-height: 76rpx; display: flex; align-items: center; }
+.textarea { width: 100%; box-sizing: border-box; margin-bottom: 14rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 18rpx 20rpx; font-size: 26rpx; color: #111827; min-height: 120rpx; }
+.input :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+}
+.input :deep(.uni-input-input) {
+  width: 100%;
+  min-height: 40rpx;
+  font-size: 26rpx;
+  line-height: 40rpx;
+  color: #111827;
+  text-align: left !important;
+}
+.input :deep(.uni-input-placeholder) {
+  width: 100%;
+  font-size: 26rpx;
+  color: #9CA3AF;
+  text-align: left !important;
+}
+.input-amount :deep(.uni-input-input),
+.input-amount :deep(.uni-input-placeholder) {
+  text-align: right !important;
+}
 .inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
 .btn { padding: 14rpx 24rpx; border-radius: 12rpx; background: #F3F4F6; color: #374151; font-size: 24rpx; }
 .btn-primary { background: #4F46E5; color: #fff; }

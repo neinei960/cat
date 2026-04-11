@@ -307,11 +307,21 @@ func (h *AppointmentHandler) UpdateStatus(c *gin.Context) {
 		return
 	}
 
-	if err := h.apptService.UpdateStatus(uint(id), req.Status, req.StaffNotes, req.CancelReason, req.CancelledBy); err != nil {
+	if err := h.apptService.UpdateStatusWithOperator(uint(id), req.Status, req.StaffNotes, req.CancelReason, req.CancelledBy, c.GetUint("staff_id")); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.Success(c, nil)
+}
+
+func (h *AppointmentHandler) ListStatusLogs(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logs, err := h.apptService.ListStatusLogs(uint(id), c.GetUint("shop_id"))
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, logs)
 }
 
 type assignStaffReq struct {

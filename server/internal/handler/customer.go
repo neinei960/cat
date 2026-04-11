@@ -28,6 +28,9 @@ type createCustomerReq struct {
 	CustomerTagIDs []uint  `json:"customer_tag_ids"`
 	MemberBalance  float64 `json:"member_balance"`
 	DiscountRate   float64 `json:"discount_rate"`
+	Address        string  `json:"address"`
+	AddressDetail  string  `json:"address_detail"`
+	DoorCode       string  `json:"door_code"`
 }
 
 func (h *CustomerHandler) Create(c *gin.Context) {
@@ -50,6 +53,9 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 		Tags:          req.Tags,
 		MemberBalance: req.MemberBalance,
 		DiscountRate:  discountRate,
+		Address:       req.Address,
+		AddressDetail: req.AddressDetail,
+		DoorCode:      req.DoorCode,
 	}
 
 	if err := h.customerService.CreateWithTags(customer, req.CustomerTagIDs); err != nil {
@@ -114,6 +120,9 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 	customer.Remark = req.Remark
 	customer.Tags = req.Tags
 	customer.MemberBalance = req.MemberBalance
+	customer.Address = req.Address
+	customer.AddressDetail = req.AddressDetail
+	customer.DoorCode = req.DoorCode
 	if req.DiscountRate > 0 {
 		customer.DiscountRate = req.DiscountRate
 	}

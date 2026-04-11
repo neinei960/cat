@@ -16,9 +16,11 @@ import (
 )
 
 type FeedingPricingSetting struct {
-	BaseVisitPrice   float64 `json:"base_visit_price"`
-	ExtraPetPrice    float64 `json:"extra_pet_price"`
-	HolidaySurcharge float64 `json:"holiday_surcharge"`
+	BaseDayPrice         float64 `json:"base_day_price"`
+	HolidayDayPrice      float64 `json:"holiday_day_price"`
+	DiscountDayPrice     float64 `json:"discount_day_price"`
+	DiscountHolidayPrice float64 `json:"discount_holiday_price"`
+	DiscountStartDay     int     `json:"discount_start_day"`
 }
 
 type FeedingItemTemplate struct {
@@ -56,10 +58,18 @@ type FeedingPlanInput struct {
 	ContactPhone    string                 `json:"contact_phone"`
 	StartDate       string                 `json:"start_date"`
 	EndDate         string                 `json:"end_date"`
+	SelectedDates   []string               `json:"selected_dates"`
 	Remark          string                 `json:"remark"`
 	Pets            []FeedingPlanPetInput  `json:"pets"`
 	Rules           []FeedingPlanRuleInput `json:"rules"`
 	ItemCodes       []string               `json:"item_codes"`
+	PlayMode        string                 `json:"play_mode"`
+	PlayCount       int                    `json:"play_count"`
+	OtherPrice      float64                `json:"other_price"`
+}
+
+type FeedingUpdatePlayDatesInput struct {
+	PlayDates []string `json:"play_dates"`
 }
 
 type FeedingPlanListResult struct {
@@ -101,6 +111,10 @@ type FeedingCompleteVisitInput struct {
 	ItemChecks   []FeedingVisitItemCheck `json:"item_checks"`
 	CustomerNote string                  `json:"customer_note"`
 	InternalNote string                  `json:"internal_note"`
+}
+
+type FeedingUpdateVisitNoteInput struct {
+	InternalNote string `json:"internal_note"`
 }
 
 type FeedingExceptionVisitInput struct {
@@ -178,6 +192,7 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 	}
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
+	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
 
 	plan := &model.FeedingPlan{
 		ShopID:              shopID,
@@ -187,11 +202,15 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 		ContactPhone:        normalized.ContactPhone,
 		StartDate:           normalized.StartDate,
 		EndDate:             normalized.EndDate,
-		TimeGranularity:     "window",
+		TimeGranularity:     "date",
 		Status:              model.FeedingPlanStatusActive,
 		Remark:              normalized.Remark,
 		PricingSnapshotJSON: string(pricingJSON),
 		SelectedItemsJSON:   string(selectedItemsJSON),
+		SelectedDatesJSON:   string(selectedDatesJSON),
+		PlayMode:            normalized.PlayMode,
+		PlayCount:           normalized.PlayCount,
+		OtherPrice:          normalized.OtherPrice,
 		TotalAmount:         pricingSnapshot.TotalAmount,
 		UnpaidAmount:        pricingSnapshot.TotalAmount,
 	}
@@ -220,14 +239,26 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
+
+	// 将地址同步回客户记录
+	if addr := normalized.AddressSnapshot; addr.Address != "" {
+		if customer, err := s.customerRepo.FindByID(normalized.CustomerID); err == nil {
+			customer.Address = addr.Address
+			customer.AddressDetail = addr.Detail
+			customer.DoorCode = addr.DoorCode
+			_ = s.customerRepo.Update(customer)
+		}
+	}
+
 	return s.repo.FindPlanByID(shopID, plan.ID)
 }
 
-func (s *FeedingService) ListPlans(shopID uint, page, pageSize int, status string) (*FeedingPlanListResult, error) {
+func (s *FeedingService) ListPlans(shopID uint, page, pageSize int, status string, customerID uint) (*FeedingPlanListResult, error) {
 	list, total, err := s.repo.ListPlans(shopID, repository.FeedingPlanFilter{
-		Status: status,
-		Page:   page,
-		Size:   pageSize,
+		Status:     status,
+		CustomerID: customerID,
+		Page:       page,
+		Size:       pageSize,
 	})
 	if err != nil {
 		return nil, err
@@ -272,6 +303,7 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	}
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
+	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
 
 	tx := database.DB.Begin()
 	plan.CustomerID = normalized.CustomerID
@@ -280,9 +312,14 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	plan.ContactPhone = normalized.ContactPhone
 	plan.StartDate = normalized.StartDate
 	plan.EndDate = normalized.EndDate
+	plan.TimeGranularity = "date"
 	plan.Remark = normalized.Remark
 	plan.PricingSnapshotJSON = string(pricingJSON)
 	plan.SelectedItemsJSON = string(selectedItemsJSON)
+	plan.SelectedDatesJSON = string(selectedDatesJSON)
+	plan.PlayMode = normalized.PlayMode
+	plan.PlayCount = normalized.PlayCount
+	plan.OtherPrice = normalized.OtherPrice
 	plan.TotalAmount = pricingSnapshot.TotalAmount
 	plan.UnpaidAmount = pricingSnapshot.TotalAmount
 	if err := tx.Save(plan).Error; err != nil {
@@ -353,6 +390,76 @@ func (s *FeedingService) CancelPlan(shopID, operatorID, id uint) (*model.Feeding
 		return nil, err
 	}
 	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	return s.repo.FindPlanByID(shopID, id)
+}
+
+func (s *FeedingService) UpdateDeposit(shopID, id uint, deposit float64) (*model.FeedingPlan, error) {
+	plan, err := s.repo.FindPlanByID(shopID, id)
+	if err != nil {
+		return nil, err
+	}
+	unpaid := plan.TotalAmount - deposit
+	if unpaid < 0 {
+		unpaid = 0
+	}
+	if err := database.DB.Model(plan).Updates(map[string]interface{}{
+		"deposit":       deposit,
+		"unpaid_amount": roundMoney(unpaid),
+	}).Error; err != nil {
+		return nil, err
+	}
+	return s.repo.FindPlanByID(shopID, id)
+}
+
+func (s *FeedingService) UpdatePlayDates(shopID, id uint, input FeedingUpdatePlayDatesInput) (*model.FeedingPlan, error) {
+	plan, err := s.repo.FindPlanByID(shopID, id)
+	if err != nil {
+		return nil, err
+	}
+	if plan.Status == model.FeedingPlanStatusCancelled || plan.Status == model.FeedingPlanStatusCompleted {
+		return nil, errors.New("当前状态不可修改陪玩日期")
+	}
+	allowedDates := parseJSONStringDates(plan.SelectedDatesJSON)
+	if len(allowedDates) == 0 {
+		allowedSet := map[string]struct{}{}
+		for _, visit := range plan.Visits {
+			if visit.ScheduledDate != "" {
+				allowedSet[visit.ScheduledDate] = struct{}{}
+			}
+		}
+		for date := range allowedSet {
+			allowedDates = append(allowedDates, date)
+		}
+		sort.Strings(allowedDates)
+	}
+	allowedSet := make(map[string]struct{}, len(allowedDates))
+	for _, date := range allowedDates {
+		allowedSet[date] = struct{}{}
+	}
+
+	playDates := make([]string, 0, len(input.PlayDates))
+	seen := make(map[string]struct{}, len(input.PlayDates))
+	for _, rawDate := range input.PlayDates {
+		dateText, err := normalizeDate(rawDate)
+		if err != nil {
+			return nil, errors.New("陪玩日期格式不正确")
+		}
+		if _, ok := allowedSet[dateText]; !ok {
+			return nil, errors.New("陪玩日期必须在计划日期内")
+		}
+		if _, ok := seen[dateText]; ok {
+			continue
+		}
+		seen[dateText] = struct{}{}
+		playDates = append(playDates, dateText)
+	}
+	sort.Strings(playDates)
+	playDatesJSON, _ := json.Marshal(playDates)
+	if err := database.DB.Model(&model.FeedingPlan{}).
+		Where("id = ? AND shop_id = ?", id, shopID).
+		Update("play_dates_json", string(playDatesJSON)).Error; err != nil {
 		return nil, err
 	}
 	return s.repo.FindPlanByID(shopID, id)
@@ -444,6 +551,22 @@ func (s *FeedingService) AssignVisit(shopID, operatorID, visitID uint, input Fee
 		return nil, err
 	}
 	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	return s.repo.FindVisitByID(shopID, visitID)
+}
+
+func (s *FeedingService) UpdateVisitNote(shopID, operatorID, visitID uint, role string, input FeedingUpdateVisitNoteInput) (*model.FeedingVisit, error) {
+	visit, err := s.repo.FindVisitByID(shopID, visitID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureVisitPermission(visit, role, operatorID); err != nil {
+		return nil, err
+	}
+	if err := database.DB.Model(&model.FeedingVisit{}).
+		Where("id = ? AND shop_id = ?", visit.ID, shopID).
+		Update("internal_note", input.InternalNote).Error; err != nil {
 		return nil, err
 	}
 	return s.repo.FindVisitByID(shopID, visitID)
@@ -637,9 +760,19 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 		savedOrder.OrderKind = buildOrderKind(savedOrder)
 		return savedOrder, nil
 	}
-	for _, visit := range plan.Visits {
-		if visit.Status == model.FeedingVisitStatusPending || visit.Status == model.FeedingVisitStatusAssigned || visit.Status == model.FeedingVisitStatusInProgress {
-			return nil, errors.New("仍有未结束的上门任务，暂不能生成订单")
+	// 生成订单时，所有未完成的 visits 自动标记为 done
+	now := time.Now()
+	for i := range plan.Visits {
+		visit := &plan.Visits[i]
+		if visit.Status != model.FeedingVisitStatusDone && visit.Status != model.FeedingVisitStatusException && visit.Status != model.FeedingVisitStatusCancelled {
+			database.DB.Model(&model.FeedingVisit{}).
+				Where("id = ? AND shop_id = ?", visit.ID, shopID).
+				Updates(map[string]any{
+					"status":       model.FeedingVisitStatusDone,
+					"arrived_at":   now,
+					"completed_at": now,
+				})
+			visit.Status = model.FeedingVisitStatusDone
 		}
 	}
 	doneVisits := make([]model.FeedingVisit, 0, len(plan.Visits))
@@ -664,10 +797,6 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 	for _, item := range selectedItems {
 		itemMap[item.Code] = item
 	}
-	holidayDates := make(map[string]struct{}, len(snapshot.HolidayDates))
-	for _, date := range snapshot.HolidayDates {
-		holidayDates[date] = struct{}{}
-	}
 
 	customerID := plan.CustomerID
 	order := &model.Order{
@@ -685,8 +814,8 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 	}
 	orderItems := make([]model.OrderItem, 0)
 	var totalAmount float64
-	petCount := len(plan.Pets)
-	extraPetAmount := roundMoney(float64(maxInt(petCount-1, 0)) * snapshot.Pricing.ExtraPetPrice)
+	var serviceTotal float64
+	var addonTotal float64
 	petLabel := ""
 	if len(plan.Pets) == 1 {
 		petLabel = strings.TrimSpace(plan.Pets[0].PetNameSnapshot)
@@ -700,66 +829,108 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 		tx.Rollback()
 		return nil, err
 	}
+
+	// 按价格类型归并基础费
+	type priceGroup struct {
+		label     string
+		unitPrice float64
+		count     int
+	}
+	baseGroups := make(map[string]*priceGroup)
 	for _, visit := range doneVisits {
-		label := windowLabel(visit.WindowCode)
-		baseAmount := roundMoney(snapshot.Pricing.BaseVisitPrice + extraPetAmount)
-		baseName := fmt.Sprintf("上门喂养（%s %s）", formatMonthDay(visit.ScheduledDate), label)
-		if petLabel != "" {
-			baseName = fmt.Sprintf("%s · %s", petLabel, baseName)
+		baseAmount := roundMoney(snapshot.DailyPrices[visit.ScheduledDate])
+		if baseAmount <= 0 {
+			baseAmount = roundMoney(visit.VisitPrice - visitExtraAmount(visit.Items, itemMap))
 		}
+		label := dailyPriceLabel(snapshot, visit.ScheduledDate)
+		key := fmt.Sprintf("%s_%.2f", label, baseAmount)
+		if g, ok := baseGroups[key]; ok {
+			g.count++
+		} else {
+			baseGroups[key] = &priceGroup{label: label, unitPrice: baseAmount, count: 1}
+		}
+	}
+	for _, g := range baseGroups {
+		name := fmt.Sprintf("%s × %d天", g.label, g.count)
+		if petLabel != "" {
+			name = fmt.Sprintf("%s · %s", petLabel, name)
+		}
+		amount := roundMoney(g.unitPrice * float64(g.count))
 		orderItems = append(orderItems, model.OrderItem{
 			OrderID:   order.ID,
 			ItemType:  1,
 			ItemID:    0,
-			Name:      baseName,
-			Quantity:  1,
-			UnitPrice: baseAmount,
-			Amount:    baseAmount,
+			Name:      name,
+			Quantity:  g.count,
+			UnitPrice: g.unitPrice,
+			Amount:    amount,
 		})
-		totalAmount += baseAmount
-		for _, visitItem := range visit.Items {
-			template, ok := itemMap[visitItem.ItemCode]
-			if !ok || template.ExtraPrice <= 0 {
-				continue
-			}
-			extra := roundMoney(template.ExtraPrice)
-			extraName := fmt.Sprintf("%s加收（%s %s）", template.Name, formatMonthDay(visit.ScheduledDate), label)
-			if petLabel != "" {
-				extraName = fmt.Sprintf("%s · %s", petLabel, extraName)
-			}
-			orderItems = append(orderItems, model.OrderItem{
-				OrderID:   order.ID,
-				ItemType:  3,
-				ItemID:    0,
-				Name:      extraName,
-				Quantity:  1,
-				UnitPrice: extra,
-				Amount:    extra,
-			})
-			totalAmount += extra
+		totalAmount += amount
+		serviceTotal += amount
+	}
+
+	// 陪玩：从 plan 字段读取，不从 visit items 统计
+	if plan.PlayMode == "daily" {
+		playCount := len(doneVisits)
+		amount := roundMoney(20 * float64(playCount))
+		name := fmt.Sprintf("陪玩 × %d次", playCount)
+		if petLabel != "" {
+			name = fmt.Sprintf("%s · %s", petLabel, name)
 		}
-		if _, ok := holidayDates[visit.ScheduledDate]; ok && snapshot.Pricing.HolidaySurcharge > 0 {
-			extra := roundMoney(snapshot.Pricing.HolidaySurcharge)
-			holidayName := fmt.Sprintf("节假日加收（%s %s）", formatMonthDay(visit.ScheduledDate), label)
-			if petLabel != "" {
-				holidayName = fmt.Sprintf("%s · %s", petLabel, holidayName)
-			}
-			orderItems = append(orderItems, model.OrderItem{
-				OrderID:   order.ID,
-				ItemType:  3,
-				ItemID:    0,
-				Name:      holidayName,
-				Quantity:  1,
-				UnitPrice: extra,
-				Amount:    extra,
-			})
-			totalAmount += extra
+		orderItems = append(orderItems, model.OrderItem{
+			OrderID:   order.ID,
+			ItemType:  3,
+			Name:      name,
+			Quantity:  playCount,
+			UnitPrice: 20,
+			Amount:    amount,
+		})
+		totalAmount += amount
+		addonTotal += amount
+	} else if plan.PlayMode == "count" && plan.PlayCount > 0 {
+		amount := roundMoney(20 * float64(plan.PlayCount))
+		name := fmt.Sprintf("陪玩 × %d次", plan.PlayCount)
+		if petLabel != "" {
+			name = fmt.Sprintf("%s · %s", petLabel, name)
 		}
+		orderItems = append(orderItems, model.OrderItem{
+			OrderID:   order.ID,
+			ItemType:  3,
+			Name:      name,
+			Quantity:  plan.PlayCount,
+			UnitPrice: 20,
+			Amount:    amount,
+		})
+		totalAmount += amount
+		addonTotal += amount
+	}
+	// 其他附加费用
+	if plan.OtherPrice > 0 {
+		name := fmt.Sprintf("其他附加费用")
+		if petLabel != "" {
+			name = fmt.Sprintf("%s · %s", petLabel, name)
+		}
+		orderItems = append(orderItems, model.OrderItem{
+			OrderID:   order.ID,
+			ItemType:  3,
+			Name:      name,
+			Quantity:  1,
+			UnitPrice: plan.OtherPrice,
+			Amount:    roundMoney(plan.OtherPrice),
+		})
+		totalAmount += roundMoney(plan.OtherPrice)
+		addonTotal += roundMoney(plan.OtherPrice)
 	}
 	totalAmount = roundMoney(totalAmount)
 	order.TotalAmount = totalAmount
-	order.ServiceTotal = totalAmount
+	order.ServiceTotal = roundMoney(serviceTotal)
+	order.ProductTotal = 0
+	order.AddonTotal = roundMoney(addonTotal)
+	order.ServiceDiscountAmount = 0
+	order.ProductDiscountAmount = 0
+	order.DiscountAmount = 0
 	order.PayAmount = totalAmount
+	order.DiscountRate = 1
 	if err := tx.Save(order).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -770,13 +941,17 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 			return nil, err
 		}
 	}
+	unpaidAmount := roundMoney(order.PayAmount - plan.Deposit)
+	if unpaidAmount < 0 {
+		unpaidAmount = 0
+	}
 	if err := tx.Model(&model.FeedingPlan{}).
 		Where("id = ?", plan.ID).
 		Updates(map[string]any{
 			"order_id":      order.ID,
 			"status":        model.FeedingPlanStatusCompleted,
-			"unpaid_amount": totalAmount,
-			"total_amount":  totalAmount,
+			"unpaid_amount": unpaidAmount,
+			"total_amount":  order.PayAmount,
 		}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -801,6 +976,7 @@ type feedingPricingSnapshot struct {
 	Pricing      FeedingPricingSetting `json:"pricing"`
 	ItemCodes    []string              `json:"item_codes"`
 	HolidayDates []string              `json:"holiday_dates"`
+	DailyPrices  map[string]float64    `json:"daily_prices"`
 	VisitCount   int                   `json:"visit_count"`
 	TotalAmount  float64               `json:"total_amount"`
 }
@@ -812,21 +988,6 @@ type plannedFeedingVisit struct {
 }
 
 func (s *FeedingService) buildPlanPricing(shopID uint, input FeedingPlanInput, settings *FeedingSettings) (*feedingPricingSnapshot, []plannedFeedingVisit, error) {
-	start, _ := time.Parse("2006-01-02", input.StartDate)
-	end, _ := time.Parse("2006-01-02", input.EndDate)
-	ruleMap := make(map[int]map[string]int)
-	for _, rule := range input.Rules {
-		if _, ok := ruleMap[rule.Weekday]; !ok {
-			ruleMap[rule.Weekday] = make(map[string]int)
-		}
-		ruleMap[rule.Weekday][rule.WindowCode] += maxInt(rule.VisitCount, 1)
-	}
-	selectedItems := resolveSelectedTemplates(settings.Items, input.ItemCodes)
-	selectedExtra := 0.0
-	for _, item := range selectedItems {
-		selectedExtra += item.ExtraPrice
-	}
-	selectedExtra = roundMoney(selectedExtra)
 	holidayDates, err := listHolidayDates(shopID, input.StartDate, input.EndDate)
 	if err != nil {
 		return nil, nil, err
@@ -837,34 +998,39 @@ func (s *FeedingService) buildPlanPricing(shopID uint, input FeedingPlanInput, s
 	}
 	visits := make([]plannedFeedingVisit, 0)
 	totalAmount := 0.0
-	petExtraAmount := roundMoney(float64(maxInt(len(input.Pets)-1, 0)) * settings.Pricing.ExtraPetPrice)
-	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
-		weekday := int(current.Weekday())
-		windowCounts := ruleMap[weekday]
-		if len(windowCounts) == 0 {
-			continue
+	// 分开统计普通天数和节假日天数
+	regularDays := 0
+	holidayDayCount := 0
+	for _, dateText := range input.SelectedDates {
+		if _, ok := holidaySet[dateText]; ok {
+			holidayDayCount++
+		} else {
+			regularDays++
 		}
-		dateText := current.Format("2006-01-02")
-		windows := []string{model.FeedingWindowMorning, model.FeedingWindowAfternoon, model.FeedingWindowEvening}
-		for _, window := range windows {
-			count := windowCounts[window]
-			for i := 0; i < count; i++ {
-				price := settings.Pricing.BaseVisitPrice + petExtraAmount + selectedExtra
-				if _, ok := holidaySet[dateText]; ok {
-					price += settings.Pricing.HolidaySurcharge
-				}
-				price = roundMoney(price)
-				visits = append(visits, plannedFeedingVisit{
-					ScheduledDate: dateText,
-					WindowCode:    window,
-					VisitPrice:    price,
-				})
-				totalAmount += price
-			}
-		}
+	}
+	dailyPrices := make(map[string]float64, len(input.SelectedDates))
+	for _, dateText := range input.SelectedDates {
+		basePrice := dailyBasePrice(settings.Pricing, dateText, holidaySet, regularDays, holidayDayCount)
+		dailyPrices[dateText] = basePrice
+		visits = append(visits, plannedFeedingVisit{
+			ScheduledDate: dateText,
+			WindowCode:    model.FeedingWindowAllDay,
+			VisitPrice:    basePrice,
+		})
+		totalAmount += basePrice
 	}
 	if len(visits) == 0 {
 		return nil, nil, errors.New("至少需要生成 1 条上门任务")
+	}
+	// 陪玩: daily=每天一次, count=指定次数
+	if input.PlayMode == "daily" {
+		totalAmount += 20 * float64(len(visits))
+	} else if input.PlayMode == "count" && input.PlayCount > 0 {
+		totalAmount += 20 * float64(input.PlayCount)
+	}
+	// 其他附加费用
+	if input.OtherPrice > 0 {
+		totalAmount += input.OtherPrice
 	}
 	sort.Slice(visits, func(i, j int) bool {
 		if visits[i].ScheduledDate == visits[j].ScheduledDate {
@@ -876,6 +1042,7 @@ func (s *FeedingService) buildPlanPricing(shopID uint, input FeedingPlanInput, s
 		Pricing:      settings.Pricing,
 		ItemCodes:    append([]string(nil), input.ItemCodes...),
 		HolidayDates: holidayDates,
+		DailyPrices:  dailyPrices,
 		VisitCount:   len(visits),
 		TotalAmount:  roundMoney(totalAmount),
 	}
@@ -946,10 +1113,28 @@ func (s *FeedingService) normalizePlanInput(shopID uint, input FeedingPlanInput)
 		rule.VisitCount = maxInt(rule.VisitCount, 1)
 		validRules = append(validRules, rule)
 	}
-	if len(validRules) == 0 {
-		return input, nil, errors.New("请至少配置 1 个上门时间窗")
-	}
 	input.Rules = validRules
+	selectedDates := make([]string, 0, len(input.SelectedDates))
+	selectedDateSet := make(map[string]struct{}, len(input.SelectedDates))
+	for _, rawDate := range input.SelectedDates {
+		dateText, err := normalizeDate(rawDate)
+		if err != nil {
+			return input, nil, errors.New("选择日期格式不正确")
+		}
+		if dateText < startDate || dateText > endDate {
+			return input, nil, errors.New("所选日期必须在起止时间内")
+		}
+		if _, exists := selectedDateSet[dateText]; exists {
+			continue
+		}
+		selectedDateSet[dateText] = struct{}{}
+		selectedDates = append(selectedDates, dateText)
+	}
+	if len(selectedDates) == 0 {
+		return input, nil, errors.New("请至少选择 1 个上门日期")
+	}
+	sort.Strings(selectedDates)
+	input.SelectedDates = selectedDates
 	settings, err := s.GetSettings(shopID)
 	if err != nil {
 		return input, nil, err
@@ -1154,30 +1339,124 @@ func decodeFeedingSettings(setting *model.FeedingSetting) (*FeedingSettings, err
 	return &defaults, nil
 }
 
+func parseJSONStringDates(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var parsed []string
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil
+	}
+	result := make([]string, 0, len(parsed))
+	seen := make(map[string]struct{}, len(parsed))
+	for _, item := range parsed {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	sort.Strings(result)
+	return result
+}
+
 func defaultFeedingSettings() FeedingSettings {
 	return FeedingSettings{
 		Pricing: FeedingPricingSetting{
-			BaseVisitPrice:   50,
-			ExtraPetPrice:    20,
-			HolidaySurcharge: 20,
+			BaseDayPrice:         85,
+			HolidayDayPrice:      95,
+			DiscountDayPrice:     68,
+			DiscountHolidayPrice: 90,
+			DiscountStartDay:     3,
 		},
 		Items: []FeedingItemTemplate{
-			{Code: "feed", Name: "添粮", ExtraPrice: 0},
-			{Code: "water", Name: "换水", ExtraPrice: 0},
-			{Code: "litter", Name: "铲屎", ExtraPrice: 0},
-			{Code: "play", Name: "陪玩", ExtraPrice: 0},
-			{Code: "medicate", Name: "喂药", ExtraPrice: 20},
-			{Code: "ventilate", Name: "开窗通风", ExtraPrice: 0},
-			{Code: "video", Name: "视频回访", ExtraPrice: 10},
+			{Code: "play", Name: "陪玩", ExtraPrice: 20},
+			{Code: "other", Name: "其他", ExtraPrice: 0},
 		},
 	}
 }
 
 func normalizePricing(pricing FeedingPricingSetting) FeedingPricingSetting {
-	pricing.BaseVisitPrice = roundMoney(maxFloat(pricing.BaseVisitPrice, 0))
-	pricing.ExtraPetPrice = roundMoney(maxFloat(pricing.ExtraPetPrice, 0))
-	pricing.HolidaySurcharge = roundMoney(maxFloat(pricing.HolidaySurcharge, 0))
+	defaults := defaultFeedingSettings().Pricing
+	pricing.BaseDayPrice = roundMoney(maxFloat(pricing.BaseDayPrice, 0))
+	pricing.HolidayDayPrice = roundMoney(maxFloat(pricing.HolidayDayPrice, 0))
+	pricing.DiscountDayPrice = roundMoney(maxFloat(pricing.DiscountDayPrice, 0))
+	pricing.DiscountHolidayPrice = roundMoney(maxFloat(pricing.DiscountHolidayPrice, 0))
+	if pricing.BaseDayPrice <= 0 {
+		pricing.BaseDayPrice = defaults.BaseDayPrice
+	}
+	if pricing.HolidayDayPrice <= 0 {
+		pricing.HolidayDayPrice = defaults.HolidayDayPrice
+	}
+	if pricing.DiscountDayPrice <= 0 {
+		pricing.DiscountDayPrice = defaults.DiscountDayPrice
+	}
+	if pricing.DiscountHolidayPrice <= 0 {
+		pricing.DiscountHolidayPrice = defaults.DiscountHolidayPrice
+	}
+	if pricing.DiscountStartDay <= 0 {
+		pricing.DiscountStartDay = defaults.DiscountStartDay
+	}
 	return pricing
+}
+
+func dailyBasePrice(pricing FeedingPricingSetting, dateText string, holidaySet map[string]struct{}, regularDays int, holidayDays int) float64 {
+	_, isHoliday := holidaySet[dateText]
+	threshold := maxInt(pricing.DiscountStartDay, 1)
+	isDiscount := false
+	if isHoliday {
+		isDiscount = holidayDays >= threshold
+	} else {
+		isDiscount = regularDays >= threshold
+	}
+	switch {
+	case isHoliday && isDiscount:
+		return roundMoney(pricing.DiscountHolidayPrice)
+	case isHoliday:
+		return roundMoney(pricing.HolidayDayPrice)
+	case isDiscount:
+		return roundMoney(pricing.DiscountDayPrice)
+	default:
+		return roundMoney(pricing.BaseDayPrice)
+	}
+}
+
+func visitExtraAmount(items []model.FeedingVisitItem, itemMap map[string]FeedingItemTemplate) float64 {
+	total := 0.0
+	for _, visitItem := range items {
+		template, ok := itemMap[visitItem.ItemCode]
+		if !ok || template.ExtraPrice <= 0 {
+			continue
+		}
+		total += roundMoney(template.ExtraPrice)
+	}
+	return roundMoney(total)
+}
+
+func dailyPriceLabel(snapshot *feedingPricingSnapshot, dateText string) string {
+	if snapshot == nil {
+		return "上门喂养"
+	}
+	basePrice := roundMoney(snapshot.DailyPrices[dateText])
+	holidaySet := make(map[string]struct{}, len(snapshot.HolidayDates))
+	for _, holiday := range snapshot.HolidayDates {
+		holidaySet[holiday] = struct{}{}
+	}
+	_, isHoliday := holidaySet[dateText]
+	switch {
+	case basePrice == roundMoney(snapshot.Pricing.DiscountHolidayPrice):
+		return "节假日优惠价上门喂养"
+	case basePrice == roundMoney(snapshot.Pricing.DiscountDayPrice):
+		return "日常优惠价上门喂养"
+	case isHoliday:
+		return "节假日上门喂养"
+	default:
+		return "日常上门喂养"
+	}
 }
 
 func normalizeItemTemplates(items []FeedingItemTemplate) []FeedingItemTemplate {
@@ -1231,6 +1510,8 @@ func normalizeWindowCode(code string) string {
 		return model.FeedingWindowAfternoon
 	case model.FeedingWindowEvening:
 		return model.FeedingWindowEvening
+	case model.FeedingWindowAllDay:
+		return model.FeedingWindowAllDay
 	default:
 		return ""
 	}
@@ -1274,10 +1555,41 @@ func decodePricingSnapshot(raw string) (*feedingPricingSnapshot, error) {
 	if strings.TrimSpace(raw) == "" {
 		defaults := defaultFeedingSettings()
 		snapshot.Pricing = defaults.Pricing
+		snapshot.DailyPrices = map[string]float64{}
 		return &snapshot, nil
 	}
 	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
-		return nil, err
+		var legacy struct {
+			Pricing struct {
+				BaseVisitPrice   float64 `json:"base_visit_price"`
+				HolidaySurcharge float64 `json:"holiday_surcharge"`
+			} `json:"pricing"`
+			ItemCodes    []string `json:"item_codes"`
+			HolidayDates []string `json:"holiday_dates"`
+			VisitCount   int      `json:"visit_count"`
+			TotalAmount  float64  `json:"total_amount"`
+		}
+		if legacyErr := json.Unmarshal([]byte(raw), &legacy); legacyErr != nil {
+			return nil, err
+		}
+		snapshot = feedingPricingSnapshot{
+			Pricing: FeedingPricingSetting{
+				BaseDayPrice:         legacy.Pricing.BaseVisitPrice,
+				HolidayDayPrice:      legacy.Pricing.BaseVisitPrice + legacy.Pricing.HolidaySurcharge,
+				DiscountDayPrice:     legacy.Pricing.BaseVisitPrice,
+				DiscountHolidayPrice: legacy.Pricing.BaseVisitPrice + legacy.Pricing.HolidaySurcharge,
+				DiscountStartDay:     999,
+			},
+			ItemCodes:    legacy.ItemCodes,
+			HolidayDates: legacy.HolidayDates,
+			DailyPrices:  map[string]float64{},
+			VisitCount:   legacy.VisitCount,
+			TotalAmount:  legacy.TotalAmount,
+		}
+	}
+	snapshot.Pricing = normalizePricing(snapshot.Pricing)
+	if snapshot.DailyPrices == nil {
+		snapshot.DailyPrices = map[string]float64{}
 	}
 	return &snapshot, nil
 }
@@ -1291,6 +1603,17 @@ func decodeSelectedTemplates(raw string) ([]FeedingItemTemplate, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func decodeSelectedDates(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var dates []string
+	if err := json.Unmarshal([]byte(raw), &dates); err != nil {
+		return nil, err
+	}
+	return dates, nil
 }
 
 func syncFeedingPlanStatusTx(tx *gorm.DB, planID uint) error {
@@ -1358,6 +1681,8 @@ func windowLabel(code string) string {
 		return "午后"
 	case model.FeedingWindowEvening:
 		return "晚间"
+	case model.FeedingWindowAllDay:
+		return "全天"
 	default:
 		return code
 	}

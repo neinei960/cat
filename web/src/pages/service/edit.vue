@@ -9,13 +9,26 @@
       </view>
       <view class="form-item">
         <text class="label">服务分类</text>
-        <view class="cat-picker">
-          <picker :range="parentNames" :value="selectedParentIdx" @change="onParentChange">
-            <view class="picker">{{ parentNames[selectedParentIdx] || '选择一级分类' }}</view>
-          </picker>
-          <picker v-if="childOptions.length" :range="childNames" :value="selectedChildIdx" @change="onChildChange">
-            <view class="picker">{{ childNames[selectedChildIdx] || '选择二级分类' }}</view>
-          </picker>
+        <view class="cat-selector">
+          <view class="cat-select-card" @click="chooseParentCategory">
+            <view class="cat-select-text">
+              <text class="cat-select-label">一级分类</text>
+              <text class="cat-select-value">{{ currentParentLabel }}</text>
+            </view>
+            <text class="cat-select-arrow">›</text>
+          </view>
+          <view v-if="selectedParentIdx > 0 && childOptions.length" class="cat-select-card" @click="chooseChildCategory">
+            <view class="cat-select-text">
+              <text class="cat-select-label">二级分类</text>
+              <text class="cat-select-value">{{ currentChildLabel }}</text>
+            </view>
+            <text class="cat-select-arrow">›</text>
+          </view>
+          <view v-if="selectedCategoryLabel" class="cat-selected-row">
+            <text class="cat-selected-label">当前分类</text>
+            <text class="cat-selected-value">{{ selectedCategoryLabel }}</text>
+            <text class="cat-selected-clear" @click.stop="clearCategory">清空</text>
+          </view>
         </view>
       </view>
 
@@ -84,10 +97,10 @@
             <input v-model="spec.name" placeholder="如：短毛猫" class="spec-input" />
           </view>
           <view class="spec-col-price">
-            <input v-model="spec.price" type="digit" placeholder="0" class="spec-input input-amount" />
+            <input v-model="spec.price" type="digit" placeholder="0" class="spec-input spec-input-center input-amount" />
           </view>
           <view class="spec-col-dur">
-            <input v-model="spec.duration" type="number" placeholder="60" class="spec-input" />
+            <input v-model="spec.duration" type="number" placeholder="60" class="spec-input spec-input-center" />
           </view>
           <view class="spec-col-act">
             <text class="spec-del" @click="removeSpec(idx)">删除</text>
@@ -147,6 +160,26 @@
 
     <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ id ? '保存' : '新增' }}</button>
     <button class="btn-delete" v-if="id" @click="onDelete">删除服务</button>
+
+    <view v-if="showCategoryPicker" class="cat-modal-mask" @click="closeCategoryPicker">
+      <view class="cat-modal" @click.stop>
+        <view class="cat-modal-header">
+          <text class="cat-modal-title">{{ categoryPickerTitle }}</text>
+          <text class="cat-modal-close" @click="closeCategoryPicker">取消</text>
+        </view>
+        <scroll-view scroll-y class="cat-modal-list">
+          <view
+            v-for="option in categoryPickerOptions"
+            :key="`${categoryPickerMode}-${option.index}`"
+            :class="['cat-modal-item', option.active ? 'active' : '']"
+            @click="onCategoryOptionSelect(option.index)"
+          >
+            <text class="cat-modal-item-label">{{ option.label }}</text>
+            <text v-if="option.active" class="cat-modal-item-check">✓</text>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
   </view>
   </SideLayout>
 </template>
@@ -227,15 +260,36 @@ const childNames = computed(() => {
   return ['（不选二级）', ...childOptions.value.map((c: ServiceCategory) => c.name)]
 })
 
-function onParentChange(e: any) {
-  selectedParentIdx.value = +e.detail.value
+const currentParentLabel = computed(() => parentNames.value[selectedParentIdx.value] || '选择一级分类')
+const currentChildLabel = computed(() => {
+  if (!childOptions.value.length) return '当前一级分类没有二级'
+  return childNames.value[selectedChildIdx.value] || '选择二级分类'
+})
+const selectedCategoryLabel = computed(() => form.value.category || '')
+const showCategoryPicker = ref(false)
+const categoryPickerMode = ref<'parent' | 'child'>('parent')
+const categoryPickerTitle = computed(() => categoryPickerMode.value === 'parent' ? '选择一级分类' : '选择二级分类')
+const categoryPickerOptions = computed(() => {
+  const source = categoryPickerMode.value === 'parent' ? parentNames.value : childNames.value
+  const selected = categoryPickerMode.value === 'parent' ? selectedParentIdx.value : selectedChildIdx.value
+  return source.map((label, index) => ({
+    label,
+    index,
+    active: index === selected,
+  }))
+})
+
+function selectParentByIndex(index: number) {
+  selectedParentIdx.value = index
   selectedChildIdx.value = 0
   updateCategoryId()
 }
-function onChildChange(e: any) {
-  selectedChildIdx.value = +e.detail.value
+
+function selectChildByIndex(index: number) {
+  selectedChildIdx.value = index
   updateCategoryId()
 }
+
 function updateCategoryId() {
   const parent = parentOptions.value[selectedParentIdx.value]
   if (!parent || parent.ID === 0) {
@@ -251,6 +305,36 @@ function updateCategoryId() {
     form.value.category_id = parent.ID
     form.value.category = parent.name
   }
+}
+
+function clearCategory() {
+  selectedParentIdx.value = 0
+  selectedChildIdx.value = 0
+  updateCategoryId()
+}
+
+function chooseParentCategory() {
+  categoryPickerMode.value = 'parent'
+  showCategoryPicker.value = true
+}
+
+function chooseChildCategory() {
+  if (!childOptions.value.length) return
+  categoryPickerMode.value = 'child'
+  showCategoryPicker.value = true
+}
+
+function closeCategoryPicker() {
+  showCategoryPicker.value = false
+}
+
+function onCategoryOptionSelect(index: number) {
+  if (categoryPickerMode.value === 'parent') {
+    selectParentByIndex(index)
+  } else {
+    selectChildByIndex(index)
+  }
+  closeCategoryPicker()
 }
 
 function restorePickerFromId(catId: number | undefined) {
@@ -345,6 +429,7 @@ async function onSubmit() {
 
   submitting.value = true
   try {
+    updateCategoryId()
     const data = {
       ...form.value,
       base_price: parseFloat(form.value.base_price),
@@ -425,11 +510,61 @@ async function onDelete() {
 .form-item { padding: 24rpx 0; border-bottom: 1rpx solid #F3F4F6; }
 .form-item:last-child { border-bottom: none; }
 .label { font-size: 28rpx; color: #374151; display: block; margin-bottom: 12rpx; }
-.input { font-size: 28rpx; color: #1F2937; height: 60rpx; }
-.textarea { font-size: 28rpx; color: #1F2937; width: 100%; height: 160rpx; }
-.picker { font-size: 28rpx; color: #1F2937; height: 60rpx; line-height: 60rpx; background: #F9FAFB; padding: 0 16rpx; border-radius: 8rpx; }
-.cat-picker { display: flex; gap: 24rpx; }
-.cat-picker picker { flex: 1; }
+.input { font-size: 28rpx; color: #1F2937; height: 60rpx; text-align: left; }
+.textarea { font-size: 28rpx; color: #1F2937; width: 100%; height: 160rpx; text-align: left; }
+.input :deep(.uni-input-wrapper) {
+  width: 100%;
+}
+.input :deep(.uni-input-input),
+.input :deep(.uni-input-placeholder) {
+  text-align: left !important;
+}
+.textarea :deep(.uni-textarea-textarea),
+.textarea :deep(.uni-textarea-placeholder) {
+  text-align: left !important;
+}
+.cat-selector { display: flex; flex-direction: column; gap: 16rpx; }
+.cat-select-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #F9FAFB; border: 2rpx solid #E5E7EB; border-radius: 16rpx; padding: 20rpx 24rpx;
+}
+.cat-select-text { display: flex; flex-direction: column; gap: 6rpx; }
+.cat-select-label { font-size: 24rpx; color: #6B7280; }
+.cat-select-value { font-size: 28rpx; color: #111827; font-weight: 600; }
+.cat-select-arrow { font-size: 36rpx; color: #9CA3AF; line-height: 1; }
+.cat-selected-row {
+  display: flex; align-items: center; gap: 12rpx; flex-wrap: wrap;
+  background: #EEF2FF; color: #4338CA; border-radius: 14rpx; padding: 16rpx 20rpx;
+}
+.cat-selected-label { font-size: 24rpx; color: #6366F1; }
+.cat-selected-value { flex: 1; font-size: 26rpx; font-weight: 600; }
+.cat-selected-clear { font-size: 24rpx; color: #4F46E5; }
+.cat-modal-mask {
+  position: fixed; inset: 0; z-index: 7000;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.cat-modal {
+  width: 100%; max-width: 800px; background: #FFFFFF;
+  border-radius: 28rpx 28rpx 0 0; overflow: hidden;
+}
+.cat-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 24rpx 28rpx; border-bottom: 1rpx solid #E5E7EB;
+}
+.cat-modal-title { font-size: 30rpx; font-weight: 700; color: #111827; }
+.cat-modal-close { font-size: 26rpx; color: #6B7280; }
+.cat-modal-list { max-height: 60vh; }
+.cat-modal-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 26rpx 28rpx; border-bottom: 1rpx solid #F3F4F6;
+  font-size: 28rpx; color: #111827; background: #FFFFFF;
+}
+.cat-modal-item.active {
+  background: #EEF2FF; color: #4338CA; font-weight: 600;
+}
+.cat-modal-item-label { flex: 1; }
+.cat-modal-item-check { font-size: 28rpx; color: #4F46E5; }
 
 /* Pricing type toggle */
 .pricing-type-toggle {
@@ -469,12 +604,24 @@ async function onDelete() {
 }
 .spec-row:last-child { border-bottom: none; }
 .spec-col-name { flex: 3; }
-.spec-col-price { flex: 2; }
-.spec-col-dur { flex: 2; }
+.spec-col-price { flex: 2; text-align: center; }
+.spec-col-dur { flex: 2; text-align: center; }
 .spec-col-act { flex: 1; text-align: center; }
 .spec-input {
   font-size: 28rpx; color: #1F2937; height: 56rpx;
-  background: #F9FAFB; border-radius: 8rpx; padding: 0 12rpx;
+  background: #F9FAFB; border-radius: 8rpx; padding: 0 12rpx; text-align: left;
+}
+.spec-input :deep(.uni-input-wrapper) {
+  width: 100%;
+}
+.spec-input :deep(.uni-input-input),
+.spec-input :deep(.uni-input-placeholder) {
+  text-align: left !important;
+}
+.spec-input-center,
+.spec-input-center :deep(.uni-input-input),
+.spec-input-center :deep(.uni-input-placeholder) {
+  text-align: center !important;
 }
 .spec-del { font-size: 24rpx; color: #EF4444; }
 

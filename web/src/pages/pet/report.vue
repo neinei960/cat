@@ -24,6 +24,10 @@
           :data-report-id="report.ID"
           @click="onReportClick(index)"
           @longpress="openReportActions(report)"
+          @touchstart="startCardLongPress(report)"
+          @touchend="clearCardLongPress"
+          @touchcancel="clearCardLongPress"
+          @touchmove="clearCardLongPress"
         >
           <view class="report-toolbar">
             <picker mode="date" :value="getEditableBathDate(report)" @change="onBathDateChange(report, $event)" @click.stop>
@@ -79,6 +83,8 @@ const savingOrder = ref(false)
 const draggingReportId = ref<number | null>(null)
 let dragMoved = false
 let dragSnapshot: PetBathReport[] = []
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+let longPressTriggered = false
 const { isDesktopInteraction } = useDesktopInteraction()
 
 const canDragSort = computed(() => reports.value.length > 1 && !savingOrder.value)
@@ -97,6 +103,7 @@ onShow(() => {
 
 onBeforeUnmount(() => {
   removeDragListeners()
+  clearCardLongPress()
 })
 
 async function loadPet() {
@@ -151,6 +158,10 @@ function previewReport(index: number) {
 }
 
 function onReportClick(index: number) {
+  if (longPressTriggered) {
+    longPressTriggered = false
+    return
+  }
   if (draggingReportId.value != null) return
   previewReport(index)
 }
@@ -168,13 +179,32 @@ async function onBathDateChange(report: PetBathReport, e: any) {
 }
 
 function openReportActions(report: PetBathReport) {
-  uni.showActionSheet({
-    itemList: ['删除当前报告'],
+  longPressTriggered = true
+  uni.showModal({
+    title: '删除洗浴报告',
+    content: `确认删除 ${formatBathDate(report)} 的报告？`,
+    confirmColor: '#DC2626',
     success: async (res) => {
-      if (res.tapIndex !== 0) return
+      if (!res.confirm) return
       await deleteReport(report)
     },
   })
+}
+
+function startCardLongPress(report: PetBathReport) {
+  if (draggingReportId.value != null) return
+  clearCardLongPress()
+  longPressTriggered = false
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null
+    openReportActions(report)
+  }, 500)
+}
+
+function clearCardLongPress() {
+  if (!longPressTimer) return
+  clearTimeout(longPressTimer)
+  longPressTimer = null
 }
 
 async function deleteReport(report: PetBathReport) {

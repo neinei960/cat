@@ -110,7 +110,7 @@
           </view>
         </view>
 
-        <view class="field-grid">
+        <view class="field-grid date-grid">
           <picker mode="date" :value="form.checkInAt" @change="form.checkInAt = $event.detail.value">
             <view class="picker-card">
               <text class="field-label">入住日期</text>
@@ -133,6 +133,15 @@
           <view class="summary-pill" v-if="stayText">
             <text class="summary-label">寄养时长</text>
             <text class="summary-value">{{ stayText }}</text>
+          </view>
+        </view>
+
+        <view class="field-card option-card">
+          <text class="field-label">是否已驱虫</text>
+          <text class="field-tip">入住前确认一次，后续详情里会保留这条记录。</text>
+          <view class="option-row">
+            <view :class="['option-pill', form.hasDeworming === true ? 'active' : '']" @click="form.hasDeworming = true">已驱虫</view>
+            <view :class="['option-pill', form.hasDeworming === false ? 'active negative' : '']" @click="form.hasDeworming = false">未驱虫</view>
           </view>
         </view>
 
@@ -159,6 +168,7 @@
               <text class="room-tag stock">剩 {{ cabinet.remaining_rooms || 0 }}/{{ cabinet.room_count || 1 }} 间</text>
               <text class="room-tag">每间 {{ cabinet.capacity }} 只</text>
               <text class="room-tag price">¥{{ cabinet.base_price }}/晚</text>
+              <text v-if="cabinet.extra_pet_price > 0" class="room-tag extra">第二只 +¥{{ cabinet.extra_pet_price }}/晚</text>
             </view>
             <text v-if="cabinet.remark" class="room-remark">{{ cabinet.remark }}</text>
           </view>
@@ -257,6 +267,7 @@ const form = ref({
   checkInAt: '',
   checkOutAt: '',
   cabinetId: 0,
+  hasDeworming: null as boolean | null,
   remark: '',
 })
 
@@ -400,11 +411,15 @@ async function loadPreview() {
 }
 
 async function submit() {
-  if (!preview.value) {
-    await loadPreview()
-    if (!preview.value) return
-  }
-  submitting.value = true
+    if (!preview.value) {
+      await loadPreview()
+      if (!preview.value) return
+    }
+    if (form.value.hasDeworming === null) {
+      uni.showToast({ title: '请选择是否已驱虫', icon: 'none' })
+      return
+    }
+    submitting.value = true
   try {
     let customerId = selectedCustomer.value?.ID || 0
     let petIds = [...selectedPetIds.value]
@@ -441,6 +456,7 @@ async function submit() {
       check_in_at: form.value.checkInAt,
       check_out_at: form.value.checkOutAt,
       policy_ids: selectedPolicyIds.value,
+      has_deworming: form.value.hasDeworming,
       remark: form.value.remark,
     })
     uni.showToast({ title: '寄养单已创建', icon: 'success' })
@@ -570,6 +586,9 @@ ensurePoliciesLoaded()
 }
 .field-grid.single {
   grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.date-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .field-card,
 .picker-card {
@@ -790,6 +809,37 @@ ensurePoliciesLoaded()
   font-weight: 600;
   color: #111827;
 }
+.option-card {
+  margin-top: 4rpx;
+}
+.option-row {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.option-pill {
+  flex: 1;
+  min-height: 78rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid #dbe3f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 26rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.option-pill.active {
+  border-color: #4f46e5;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  color: #4338ca;
+}
+.option-pill.active.negative {
+  border-color: #f59e0b;
+  background: linear-gradient(135deg, #fff7ed, #ffedd5);
+  color: #c2410c;
+}
 .remark-card {
   margin-top: 4rpx;
 }
@@ -854,6 +904,10 @@ ensurePoliciesLoaded()
 .room-tag.price {
   background: #fff7ed;
   color: #c2410c;
+}
+.room-tag.extra {
+  background: #eef2ff;
+  color: #4338ca;
 }
 .room-remark {
   display: block;
@@ -963,8 +1017,11 @@ ensurePoliciesLoaded()
 }
 @media (max-width: 768px) {
   .page {
-    padding: 20rpx 20rpx 190rpx;
+    padding: 20rpx 20rpx calc(220rpx + 62px + env(safe-area-inset-bottom));
     gap: 16rpx;
+  }
+  .footer-bar {
+    bottom: calc(50px + env(safe-area-inset-bottom) + 14px);
   }
   .hero-card {
     flex-direction: column;
@@ -979,12 +1036,41 @@ ensurePoliciesLoaded()
   .field-grid,
   .field-grid.single {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 12rpx;
+  }
+  .date-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .date-grid .picker-card {
+    min-height: 132rpx;
   }
   .field-card,
   .picker-card,
   .draft-card,
   .sub-block {
-    padding: 22rpx;
+    padding: 18rpx;
+  }
+  .field-card,
+  .picker-card {
+    border-radius: 18rpx;
+  }
+  .field-label,
+  .sub-title,
+  .draft-title {
+    font-size: 22rpx;
+  }
+  .field-tip,
+  .select-meta,
+  .policy-meta,
+  .sub-value,
+  .room-remark {
+    font-size: 20rpx;
+  }
+  .field-tip {
+    line-height: 1.45;
+  }
+  .draft-top {
+    margin-bottom: 10rpx;
   }
   .search-row {
     flex-direction: column;
@@ -994,7 +1080,43 @@ ensurePoliciesLoaded()
   }
   .input,
   .textarea {
-    font-size: 30rpx;
+    font-size: 28rpx;
+  }
+  .picker-value {
+    font-size: 28rpx;
+  }
+  .summary-pill {
+    padding: 12rpx 16rpx;
+  }
+  .option-row {
+    gap: 10rpx;
+    margin-top: 12rpx;
+  }
+  .option-pill {
+    min-height: 70rpx;
+    font-size: 24rpx;
+    border-radius: 16rpx;
+  }
+  .remark-card .field-label {
+    font-size: 22rpx;
+  }
+  .remark-card .field-tip {
+    margin-top: 4rpx;
+    font-size: 20rpx;
+    line-height: 1.4;
+  }
+  .remark-card .textarea {
+    margin-top: 12rpx;
+    min-height: 156rpx;
+    height: 156rpx;
+    padding: 14rpx 16rpx;
+    font-size: 24rpx;
+    line-height: 1.55;
+  }
+  .remark-card .textarea :deep(.uni-textarea-textarea),
+  .remark-card .textarea :deep(.uni-textarea-placeholder) {
+    font-size: 24rpx;
+    line-height: 1.5;
   }
 }
 </style>

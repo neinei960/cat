@@ -23,8 +23,10 @@ type BoardingOrder struct {
 	BaseAmount             float64 `json:"base_amount" gorm:"type:decimal(10,2);default:0"`
 	HolidaySurchargeAmount float64 `json:"holiday_surcharge_amount" gorm:"type:decimal(10,2);default:0"`
 	DiscountAmount         float64 `json:"discount_amount" gorm:"type:decimal(10,2);default:0"`
+	ManualDiscountAmount   float64 `json:"manual_discount_amount" gorm:"type:decimal(10,2);default:0"`
 	PayAmount              float64 `json:"pay_amount" gorm:"type:decimal(10,2);default:0"`
 	Status                 string  `json:"status" gorm:"size:30;default:pending_checkin;index"`
+	HasDeworming           *bool   `json:"has_deworming" gorm:"default:null"`
 	Remark                 string  `json:"remark" gorm:"type:text"`
 	PolicySnapshotJSON     string  `json:"policy_snapshot_json" gorm:"type:text"`
 	PriceSnapshotJSON      string  `json:"price_snapshot_json" gorm:"type:text"`

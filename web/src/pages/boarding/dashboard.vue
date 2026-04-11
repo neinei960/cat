@@ -8,9 +8,9 @@
         </view>
         <view class="hero-actions">
           <view class="btn btn-primary" @click="go('/pages/boarding/create')">新建寄养</view>
-          <view v-if="isAdmin" class="btn" @click="go('/pages/boarding/cabinets')">房型设置</view>
-          <view v-if="isAdmin" class="btn" @click="go('/pages/boarding/policies')">优惠</view>
-          <view v-if="isAdmin" class="btn" @click="go('/pages/boarding/holidays')">节假日</view>
+          <view class="btn" @click="go('/pages/boarding/cabinets')">房型设置</view>
+          <view class="btn" @click="go('/pages/boarding/policies')">优惠</view>
+          <view class="btn" @click="go('/pages/boarding/holidays')">节假日</view>
         </view>
       </view>
 
@@ -22,7 +22,7 @@
           <view class="group-head">
             <view>
               <text class="group-title">{{ group.cabinet_type }}</text>
-              <text class="group-meta">每间可住 {{ group.capacity }} 只 · ¥{{ group.base_price }}/晚</text>
+              <text class="group-meta">每间可住 {{ group.capacity }} 只 · ¥{{ group.base_price }}/晚{{ group.extra_pet_price > 0 ? ` · 第二只 +¥${group.extra_pet_price}/晚` : '' }}</text>
             </view>
             <text class="group-status">{{ statusLabel(group.status) }}</text>
           </view>
@@ -68,11 +68,6 @@ import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getBoardingDashboard } from '@/api/boarding'
-import { useAuthStore } from '@/store/auth'
-import { hasStaffRoleAtLeast } from '@/utils/staff-role'
-
-const authStore = useAuthStore()
-const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'admin'))
 const loading = ref(false)
 const groups = ref<BoardingDashboardGroup[]>([])
 

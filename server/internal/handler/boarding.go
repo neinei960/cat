@@ -20,13 +20,14 @@ func NewBoardingHandler(service *service.BoardingService) *BoardingHandler {
 }
 
 type saveCabinetReq struct {
-	Code        string  `json:"code"`
-	CabinetType string  `json:"cabinet_type" binding:"required"`
-	RoomCount   int     `json:"room_count"`
-	Capacity    int     `json:"capacity"`
-	BasePrice   float64 `json:"base_price"`
-	Status      string  `json:"status"`
-	Remark      string  `json:"remark"`
+	Code          string  `json:"code"`
+	CabinetType   string  `json:"cabinet_type" binding:"required"`
+	RoomCount     int     `json:"room_count"`
+	Capacity      int     `json:"capacity"`
+	BasePrice     float64 `json:"base_price"`
+	ExtraPetPrice float64 `json:"extra_pet_price"`
+	Status        string  `json:"status"`
+	Remark        string  `json:"remark"`
 }
 
 func (h *BoardingHandler) ListCabinets(c *gin.Context) {
@@ -45,14 +46,15 @@ func (h *BoardingHandler) CreateCabinet(c *gin.Context) {
 		return
 	}
 	cabinet := &model.BoardingCabinet{
-		ShopID:      c.GetUint("shop_id"),
-		Code:        req.Code,
-		CabinetType: req.CabinetType,
-		RoomCount:   req.RoomCount,
-		Capacity:    req.Capacity,
-		BasePrice:   req.BasePrice,
-		Status:      req.Status,
-		Remark:      req.Remark,
+		ShopID:        c.GetUint("shop_id"),
+		Code:          req.Code,
+		CabinetType:   req.CabinetType,
+		RoomCount:     req.RoomCount,
+		Capacity:      req.Capacity,
+		BasePrice:     req.BasePrice,
+		ExtraPetPrice: req.ExtraPetPrice,
+		Status:        req.Status,
+		Remark:        req.Remark,
 	}
 	if err := h.service.CreateCabinet(cabinet); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -69,14 +71,15 @@ func (h *BoardingHandler) UpdateCabinet(c *gin.Context) {
 		return
 	}
 	cabinet := &model.BoardingCabinet{
-		Model:       model.BoardingCabinet{}.Model,
-		Code:        req.Code,
-		CabinetType: req.CabinetType,
-		RoomCount:   req.RoomCount,
-		Capacity:    req.Capacity,
-		BasePrice:   req.BasePrice,
-		Status:      req.Status,
-		Remark:      req.Remark,
+		Model:         model.BoardingCabinet{}.Model,
+		Code:          req.Code,
+		CabinetType:   req.CabinetType,
+		RoomCount:     req.RoomCount,
+		Capacity:      req.Capacity,
+		BasePrice:     req.BasePrice,
+		ExtraPetPrice: req.ExtraPetPrice,
+		Status:        req.Status,
+		Remark:        req.Remark,
 	}
 	cabinet.ID = uint(id)
 	if err := h.service.UpdateCabinet(c.GetUint("shop_id"), cabinet); err != nil {
@@ -255,13 +258,14 @@ func (h *BoardingHandler) PricePreview(c *gin.Context) {
 }
 
 type createBoardingOrderReq struct {
-	CustomerID uint   `json:"customer_id" binding:"required"`
-	PetIDs     []uint `json:"pet_ids" binding:"required"`
-	CabinetID  uint   `json:"cabinet_id" binding:"required"`
-	CheckInAt  string `json:"check_in_at" binding:"required"`
-	CheckOutAt string `json:"check_out_at" binding:"required"`
-	PolicyIDs  []uint `json:"policy_ids"`
-	Remark     string `json:"remark"`
+	CustomerID   uint   `json:"customer_id" binding:"required"`
+	PetIDs       []uint `json:"pet_ids" binding:"required"`
+	CabinetID    uint   `json:"cabinet_id" binding:"required"`
+	CheckInAt    string `json:"check_in_at" binding:"required"`
+	CheckOutAt   string `json:"check_out_at" binding:"required"`
+	PolicyIDs    []uint `json:"policy_ids"`
+	HasDeworming *bool  `json:"has_deworming"`
+	Remark       string `json:"remark"`
 }
 
 func (h *BoardingHandler) CreateOrder(c *gin.Context) {
@@ -271,14 +275,15 @@ func (h *BoardingHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 	order, err := h.service.CreateOrder(c.GetUint("shop_id"), service.BoardingCreateInput{
-		CustomerID: req.CustomerID,
-		PetIDs:     req.PetIDs,
-		CabinetID:  req.CabinetID,
-		CheckInAt:  req.CheckInAt,
-		CheckOutAt: req.CheckOutAt,
-		PolicyIDs:  req.PolicyIDs,
-		Remark:     req.Remark,
-		OperatorID: c.GetUint("staff_id"),
+		CustomerID:   req.CustomerID,
+		PetIDs:       req.PetIDs,
+		CabinetID:    req.CabinetID,
+		CheckInAt:    req.CheckInAt,
+		CheckOutAt:   req.CheckOutAt,
+		PolicyIDs:    req.PolicyIDs,
+		HasDeworming: req.HasDeworming,
+		Remark:       req.Remark,
+		OperatorID:   c.GetUint("staff_id"),
 	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -319,7 +324,16 @@ func (h *BoardingHandler) Dashboard(c *gin.Context) {
 
 func (h *BoardingHandler) CheckIn(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	order, err := h.service.CheckIn(c.GetUint("shop_id"), uint(id), c.GetUint("staff_id"))
+	var req struct {
+		DiscountAmount float64 `json:"discount_amount"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	order, err := h.service.CheckIn(c.GetUint("shop_id"), uint(id), c.GetUint("staff_id"), service.BoardingCheckInInput{
+		DiscountAmount: req.DiscountAmount,
+	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return

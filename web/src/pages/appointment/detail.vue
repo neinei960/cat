@@ -36,6 +36,18 @@
       <text class="notes" v-if="appt.staff_notes">洗护师: {{ appt.staff_notes }}</text>
     </view>
 
+    <view class="card" v-if="statusLogs.length">
+      <text class="card-title">状态变更记录</text>
+      <view class="log-item" v-for="log in statusLogs" :key="log.ID">
+        <view class="log-head">
+          <text class="log-status">{{ getStatusLabel(log.from_status) }} → {{ getStatusLabel(log.to_status) }}</text>
+          <text class="log-time">{{ formatLogTime(log.CreatedAt) }}</text>
+        </view>
+        <text class="log-operator">操作人：{{ log.operator?.name || '系统/客户' }}</text>
+        <text class="log-note" v-if="log.note">备注：{{ log.note }}</text>
+      </view>
+    </view>
+
     <!-- 服务记录 -->
     <view class="card" v-if="appt.status >= 2">
       <view class="card-title-row">
@@ -101,13 +113,13 @@
     <!-- Action buttons based on status -->
     <view class="actions-panel">
       <view class="actions-row">
-        <button v-if="appt.status === 0 || appt.status === 1 || appt.status === 2 || appt.status === 6" class="btn action-btn confirm" @click="goBatchBilling">完成服务</button>
-        <button v-if="appt.status === 3" class="btn action-btn billing" @click="goBatchBilling">去开单</button>
-        <button v-if="appt.status <= 1 || appt.status === 6" class="btn action-btn edit" @click="goEdit">修改预约</button>
-        <button v-if="appt.status !== 4 && appt.status !== 5" class="btn action-btn noshow" @click="doNoShow">未到店</button>
-        <button v-if="appt.status <= 1 || appt.status === 6" class="btn action-btn cancel" @click="doCancel">取消预约</button>
+        <view v-if="appt.status === 0 || appt.status === 1 || appt.status === 2 || appt.status === 6" class="action-btn confirm" @click="goBatchBilling">完成服务</view>
+        <view v-if="appt.status === 3" class="action-btn billing" @click="goBatchBilling">去开单</view>
+        <view v-if="appt.status <= 1 || appt.status === 6" class="action-btn edit" @click="goEdit">修改预约</view>
+        <view v-if="appt.status !== 4 && appt.status !== 5 && appt.status !== 7" class="action-btn noshow" @click="doNoShow">未到店</view>
+        <view v-if="appt.status <= 1 || appt.status === 6" class="action-btn cancel" @click="doCancel">取消预约</view>
       </view>
-      <button v-if="appt.status <= 1 && !appt.staff" class="btn assign-inline" @click="showAssign = true">分配洗护师</button>
+      <view v-if="appt.status <= 1 && !appt.staff" class="assign-inline" @click="showAssign = true">分配洗护师</view>
     </view>
 
     <!-- Assign staff modal -->
@@ -129,9 +141,9 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { getAppointment, updateAppointmentStatus, assignStaff } from '@/api/appointment'
+import { getAppointment, getAppointmentStatusLogs, updateAppointmentStatus, assignStaff } from '@/api/appointment'
 import { getStaffList } from '@/api/staff'
-import { getAppointmentStatusBarStyle, getAppointmentStatusLabel } from '@/utils/appointment-status'
+import { APPOINTMENT_STATUS_META, getAppointmentStatusBarStyle, getAppointmentStatusLabel } from '@/utils/appointment-status'
 import { request } from '@/api/request'
 import { compareStaffRole } from '@/utils/staff-role'
 
@@ -139,6 +151,7 @@ const appt = ref<any>(null)
 const apptId = ref(0)
 const staffList = ref<Staff[]>([])
 const showAssign = ref(false)
+const statusLogs = ref<any[]>([])
 
 // 服务记录
 const serviceRecords = ref<any[]>([])
@@ -225,19 +238,29 @@ const appointmentPets = computed(() => {
 onLoad(async (query) => {
   if (query?.id) {
     apptId.value = parseInt(query.id)
-    await Promise.all([loadAppointmentDetail(), loadStaffOptions(), loadRecords()])
+    await Promise.all([loadAppointmentDetail(), loadStaffOptions(), loadRecords(), loadStatusLogs()])
   }
 })
 
 onShow(async () => {
   if (!apptId.value) return
-  await Promise.all([loadAppointmentDetail(), loadRecords()])
+  await Promise.all([loadAppointmentDetail(), loadRecords(), loadStatusLogs()])
 })
 
 async function loadAppointmentDetail() {
   if (!apptId.value) return
   const res = await getAppointment(apptId.value)
   appt.value = res.data
+}
+
+async function loadStatusLogs() {
+  if (!apptId.value) return
+  try {
+    const res = await getAppointmentStatusLogs(apptId.value)
+    statusLogs.value = res.data || []
+  } catch {
+    statusLogs.value = []
+  }
 }
 
 function sortStaffList(list: Staff[]) {
@@ -272,8 +295,7 @@ async function doCancel() {
       if (res.confirm) {
         await updateAppointmentStatus(appt.value.ID, { status: 4, cancelled_by: 'staff' })
         uni.showToast({ title: '已取消', icon: 'success' })
-        const r = await getAppointment(appt.value.ID)
-        appt.value = r.data
+        await Promise.all([loadAppointmentDetail(), loadStatusLogs()])
       }
     }
   })
@@ -288,8 +310,7 @@ async function doNoShow() {
       if (res.confirm) {
         await updateAppointmentStatus(appt.value.ID, { status: 5 })
         uni.showToast({ title: '已标记未到店', icon: 'success' })
-        const r = await getAppointment(appt.value.ID)
-        appt.value = r.data
+        await Promise.all([loadAppointmentDetail(), loadStatusLogs()])
       }
     },
   })
@@ -329,6 +350,15 @@ function getPetMeta(petItem: any) {
   const parts = [petItem?.pet?.species, petItem?.pet?.breed].filter(Boolean)
   return parts.length > 0 ? parts.join(' · ') : '未填写品种'
 }
+
+function getStatusLabel(status: number) {
+  return APPOINTMENT_STATUS_META[status]?.label || `状态${status}`
+}
+
+function formatLogTime(value?: string) {
+  if (!value) return '-'
+  return String(value).slice(0, 16).replace('T', ' ')
+}
 </script>
 
 <style scoped>
@@ -352,10 +382,16 @@ function getPetMeta(petItem: any) {
 .pet-block .svc-item:last-child { border-bottom: none; padding-bottom: 0; }
 .svc-meta { color: #6B7280; }
 .notes { font-size: 26rpx; color: #6B7280; display: block; margin-bottom: 8rpx; }
+.log-item { padding: 18rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.log-item:last-child { border-bottom: none; padding-bottom: 0; }
+.log-head { display: flex; justify-content: space-between; gap: 16rpx; margin-bottom: 6rpx; }
+.log-status { font-size: 24rpx; font-weight: 700; color: #1F2937; }
+.log-time { font-size: 22rpx; color: #9CA3AF; }
+.log-operator, .log-note { display: block; font-size: 24rpx; color: #6B7280; line-height: 1.5; }
 .actions-panel { background: #fff; border-radius: 20rpx; padding: 20rpx; margin-top: 16rpx; box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.06); }
-.actions-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12rpx; }
+.actions-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12rpx; align-items: stretch; }
 .btn { border-radius: 16rpx; font-size: 30rpx; min-height: 96rpx; display: flex; align-items: center; justify-content: center; line-height: 1.2; box-sizing: border-box; }
-.action-btn { width: 100%; min-height: 84rpx; padding: 0 8rpx; font-size: 24rpx; font-weight: 700; box-shadow: none; }
+.action-btn { min-height: 84rpx; padding: 0 8rpx; border-radius: 16rpx; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 24rpx; font-weight: 700; line-height: 1.2; white-space: nowrap; box-sizing: border-box; }
 .confirm { background: #4F46E5; color: #fff; }
 .arrived { background: #A855F7; color: #fff; }
 .edit { background: #EEF2FF; color: #4338CA; border: 1rpx solid rgba(79, 70, 229, 0.16); }
@@ -363,7 +399,7 @@ function getPetMeta(petItem: any) {
 .billing { background: #4F46E5; color: #fff; }
 .noshow { background: #FFF7ED; color: #C2410C; border: 1rpx solid #FDBA74; }
 .cancel { background: #FEF2F2; color: #DC2626; border: 1rpx solid rgba(239, 68, 68, 0.28); }
-.assign-inline { margin-top: 14rpx; min-height: 78rpx; font-size: 24rpx; font-weight: 600; background: #EEF2FF; color: #4F46E5; border: 1rpx solid rgba(79, 70, 229, 0.16); }
+.assign-inline { margin-top: 14rpx; min-height: 78rpx; font-size: 24rpx; font-weight: 600; background: #EEF2FF; color: #4F46E5; border: 1rpx solid rgba(79, 70, 229, 0.16); border-radius: 16rpx; display: flex; align-items: center; justify-content: center; }
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 32rpx; z-index: 3200; box-sizing: border-box; }
 .modal { background: #fff; border-radius: 16rpx; padding: 32rpx; width: 80%; max-height: 60vh; overflow-y: auto; box-sizing: border-box; }
 .modal-title { font-size: 32rpx; font-weight: bold; margin-bottom: 24rpx; display: block; }

@@ -40,12 +40,16 @@ export function createBatchOrdersFromAppointment(appointmentId: number, extra?: 
   return request<Order>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
 }
 
-export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string }) {
+export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string; customer_id?: number; order_kind?: string }) {
   return request<PageResult<any>>({ url: '/b/orders', data: params })
 }
 
-export function getOrder(id: number) {
-  return request<any>({ url: `/b/orders/${id}` })
+export function getDeletedOrders(params?: PageParams) {
+  return request<PageResult<any>>({ url: '/b/orders/trash', data: params })
+}
+
+export function getOrder(id: number, includeDeleted = false) {
+  return request<any>({ url: `/b/orders/${id}`, data: includeDeleted ? { include_deleted: 1 } : undefined })
 }
 
 export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string) {
@@ -66,4 +70,8 @@ export function cancelOrder(id: number) {
 
 export function deleteOrder(id: number) {
   return request({ url: `/b/orders/${id}`, method: 'DELETE' })
+}
+
+export function restoreOrder(id: number) {
+  return request({ url: `/b/orders/${id}/restore`, method: 'POST' })
 }

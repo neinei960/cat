@@ -72,7 +72,8 @@ func (h *FeedingHandler) CreatePlan(c *gin.Context) {
 func (h *FeedingHandler) ListPlans(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	result, err := h.service.ListPlans(c.GetUint("shop_id"), page, pageSize, c.Query("status"))
+	customerID, _ := strconv.ParseUint(c.DefaultQuery("customer_id", "0"), 10, 64)
+	result, err := h.service.ListPlans(c.GetUint("shop_id"), page, pageSize, c.Query("status"), uint(customerID))
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return
@@ -150,6 +151,38 @@ func (h *FeedingHandler) GenerateOrder(c *gin.Context) {
 	response.Success(c, order)
 }
 
+func (h *FeedingHandler) UpdateDeposit(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var input struct {
+		Deposit float64 `json:"deposit"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	plan, err := h.service.UpdateDeposit(c.GetUint("shop_id"), uint(id), input.Deposit)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, plan)
+}
+
+func (h *FeedingHandler) UpdatePlayDates(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var input service.FeedingUpdatePlayDatesInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	plan, err := h.service.UpdatePlayDates(c.GetUint("shop_id"), uint(id), input)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, plan)
+}
+
 func (h *FeedingHandler) Dashboard(c *gin.Context) {
 	role, _ := c.Get("role")
 	roleText, _ := role.(string)
@@ -198,6 +231,23 @@ func (h *FeedingHandler) AssignVisit(c *gin.Context) {
 		return
 	}
 	visit, err := h.service.AssignVisit(c.GetUint("shop_id"), c.GetUint("staff_id"), uint(id), req)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, visit)
+}
+
+func (h *FeedingHandler) UpdateVisitNote(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	role, _ := c.Get("role")
+	roleText, _ := role.(string)
+	var req service.FeedingUpdateVisitNoteInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	visit, err := h.service.UpdateVisitNote(c.GetUint("shop_id"), c.GetUint("staff_id"), uint(id), roleText, req)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return

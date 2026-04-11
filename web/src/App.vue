@@ -68,9 +68,53 @@ uni-page-head {
 /* uni.showModal 默认 999，会被待处理面板(1500)盖住 */
 .uni-mask {
   z-index: 6000 !important;
+  position: fixed !important;
 }
 .uni-modal {
   z-index: 6001 !important;
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: min(82vw, 640rpx) !important;
+  max-width: calc(100vw - 48rpx) !important;
+  max-height: calc(100vh - 120rpx - env(safe-area-inset-bottom)) !important;
+  transform: translate(-50%, calc(-50% - env(safe-area-inset-bottom) / 2)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.uni-modal,
+.uni-modal * {
+  pointer-events: auto !important;
+}
+.uni-modal__hd,
+.uni-modal__bd,
+.uni-modal__ft {
+  position: relative;
+  z-index: 1;
+}
+.uni-modal__bd {
+  overflow-y: auto;
+}
+.uni-modal__ft {
+  display: flex;
+  flex-shrink: 0;
+}
+.uni-modal__btn {
+  flex: 1;
+  min-height: 88rpx;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  cursor: pointer;
+}
+.uni-modal__btn_primary {
+  color: #4F46E5 !important;
+  font-weight: 600;
+}
+.uni-modal__btn:active {
+  background: #F3F4F6;
 }
 /* #endif */
 
@@ -120,6 +164,7 @@ textarea::-webkit-input-placeholder {
 .edit-input,
 .add-input,
 .fp-text-input,
+.input,
 .field-input,
 .field-textarea,
 .form-input-sm,
@@ -293,6 +338,7 @@ textarea::-webkit-input-placeholder {
 .edit-input .uni-input-wrapper,
 .add-input .uni-input-wrapper,
 .fp-text-input .uni-input-wrapper,
+.input .uni-input-wrapper,
 .field-input .uni-input-wrapper,
 .form-input-sm .uni-input-wrapper,
 .time-input .uni-input-wrapper,
@@ -313,6 +359,7 @@ textarea::-webkit-input-placeholder {
 .edit-input .uni-input-input,
 .add-input .uni-input-input,
 .fp-text-input .uni-input-input,
+.input .uni-input-input,
 .field-input .uni-input-input,
 .form-input-sm .uni-input-input,
 .time-input .uni-input-input,

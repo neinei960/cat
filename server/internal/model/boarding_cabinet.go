@@ -16,6 +16,7 @@ type BoardingCabinet struct {
 	RoomCount      int     `json:"room_count" gorm:"default:1"`
 	Capacity       int     `json:"capacity" gorm:"default:1"`
 	BasePrice      float64 `json:"base_price" gorm:"type:decimal(10,2);default:0"`
+	ExtraPetPrice  float64 `json:"extra_pet_price" gorm:"type:decimal(10,2);default:0"`
 	Status         string  `json:"status" gorm:"size:20;default:enabled;index"`
 	Remark         string  `json:"remark" gorm:"size:500"`
 	OccupiedRooms  int     `json:"occupied_rooms" gorm:"-"`

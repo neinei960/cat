@@ -9,6 +9,7 @@ export const feedingWeekdays = [
 ]
 
 export const feedingWindows = [
+  { value: 'all_day', label: '全天' },
   { value: 'morning', label: '早间' },
   { value: 'afternoon', label: '午后' },
   { value: 'evening', label: '晚间' },
@@ -55,6 +56,35 @@ export function parseFeedingSelectedItems(raw?: string): FeedingItemTemplate[] {
   } catch {
     return []
   }
+}
+
+export function parseFeedingSelectedDates(raw?: string): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function getFeedingDateOptions(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate || startDate > endDate) return [] as Array<{ date: string; label: string; weekday: number }>
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+  const start = new Date(startYear, startMonth - 1, startDay)
+  const end = new Date(endYear, endMonth - 1, endDay)
+  const result: Array<{ date: string; label: string; weekday: number }> = []
+  for (const current = new Date(start); current <= end; current.setDate(current.getDate() + 1)) {
+    const year = current.getFullYear()
+    const month = `${current.getMonth() + 1}`.padStart(2, '0')
+    const day = `${current.getDate()}`.padStart(2, '0')
+    const date = `${year}-${month}-${day}`
+    const weekday = current.getDay()
+    const weekdayLabel = feedingWeekdays.find((item) => item.value === weekday)?.label || ''
+    result.push({ date, weekday, label: `${month}-${day} ${weekdayLabel}` })
+  }
+  return result
 }
 
 export function formatFeedingDateRange(startDate?: string, endDate?: string) {

@@ -22,30 +22,73 @@ func (r *ProductRepository) FindByID(id uint) (*model.Product, error) {
 }
 
 func (r *ProductRepository) FindByShopID(shopID uint, categoryID uint, keyword string, page, pageSize int) ([]model.Product, int64, error) {
-	var products []model.Product
 	var total int64
 
-	db := database.DB.Model(&model.Product{}).Where("shop_id = ?", shopID)
+	db := database.DB.Model(&model.Product{}).Where("products.shop_id = ?", shopID)
 
 	if categoryID > 0 {
-		db = db.Where("category_id = ?", categoryID)
+		db = db.Where("products.category_id = ?", categoryID)
 	}
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		db = db.Where("(name LIKE ? OR brand LIKE ?)", like, like)
+		db = db.
+			Joins("LEFT JOIN product_categories ON product_categories.id = products.category_id AND product_categories.deleted_at IS NULL").
+			Joins("LEFT JOIN product_skus ON product_skus.product_id = products.id AND product_skus.deleted_at IS NULL").
+			Where("(products.name LIKE ? OR products.brand LIKE ? OR product_categories.name LIKE ? OR product_skus.spec_name LIKE ?)", like, like, like, like)
 	}
 
-	db.Count(&total)
+	if err := db.Distinct("products.id").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	offset := (page - 1) * pageSize
-	err := db.Preload("SKUs").Preload("Category").
-		Order("id DESC").Offset(offset).Limit(pageSize).
-		Find(&products).Error
-	return products, total, err
+	var ids []uint
+	if err := db.
+		Select("products.id").
+		Distinct().
+		Order("products.id DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Pluck("products.id", &ids).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(ids) == 0 {
+		return []model.Product{}, total, nil
+	}
+
+	var products []model.Product
+	if err := database.DB.
+		Where("id IN ?", ids).
+		Preload("SKUs").
+		Preload("Category").
+		Find(&products).Error; err != nil {
+		return nil, 0, err
+	}
+
+	orderMap := make(map[uint]int, len(ids))
+	for idx, id := range ids {
+		orderMap[id] = idx
+	}
+	orderedProducts := make([]model.Product, len(ids))
+	for _, product := range products {
+		if idx, ok := orderMap[product.ID]; ok {
+			orderedProducts[idx] = product
+		}
+	}
+	return orderedProducts, total, nil
 }
 
 func (r *ProductRepository) Update(p *model.Product) error {
-	return database.DB.Save(p).Error
+	return database.DB.Model(&model.Product{}).
+		Where("id = ? AND shop_id = ?", p.ID, p.ShopID).
+		Updates(map[string]any{
+			"category_id":  p.CategoryID,
+			"name":         p.Name,
+			"brand":        p.Brand,
+			"description":  p.Description,
+			"multi_spec":   p.MultiSpec,
+			"status":       p.Status,
+		}).Error
 }
 
 func (r *ProductRepository) Delete(id uint) error {

@@ -23,6 +23,70 @@ func NewOrderService(orderRepo *repository.OrderRepository, apptRepo *repository
 	return &OrderService{orderRepo: orderRepo, apptRepo: apptRepo}
 }
 
+func resolveMemberDiscountRates(customerID *uint) (float64, float64) {
+	serviceDiscountRate := 1.0
+	productDiscountRate := 1.0
+	if customerID == nil || *customerID == 0 {
+		return serviceDiscountRate, productDiscountRate
+	}
+
+	var customer model.Customer
+	if err := database.DB.Select("id", "discount_rate").First(&customer, *customerID).Error; err == nil {
+		if customer.DiscountRate > 0 && customer.DiscountRate < 1 {
+			serviceDiscountRate = customer.DiscountRate
+		}
+	}
+
+	var card model.MemberCard
+	if err := database.DB.Where("customer_id = ? AND status = 1", *customerID).First(&card).Error; err == nil {
+		if serviceDiscountRate == 1 && card.DiscountRate > 0 && card.DiscountRate < 1 {
+			serviceDiscountRate = card.DiscountRate
+		}
+		if card.ProductDiscountRate > 0 && card.ProductDiscountRate < 1 {
+			productDiscountRate = card.ProductDiscountRate
+		}
+	}
+
+	return serviceDiscountRate, productDiscountRate
+}
+
+func roundOrderAmount(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func calculateOrderDiscountRate(totalAmount, payAmount float64) float64 {
+	if totalAmount <= 0 {
+		return 1
+	}
+	return roundOrderAmount(payAmount / totalAmount)
+}
+
+func applyMemberDiscountToOrder(order *model.Order, customerID *uint, serviceTotal, productTotal, addonTotal float64) {
+	serviceDiscountRate, productDiscountRate := resolveMemberDiscountRates(customerID)
+
+	serviceTotal = roundOrderAmount(serviceTotal)
+	productTotal = roundOrderAmount(productTotal)
+	addonTotal = roundOrderAmount(addonTotal)
+
+	servicePayAmount := roundOrderAmount(serviceTotal * serviceDiscountRate)
+	productPayAmount := roundOrderAmount(productTotal * productDiscountRate)
+	serviceDiscountAmount := roundOrderAmount(serviceTotal - servicePayAmount)
+	productDiscountAmount := roundOrderAmount(productTotal - productPayAmount)
+	totalAmount := roundOrderAmount(serviceTotal + productTotal + addonTotal)
+	payAmount := roundOrderAmount(servicePayAmount + productPayAmount + addonTotal)
+	discountAmount := roundOrderAmount(serviceDiscountAmount + productDiscountAmount)
+
+	order.TotalAmount = totalAmount
+	order.ServiceTotal = serviceTotal
+	order.ProductTotal = productTotal
+	order.AddonTotal = addonTotal
+	order.ServiceDiscountAmount = serviceDiscountAmount
+	order.ProductDiscountAmount = productDiscountAmount
+	order.DiscountAmount = discountAmount
+	order.PayAmount = payAmount
+	order.DiscountRate = calculateOrderDiscountRate(totalAmount, payAmount)
+}
+
 // CreateFromAppointment generates an order from a completed appointment
 func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, error) {
 	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
@@ -40,25 +104,15 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 
 	custID := appt.CustomerID
 	order := &model.Order{
-		OrderNo:               utils.GenerateOrderNo(),
-		ShopID:                appt.ShopID,
-		CustomerID:            &custID,
-		AppointmentID:         &appt.ID,
-		StaffID:               appt.StaffID,
-		TotalAmount:           appt.TotalAmount,
-		ServiceTotal:          appt.TotalAmount,
-		PayAmount:             appt.TotalAmount,
-		ServiceDiscountAmount: 0,
-		ProductDiscountAmount: 0,
-	}
-
-	tx := database.DB.Begin()
-	if err := tx.Create(order).Error; err != nil {
-		tx.Rollback()
-		return nil, err
+		OrderNo:       utils.GenerateOrderNo(),
+		ShopID:        appt.ShopID,
+		CustomerID:    &custID,
+		AppointmentID: &appt.ID,
+		StaffID:       appt.StaffID,
 	}
 
 	var items []model.OrderItem
+	var serviceTotal float64
 	if len(appt.Pets) > 0 {
 		for _, apptPet := range appt.Pets {
 			petName := "宠物"
@@ -67,7 +121,6 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 			}
 			for _, svc := range apptPet.Services {
 				items = append(items, model.OrderItem{
-					OrderID:   order.ID,
 					ItemType:  1, // service
 					ItemID:    svc.ServiceID,
 					Name:      petName + " · " + svc.ServiceName,
@@ -75,12 +128,12 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 					UnitPrice: svc.Price,
 					Amount:    svc.Price,
 				})
+				serviceTotal += svc.Price
 			}
 		}
 	} else {
 		for _, svc := range appt.Services {
 			items = append(items, model.OrderItem{
-				OrderID:   order.ID,
 				ItemType:  1, // service
 				ItemID:    svc.ServiceID,
 				Name:      svc.ServiceName,
@@ -88,9 +141,21 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint) (*model.Order, 
 				UnitPrice: svc.Price,
 				Amount:    svc.Price,
 			})
+			serviceTotal += svc.Price
 		}
 	}
+
+	applyMemberDiscountToOrder(order, &custID, serviceTotal, 0, 0)
+
+	tx := database.DB.Begin()
+	if err := tx.Create(order).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 	if len(items) > 0 {
+		for i := range items {
+			items[i].OrderID = order.ID
+		}
 		if err := tx.Create(&items).Error; err != nil {
 			tx.Rollback()
 			return nil, err
@@ -111,9 +176,21 @@ type ServiceOverride struct {
 	Duration    int
 }
 
-func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides ...map[uint][]ServiceOverride) ([]model.Order, error) {
-	// overrideMap: petId -> []services
-	var overrideMap map[uint][]ServiceOverride
+type ProductOverride struct {
+	ProductID uint
+	SKUID     uint
+	Name      string
+	Price     float64
+	Quantity  int
+}
+
+type PetOverrideData struct {
+	Services []ServiceOverride
+	Products []ProductOverride
+}
+
+func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides ...map[uint]PetOverrideData) ([]model.Order, error) {
+	var overrideMap map[uint]PetOverrideData
 	if len(overrides) > 0 && overrides[0] != nil {
 		overrideMap = overrides[0]
 	}
@@ -159,7 +236,8 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides 
 	}
 
 	items := make([]model.OrderItem, 0)
-	var orderTotal float64
+	var serviceTotal float64
+	var productTotal float64
 	for _, apptPet := range validPets {
 		petName := "宠物"
 		if apptPet.Pet != nil && apptPet.Pet.Name != "" {
@@ -186,12 +264,33 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, overrides 
 				UnitPrice: svc.Price,
 				Amount:    svc.Price,
 			})
-			orderTotal += svc.Price
+			serviceTotal += svc.Price
+		}
+
+		// 商品项
+		if overrideMap != nil {
+			if petData, ok := overrideMap[apptPet.PetID]; ok {
+				for _, prod := range petData.Products {
+					qty := prod.Quantity
+					if qty < 1 {
+						qty = 1
+					}
+					amount := prod.Price * float64(qty)
+					items = append(items, model.OrderItem{
+						OrderID:   order.ID,
+						ItemType:  2,
+						ItemID:    prod.ProductID,
+						Name:      fmt.Sprintf("%s · %s", petName, prod.Name),
+						Quantity:  qty,
+						UnitPrice: prod.Price,
+						Amount:    amount,
+					})
+					productTotal += amount
+				}
+			}
 		}
 	}
-	order.TotalAmount = orderTotal
-	order.ServiceTotal = orderTotal
-	order.PayAmount = orderTotal
+	applyMemberDiscountToOrder(&order, &custID, serviceTotal, productTotal, 0)
 	if err := tx.Save(&order).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -276,11 +375,11 @@ func filterActiveAppointmentOrders(orders []model.Order) []model.Order {
 	return filtered
 }
 
-func buildOrderServices(apptPet model.AppointmentPet, overrideMap map[uint][]ServiceOverride) []ServiceOverride {
+func buildOrderServices(apptPet model.AppointmentPet, overrideMap map[uint]PetOverrideData) []ServiceOverride {
 	if overrideMap != nil {
-		if overrides, ok := overrideMap[apptPet.PetID]; ok {
-			services := make([]ServiceOverride, 0, len(overrides))
-			for _, override := range overrides {
+		if petData, ok := overrideMap[apptPet.PetID]; ok {
+			services := make([]ServiceOverride, 0, len(petData.Services))
+			for _, override := range petData.Services {
 				services = append(services, override)
 			}
 			return services
@@ -404,6 +503,15 @@ func (s *OrderService) GetByID(id uint) (*model.Order, error) {
 	return order, nil
 }
 
+func (s *OrderService) GetByIDIncludeDeleted(id uint) (*model.Order, error) {
+	order, err := s.orderRepo.FindByIDUnscoped(id)
+	if err != nil {
+		return nil, err
+	}
+	s.decorateOrder(order)
+	return order, nil
+}
+
 func (s *OrderService) ListPaged(shopID uint, f repository.OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
 	if page < 1 {
 		page = 1
@@ -519,7 +627,7 @@ func (s *OrderService) Cancel(id uint) error {
 	return nil
 }
 
-func (s *OrderService) Delete(shopID, id uint) error {
+func (s *OrderService) Delete(shopID, id uint, role ...string) error {
 	order, err := s.orderRepo.FindByID(id)
 	if err != nil {
 		return errors.New("订单不存在")
@@ -527,8 +635,13 @@ func (s *OrderService) Delete(shopID, id uint) error {
 	if order.ShopID != shopID {
 		return errors.New("订单不存在")
 	}
-	if order.Status != 2 && order.Status != 3 {
-		return errors.New("仅已取消或已退款订单可删除")
+	callerRole := ""
+	if len(role) > 0 {
+		callerRole = role[0]
+	}
+	isManager := model.HasStaffRoleAtLeast(callerRole, model.StaffRoleManager)
+	if !isManager && order.Status != 0 && order.Status != 1 && order.Status != 2 && order.Status != 3 {
+		return errors.New("仅待付款、待结算、已取消或已退款订单可删除")
 	}
 
 	if err := database.DB.Transaction(func(tx *gorm.DB) error {
@@ -544,6 +657,37 @@ func (s *OrderService) Delete(shopID, id uint) error {
 	}
 
 	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
+	return nil
+}
+
+func (s *OrderService) ListDeleted(shopID uint, page, pageSize int) ([]model.Order, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	since := time.Now().Add(-48 * time.Hour)
+	list, total, err := s.orderRepo.FindDeleted(shopID, page, pageSize, since)
+	if err != nil {
+		return nil, 0, err
+	}
+	s.decorateOrders(list)
+	return list, total, nil
+}
+
+func (s *OrderService) Restore(shopID, id uint) error {
+	var deletedOrder model.Order
+	if err := database.DB.Unscoped().Where("id = ? AND shop_id = ? AND deleted_at IS NOT NULL", id, shopID).First(&deletedOrder).Error; err != nil {
+		return errors.New("订单不存在")
+	}
+	if deletedOrder.DeletedAt.Time.Before(time.Now().Add(-48 * time.Hour)) {
+		return errors.New("订单已超过 2 天恢复期限")
+	}
+	if err := s.orderRepo.Restore(shopID, id); err != nil {
+		return err
+	}
+	_ = s.syncAppointmentSettlementPtr(deletedOrder.AppointmentID)
 	return nil
 }
 

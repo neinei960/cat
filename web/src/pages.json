@@ -140,6 +140,12 @@
 			}
 		},
 		{
+			"path": "pages/order/trash",
+			"style": {
+				"navigationBarTitleText": "订单回收站"
+			}
+		},
+		{
 			"path": "pages/order/detail",
 			"style": {
 				"navigationBarTitleText": "订单详情"

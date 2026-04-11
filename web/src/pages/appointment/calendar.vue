@@ -113,6 +113,20 @@
       </view>
     </view>
 
+    <view v-if="pendingConfirmDelete" class="pending-confirm-mask" @click.self="cancelPendingDelete">
+      <view class="pending-confirm-dialog" @click.stop>
+        <view class="pending-confirm-head">
+          <text class="pending-confirm-title">确认删除</text>
+          <text class="pending-confirm-close" @click="cancelPendingDelete">✕</text>
+        </view>
+        <text class="pending-confirm-text">确认删除 {{ pendingSelectedIds.length }} 条预约？删除后不可恢复。</text>
+        <view class="pending-confirm-actions">
+          <view class="pending-confirm-btn secondary" @click="cancelPendingDelete">取消</view>
+          <view class="pending-confirm-btn danger" @click="executePendingDelete">确认删除</view>
+        </view>
+      </view>
+    </view>
+
     <!-- Stats bar -->
     <view class="stats-bar" v-if="appointments.length > 0">
       <text class="stats-text">共 {{ appointments.length }} 个预约</text>
@@ -219,7 +233,7 @@
                 @click.stop="goDetail(appt.ID)"
               >
                 <view class="appt-head">
-                  <text class="appt-time">{{ appt.start_time }}</text>
+                  <text class="appt-time">{{ appt.start_time }}-{{ appt.end_time }}</text>
                   <view class="appt-status-mini" :style="getAppointmentStatusBadgeStyle(appt.status)">{{ getAppointmentStatusLabel(appt.status) }}</view>
                 </view>
                 <view class="appt-pet-stack compact">
@@ -330,6 +344,7 @@ const pendingStaffList = ref<any[]>([])
 const pendingCategories = ref<any[]>([])
 const pendingSelectionMode = ref(false)
 const pendingSelectedIds = ref<number[]>([])
+const pendingConfirmDelete = ref(false)
 let pendingLongPressTimer: ReturnType<typeof setTimeout> | null = null
 let pendingLongPressTriggered = false
 const pendingFilter = reactive({
@@ -422,6 +437,7 @@ function enterPendingSelectionMode(id?: number) {
 function exitPendingSelectionMode() {
   pendingSelectionMode.value = false
   pendingSelectedIds.value = []
+  pendingConfirmDelete.value = false
 }
 function startPendingLongPress(id: number) {
   clearPendingLongPress()
@@ -453,17 +469,19 @@ function handlePendingCardClick(id: number) {
   showPendingPanel.value = false
   goDetail(id)
 }
-async function confirmDeletePendingSelected() {
+function confirmDeletePendingSelected() {
   if (pendingSelectedIds.value.length === 0) return
-  const selectedCount = pendingSelectedIds.value.length
-  const modalRes = await uni.showModal({
-    title: '确认删除',
-    content: `确定删除选中的 ${selectedCount} 条预约吗？已开单、服务中、待结算的预约不会被删除。`,
-    confirmColor: '#DC2626',
-  })
-  if (!modalRes.confirm) return
+  pendingConfirmDelete.value = true
+}
 
+function cancelPendingDelete() {
+  pendingConfirmDelete.value = false
+}
+
+async function executePendingDelete() {
+  pendingConfirmDelete.value = false
   let successCount = 0
+  const failedIds: number[] = []
   const failedMessages: string[] = []
   const ids = [...pendingSelectedIds.value]
   for (const id of ids) {
@@ -471,6 +489,7 @@ async function confirmDeletePendingSelected() {
       await deleteAppointment(id)
       successCount++
     } catch (error: any) {
+      failedIds.push(id)
       const msg = error?.msg || error?.message || '删除失败'
       failedMessages.push(`#${id} ${msg}`)
     }
@@ -480,15 +499,20 @@ async function confirmDeletePendingSelected() {
     uni.showToast({ title: `已删除 ${successCount} 条`, icon: 'none' })
   }
   if (failedMessages.length > 0) {
-    uni.showModal({
-      title: '部分删除失败',
-      content: failedMessages.slice(0, 5).join('\n'),
-      showCancel: false,
-    })
+    uni.showToast({ title: failedMessages.slice(0, 3).join('; '), icon: 'none', duration: 3000 })
+  }
+
+  if (successCount > 0) {
+    await Promise.all([loadPending(), loadPendingCount(), loadData()])
+  }
+
+  if (failedIds.length > 0) {
+    pendingSelectionMode.value = true
+    pendingSelectedIds.value = failedIds
+    return
   }
 
   exitPendingSelectionMode()
-  await Promise.all([loadPending(), loadPendingCount(), loadData()])
 }
 const staffScheduleMap = ref<Record<number, { start: string; end: string; dayOff: boolean }>>({})
 const shopOpenTime = ref('10:00')
@@ -811,7 +835,9 @@ function getAppointmentBlockStyle(appt: any) {
     const slotStr = minutesToTime(startMin + i * 30)
     totalH += slotRowHeights.value[slotStr] || 80
   }
-  const heightVw = (totalH - 2) / 750 * 100
+  // 补偿跨行的 border-bottom（每行 1rpx）+ 2rpx 冗余确保覆盖完整
+  totalH += slots
+  const heightVw = totalH / 750 * 100
   const statusMeta = getAppointmentStatusMeta(appt?.status)
   return {
     ...getAppointmentStatusBlockStyle(appt?.status),
@@ -1274,7 +1300,7 @@ onShow(() => { loadData(); loadPendingCount() })
   text-align: center;
   box-sizing: border-box;
 }
-.time-cell { position: relative; min-height: 80rpx; padding: 8rpx; background: rgba(255, 255, 255, 0.78); overflow: visible; }
+.time-cell { position: relative; min-height: 80rpx; padding: 8rpx; background: rgba(255, 255, 255, 0.78); overflow: visible; box-sizing: border-box; }
 .time-cell.off-duty { background: repeating-linear-gradient(135deg, #F1F5F9, #F1F5F9 8rpx, #E8ECF1 8rpx, #E8ECF1 16rpx); opacity: 0.5; }
 
 .appt-block {
@@ -1290,6 +1316,7 @@ onShow(() => { loadData(); loadPendingCount() })
   cursor: pointer;
   box-shadow: 0 14rpx 28rpx rgba(15, 23, 42, 0.12);
   z-index: 5;
+  box-sizing: border-box;
 }
 .appt-block::before {
   content: '';
@@ -1345,6 +1372,16 @@ onShow(() => { loadData(); loadPendingCount() })
 /* Pending overlay & panel */
 .pending-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); z-index: 1500; display: flex; align-items: flex-end; justify-content: center; }
 .pending-panel { background: #fff; border-radius: 24rpx 24rpx 0 0; width: 100%; max-height: 85vh; display: flex; flex-direction: column; padding-bottom: calc(50px + env(safe-area-inset-bottom)); }
+.pending-confirm-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.38); z-index: 1700; display: flex; align-items: center; justify-content: center; padding: 32rpx; box-sizing: border-box; }
+.pending-confirm-dialog { width: 100%; max-width: 520rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 24rpx 60rpx rgba(15, 23, 42, 0.22); padding: 28rpx; box-sizing: border-box; }
+.pending-confirm-head { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 18rpx; }
+.pending-confirm-title { font-size: 32rpx; font-weight: 700; color: #111827; }
+.pending-confirm-close { font-size: 32rpx; color: #9CA3AF; padding: 4rpx 8rpx; }
+.pending-confirm-text { display: block; font-size: 26rpx; line-height: 1.7; color: #4B5563; }
+.pending-confirm-actions { display: flex; gap: 16rpx; margin-top: 28rpx; }
+.pending-confirm-btn { flex: 1; min-height: 84rpx; display: flex; align-items: center; justify-content: center; border-radius: 18rpx; font-size: 26rpx; font-weight: 700; }
+.pending-confirm-btn.secondary { background: #F3F4F6; color: #4B5563; }
+.pending-confirm-btn.danger { background: #DC2626; color: #fff; box-shadow: 0 12rpx 24rpx rgba(220, 38, 38, 0.24); }
 .pending-header { display: flex; justify-content: space-between; align-items: center; padding: 24rpx 28rpx; border-bottom: 1rpx solid #F3F4F6; }
 .pending-header-right { display: flex; align-items: center; gap: 16rpx; }
 .pending-title { font-size: 32rpx; font-weight: 700; color: #1F2937; }

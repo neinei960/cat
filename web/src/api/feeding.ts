@@ -19,6 +19,7 @@ export function createFeedingPlan(data: {
   contact_phone: string
   start_date: string
   end_date: string
+  selected_dates: string[]
   remark?: string
   pets: Array<{ pet_id: number; remark?: string }>
   rules: Array<{ weekday: number; window_code: string; visit_count: number }>
@@ -34,6 +35,7 @@ export function updateFeedingPlan(id: number, data: {
   contact_phone: string
   start_date: string
   end_date: string
+  selected_dates: string[]
   remark?: string
   pets: Array<{ pet_id: number; remark?: string }>
   rules: Array<{ weekday: number; window_code: string; visit_count: number }>
@@ -42,12 +44,20 @@ export function updateFeedingPlan(id: number, data: {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}`, method: 'PUT', data })
 }
 
-export function getFeedingPlans(params?: PageParams & { status?: string }) {
+export function getFeedingPlans(params?: PageParams & { status?: string; customer_id?: number }) {
   return request<PageResult<FeedingPlan>>({ url: '/b/feeding/plans', data: params })
 }
 
 export function getFeedingPlan(id: number) {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}` })
+}
+
+export function updateFeedingDeposit(id: number, deposit: number) {
+  return request<FeedingPlan>({ url: `/b/feeding/plans/${id}/deposit`, method: 'PUT', data: { deposit } })
+}
+
+export function updateFeedingPlayDates(id: number, playDates: string[]) {
+  return request<FeedingPlan>({ url: `/b/feeding/plans/${id}/play-dates`, method: 'PUT', data: { play_dates: playDates } })
 }
 
 export function pauseFeedingPlan(id: number) {
@@ -103,6 +113,10 @@ export function exceptionFeedingVisit(id: number, data: {
   internal_note?: string
 }) {
   return request<FeedingVisit>({ url: `/b/feeding/visits/${id}/exception`, method: 'PUT', data })
+}
+
+export function updateFeedingVisitNote(id: number, data: { internal_note: string }) {
+  return request<FeedingVisit>({ url: `/b/feeding/visits/${id}/note`, method: 'PUT', data })
 }
 
 export function addFeedingVisitMedia(id: number, data: { media_type?: string; url: string }) {
