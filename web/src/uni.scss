@@ -15,26 +15,26 @@
 /* 颜色变量 */
 
 /* 行为相关颜色 */
-$uni-color-primary: #007aff;
+$uni-color-primary: #d8a94f;
 $uni-color-success: #4cd964;
-$uni-color-warning: #f0ad4e;
+$uni-color-warning: #d2872c;
 $uni-color-error: #dd524d;
 
 /* 文字基本颜色 */
-$uni-text-color: #333; // 基本色
+$uni-text-color: #3f3428; // 基本色
 $uni-text-color-inverse: #fff; // 反色
-$uni-text-color-grey: #999; // 辅助灰色，如加载更多的提示信息
-$uni-text-color-placeholder: #808080;
+$uni-text-color-grey: #8e7b62; // 辅助灰色，如加载更多的提示信息
+$uni-text-color-placeholder: #a59276;
 $uni-text-color-disable: #c0c0c0;
 
 /* 背景颜色 */
-$uni-bg-color: #fff;
-$uni-bg-color-grey: #f8f8f8;
-$uni-bg-color-hover: #f1f1f1; // 点击状态颜色
+$uni-bg-color: #faf7f2;
+$uni-bg-color-grey: #f6efe3;
+$uni-bg-color-hover: #f4e9d4; // 点击状态颜色
 $uni-bg-color-mask: rgba(0, 0, 0, 0.4); // 遮罩颜色
 
 /* 边框颜色 */
-$uni-border-color: #c8c7cc;
+$uni-border-color: #eadfcb;
 
 /* 尺寸变量 */
 
@@ -74,3 +74,32 @@ $uni-color-subtitle: #555; // 二级标题颜色
 $uni-font-size-subtitle: 18px;
 $uni-color-paragraph: #3f536e; // 文章段落颜色
 $uni-font-size-paragraph: 15px;
+
+:root,
+page,
+body {
+  --cat-color-primary: #d8a94f;
+  --cat-color-primary-deep: #a07830;
+  --cat-color-primary-soft: #fbf3df;
+  --cat-color-primary-soft-strong: #f6e4bd;
+  --cat-color-page-bg: #faf7f2;
+  --cat-color-card-bg: #fffaf3;
+  --cat-color-card-bg-strong: #fff4df;
+  --cat-color-sidebar-bg: #4c3a24;
+  --cat-color-sidebar-hover: #5a452d;
+  --cat-color-sidebar-text: #f5e8cf;
+  --cat-color-border: #eadfcb;
+  --cat-color-border-strong: #d9c39d;
+  --cat-color-text-main: #3f3428;
+  --cat-color-text-muted: #8e7b62;
+  --cat-color-text-light: #b39a73;
+  --cat-color-danger-soft: #fef2f2;
+  --cat-shadow-soft: 0 12rpx 28rpx rgba(116, 88, 38, 0.1);
+  --cat-shadow-floating: 0 16rpx 36rpx rgba(116, 88, 38, 0.16);
+}
+
+page,
+body {
+  background: var(--cat-color-page-bg);
+  color: var(--cat-color-text-main);
+}

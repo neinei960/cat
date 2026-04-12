@@ -55,7 +55,7 @@
           <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
           <text v-else>{{ item.icon }}</text>
         </view>
-        <text class="tab-label" :style="item.highlight ? 'color: #4F46E5;' : ''">{{ item.label }}</text>
+        <text class="tab-label" :style="item.highlight ? 'color: var(--cat-color-primary-deep);' : ''">{{ item.label }}</text>
       </view>
       <view class="tab-item" @click="showMoreMenu = true">
         <text class="tab-icon">⚙️</text>
@@ -216,7 +216,7 @@ function handleLogout() {
 .sidebar {
   width: 200px;
   min-width: 200px;
-  background-color: #1F2937;
+  background: linear-gradient(180deg, var(--cat-color-sidebar-bg) 0%, #3d2d1b 100%);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -229,13 +229,13 @@ function handleLogout() {
 
 .sidebar-logo {
   padding: 24px 16px;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid rgba(255, 244, 223, 0.12);
 }
 
 .logo-text {
   font-size: 18px;
   font-weight: 700;
-  color: #FFFFFF;
+  color: #fff9ef;
 }
 
 .sidebar-menu {
@@ -252,14 +252,15 @@ function handleLogout() {
 }
 
 .menu-item:hover {
-  background-color: #374151;
+  background-color: var(--cat-color-sidebar-hover);
 }
 
 .menu-item.active {
-  background-color: #EEF2FF;
-  border-radius: 8px;
+  background: linear-gradient(135deg, var(--cat-color-primary-soft) 0%, #fff1ca 100%);
+  border-radius: 12px;
   margin: 0 8px;
   position: relative;
+  box-shadow: inset 0 0 0 1px rgba(160, 120, 48, 0.08);
 }
 .menu-item.active::before {
   content: '';
@@ -269,7 +270,7 @@ function handleLogout() {
   transform: translateY(-50%);
   width: 4px;
   height: 60%;
-  background-color: #4F46E5;
+  background-color: var(--cat-color-primary);
   border-radius: 2px;
 }
 
@@ -281,7 +282,7 @@ function handleLogout() {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 250, 243, 0.1);
   margin-right: 10px;
 }
 
@@ -290,27 +291,27 @@ function handleLogout() {
 }
 
 .menu-item.active .menu-icon {
-  background-color: #4F46E5;
+  background: linear-gradient(135deg, var(--cat-color-primary) 0%, #efc97c 100%);
 }
 
 .menu-label {
   font-size: 14px;
-  color: #D1D5DB;
+  color: var(--cat-color-sidebar-text);
 }
 
 .menu-item.active .menu-label {
-  color: #1F2937;
+  color: var(--cat-color-text-main);
   font-weight: 600;
 }
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid #374151;
+  border-top: 1px solid rgba(255, 244, 223, 0.12);
 }
 
 .user-name {
   font-size: 14px;
-  color: #D1D5DB;
+  color: var(--cat-color-sidebar-text);
   display: block;
   margin-bottom: 8px;
 }
@@ -321,7 +322,7 @@ function handleLogout() {
 
 .logout-text {
   font-size: 13px;
-  color: #9CA3AF;
+  color: #d8c09c;
 }
 
 .logout-btn:hover .logout-text {
@@ -332,7 +333,7 @@ function handleLogout() {
   flex: 1;
   margin-left: 200px;
   min-height: 100vh;
-  background-color: #F5F6FA;
+  background-color: var(--cat-color-page-bg);
 }
 
 /* ========== 手机端底部导航 ========== */
@@ -345,7 +346,7 @@ function handleLogout() {
 .app-content {
   flex: 1;
   padding-bottom: calc(50px + env(safe-area-inset-bottom));
-  background-color: #F5F6FA;
+  background-color: var(--cat-color-page-bg);
 }
 
 .bottom-tabbar {
@@ -355,14 +356,15 @@ function handleLogout() {
   bottom: 0;
   height: calc(50px + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 250, 243, 0.96);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: space-around;
-  border-top: 1px solid #E5E7EB;
+  border-top: 1px solid var(--cat-color-border);
   z-index: 1000;
+  box-shadow: 0 -8px 24px rgba(116, 88, 38, 0.08);
 }
 
 .tab-item {
@@ -383,7 +385,7 @@ function handleLogout() {
   align-items: center;
   justify-content: center;
   border-radius: 8rpx;
-  background-color: #F1F5F9;
+  background-color: var(--cat-color-primary-soft);
 }
 
 .tab-icon-cat {
@@ -391,7 +393,7 @@ function handleLogout() {
 }
 
 .tab-item.active .tab-icon {
-  background-color: #EEF2FF;
+  background-color: var(--cat-color-card-bg-strong);
 }
 
 .tab-icon-highlight .tab-icon {
@@ -400,17 +402,17 @@ function handleLogout() {
 
 .tab-label {
   font-size: 10px;
-  color: #6B7280;
+  color: var(--cat-color-text-muted);
   margin-top: 2px;
 }
 
 .tab-item.active .tab-label {
-  color: #4F46E5;
+  color: var(--cat-color-primary-deep);
   font-weight: 500;
 }
 
 .tab-icon-highlight {
-  background: linear-gradient(135deg, #6366F1, #4F46E5);
+  background: linear-gradient(135deg, var(--cat-color-primary) 0%, #efc97c 100%);
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -418,11 +420,11 @@ function handleLogout() {
   align-items: center;
   justify-content: center;
   margin-top: -15px;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 6px 18px rgba(160, 120, 48, 0.32);
 }
 
 .tab-item-highlight .tab-label {
-  color: #4F46E5;
+  color: var(--cat-color-primary-deep);
   font-weight: 500;
 }
 
@@ -441,11 +443,12 @@ function handleLogout() {
 
 .more-panel {
   width: 100%;
-  background-color: #FFFFFF;
-  border-radius: 12px 12px 0 0;
+  background-color: var(--cat-color-card-bg);
+  border-radius: 20px 20px 0 0;
   padding: 16px;
   max-height: 70vh;
   overflow-y: auto;
+  border-top: 1px solid var(--cat-color-border);
 }
 
 .more-header {
@@ -458,12 +461,12 @@ function handleLogout() {
 .more-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1F2937;
+  color: var(--cat-color-text-main);
 }
 
 .more-close {
   font-size: 16px;
-  color: #9CA3AF;
+  color: var(--cat-color-text-light);
   padding: 4px;
 }
 
@@ -484,7 +487,7 @@ function handleLogout() {
 }
 
 .more-item:active {
-  background-color: #EEF2FF;
+  background-color: var(--cat-color-primary-soft);
   transform: scale(0.94);
 }
 
@@ -501,13 +504,13 @@ function handleLogout() {
 
 .more-label {
   font-size: 12px;
-  color: #374151;
+  color: var(--cat-color-text-main);
 }
 
 .more-footer {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #E5E7EB;
+  border-top: 1px solid var(--cat-color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -515,7 +518,7 @@ function handleLogout() {
 
 .user-name-app {
   font-size: 14px;
-  color: #6B7280;
+  color: var(--cat-color-text-muted);
 }
 
 .logout-btn-app {
@@ -524,6 +527,6 @@ function handleLogout() {
 
 .logout-text-app {
   font-size: 13px;
-  color: #EF4444;
+  color: var(--cat-color-primary-deep);
 }
 </style>

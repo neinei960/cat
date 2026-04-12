@@ -112,6 +112,7 @@ const filter = reactive({
   staffId: 0,
   payMethod: '',
   categoryId: 0,
+  productKeyword: '',
 })
 
 const activeFilterCount = computed(() => {
