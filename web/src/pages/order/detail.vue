@@ -450,7 +450,7 @@ const petGroups = computed(() => {
   const grouped: Array<{ pet_name: string; items: any[] }> = []
   const groupMap = new Map<string, { pet_name: string; items: any[] }>()
   for (const item of items) {
-    if (item.item_type === 2 || item.item_type === 3) {
+    if (item.item_type === 2) {
       const key = '零售商品'
       if (!groupMap.has(key)) {
         const nextGroup = { pet_name: key, items: [] as any[] }
@@ -628,7 +628,7 @@ onLoad(async (query) => {
     isDeletedView.value = query.include_deleted === '1'
     const res = await getOrder(parseInt(query.id), isDeletedView.value)
     order.value = res.data
-    remarkDraft.value = order.value?.remark || ''
+    remarkDraft.value = resolveEditableRemark(order.value)
     // Load shop info for receipt
     try {
       const shopRes = await getShop()
@@ -664,7 +664,17 @@ onUnmounted(() => {
 async function reload() {
   const res = await getOrder(order.value.ID, isDeletedView.value)
   order.value = res.data
-  remarkDraft.value = order.value?.remark || ''
+  remarkDraft.value = resolveEditableRemark(order.value)
+}
+
+function resolveEditableRemark(target?: Order | null) {
+  if (!target) return ''
+  const remark = (target.remark || '').trim()
+  if (!remark) return ''
+  const isBoardingSystemRemark = remark.startsWith('寄养订单 · ')
+    && !!target.items?.length
+    && target.items.every((item) => [4, 5, 6].includes(item.item_type))
+  return isBoardingSystemRemark ? '' : remark
 }
 
 async function openPayModal() {

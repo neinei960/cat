@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Component Extractor"
+  short_description: "Split large H5 pages into maintainable components"
+  default_prompt: "Use $frontend-component-extractor to split an old H5 page in this repository into safer component boundaries."

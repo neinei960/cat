@@ -257,10 +257,15 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.GetOrder)
 		b.GET("/boarding/dashboard", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Dashboard)
 		b.PUT("/boarding/orders/:id/check-in", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckIn)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/check-in", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckInRoom)
 		b.PUT("/boarding/orders/:id/check-out", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckOut)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/check-out", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckOutRoom)
 		b.PUT("/boarding/orders/:id/extend", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Extend)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/extend", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ExtendRoom)
 		b.PUT("/boarding/orders/:id/change-cabinet", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ChangeCabinet)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/change-cabinet", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ChangeRoomCabinet)
 		b.PUT("/boarding/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Cancel)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CancelRoom)
 
 		// Service Records
 		svcRecordRepo := repository.NewServiceRecordRepository()

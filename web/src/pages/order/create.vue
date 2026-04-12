@@ -2,14 +2,6 @@
   <SideLayout>
     <view class="page">
       <view class="section">
-        <view class="section-head">
-          <view>
-            <text class="section-title">客户与猫咪</text>
-            <text class="section-desc">商品可直接零售，服务需要先选猫咪。</text>
-          </view>
-          <view v-if="isEditing" class="section-badge">修改订单</view>
-        </view>
-
         <view class="selector-block">
         <view class="selector-head">
           <text class="selector-title">客户</text>
@@ -32,14 +24,16 @@
           <view v-else>
             <view class="search-shell">
               <view class="search-accent">搜客户</view>
-              <input
-                v-model="customerKeyword"
-                class="search-input search-input-centered"
-                placeholder="输入客户昵称或手机号搜索"
-                confirm-type="search"
-                @input="searchCustomers"
-                @confirm="searchCustomers"
-              />
+              <view class="search-input-wrap">
+                <input
+                  v-model="customerKeyword"
+                  class="search-input search-input-centered"
+                  confirm-type="search"
+                  @input="searchCustomers"
+                  @confirm="searchCustomers"
+                />
+                <text v-if="!customerKeyword" class="search-placeholder">输入客户昵称或手机号搜索</text>
+              </view>
             </view>
             <view v-if="customerOptions.length > 0" class="option-list">
               <view class="option-card" v-for="customer in customerOptions" :key="customer.ID" @click="selectCustomer(customer)">
@@ -79,14 +73,18 @@
           <view v-else>
             <view class="search-shell">
               <view class="search-accent">{{ selectedCustomer ? '当前客户' : '搜猫咪' }}</view>
-              <input
-                v-model="petKeyword"
-                class="search-input search-input-centered"
-                :placeholder="selectedCustomer ? '搜索该客户的猫咪' : '输入猫咪名搜索'"
-                confirm-type="search"
-                @input="searchPets"
-                @confirm="searchPets"
-              />
+              <view class="search-input-wrap">
+                <input
+                  v-model="petKeyword"
+                  class="search-input search-input-centered"
+                  confirm-type="search"
+                  @input="searchPets"
+                  @confirm="searchPets"
+                />
+                <text v-if="!petKeyword" class="search-placeholder">
+                  {{ selectedCustomer ? '搜索该客户的猫咪' : '输入猫咪名搜索' }}
+                </text>
+              </view>
             </view>
             <view v-if="selectedCustomer && petOptions.length === 0" class="inline-hint">该客户暂无猫咪档案，可直接开商品单。</view>
             <view v-if="petOptions.length > 0" class="option-list">
@@ -120,28 +118,33 @@
 
         <view class="search-shell">
           <view class="search-accent">搜商品</view>
-          <input
-            v-model="productKeyword"
-            class="search-input search-input-centered"
-            placeholder="搜索商品名称 / 品牌"
-          />
+          <view class="search-input-wrap">
+            <input
+              v-model="productKeyword"
+              class="search-input search-input-centered"
+              confirm-type="search"
+              @confirm="triggerProductSearch(true)"
+            />
+            <text v-if="!productKeyword" class="search-placeholder">搜索商品名称 / 品牌 / 分类 / 规格</text>
+          </view>
         </view>
 
         <scroll-view scroll-x class="product-tab-bar">
           <view class="product-tab-list">
-            <view :class="['product-tab', activeProductCategoryId === 0 ? 'active' : '']" @click="activeProductCategoryId = 0">全部</view>
+            <view :class="['product-tab', activeProductCategoryId === 0 ? 'active' : '']" @click="setActiveProductCategory(0)">全部</view>
             <view
               v-for="category in productCategories"
               :key="category.ID"
               :class="['product-tab', activeProductCategoryId === category.ID ? 'active' : '']"
-              @click="activeProductCategoryId = category.ID"
+              @click="setActiveProductCategory(category.ID)"
             >
               {{ category.name }}
             </view>
           </view>
         </scroll-view>
 
-        <view v-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
+        <view v-if="productLoading" class="empty-block">商品加载中...</view>
+        <view v-else-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
         <view v-else class="product-grid">
           <view class="product-card" v-for="product in filteredProducts" :key="product.ID" @click="openProductPicker(product)">
             <view class="product-card-top">
@@ -322,9 +325,6 @@
             <view :class="['picker', hasServiceItem && !selectedStaff ? 'picker-warn' : '']">{{ staffNames[selectedStaffIdx] || '请选择' }}</view>
           </picker>
         </view>
-        <view class="staff-commission" v-if="selectedStaff">
-          <text>服务提成 {{ selectedStaff.commission_rate }}% · 商品提成 {{ selectedStaff.product_commission_rate || 0 }}%</text>
-        </view>
         <view class="form-row">
           <text class="label">备注</text>
           <input v-model="remark" placeholder="备注" class="input" />
@@ -340,7 +340,7 @@
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerList, getCustomerPets } from '@/api/customer'
 import { getPetList } from '@/api/pet'
@@ -381,6 +381,7 @@ const productKeyword = ref('')
 const productList = ref<ProductOption[]>([])
 const productCategories = ref<any[]>([])
 const activeProductCategoryId = ref(0)
+const productLoading = ref(false)
 const cartItems = ref<CartItem[]>([])
 
 const serviceList = ref<any[]>([])
@@ -410,6 +411,8 @@ const ORDER_CREATE_RETURN_CUSTOMER_KEY = 'order_create_return_customer_id'
 
 let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
 let petSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productRequestSeq = 0
 
 const isEditing = computed(() => editingOrderId.value > 0)
 const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
@@ -447,14 +450,10 @@ const petOptions = computed(() => {
 })
 
 const filteredProducts = computed(() => {
-  const keyword = productKeyword.value.trim().toLowerCase()
   return productList.value.filter((product) => {
     if (product.status !== 1) return false
-    if (activeProductCategoryId.value > 0 && product.category_id !== activeProductCategoryId.value) return false
     if (getSellableSkus(product).length === 0) return false
-    if (!keyword) return true
-    const haystack = `${product.name} ${product.brand || ''}`.toLowerCase()
-    return haystack.includes(keyword)
+    return true
   })
 })
 
@@ -500,6 +499,7 @@ onLoad((query) => {
 onMounted(async () => {
   await Promise.all([
     loadServiceData(),
+    loadProductCategories(),
     loadProductData(),
     loadStaffs(),
   ])
@@ -542,15 +542,55 @@ async function loadServiceData() {
 }
 
 async function loadProductData() {
+  const requestSeq = ++productRequestSeq
+  productLoading.value = true
   try {
-    const [categoryRes, productRes] = await Promise.all([
-      getProductCategories(),
-      getProductList({ page: 1, page_size: 500 } as any),
-    ])
-    productCategories.value = Array.isArray(categoryRes.data) ? categoryRes.data.filter((item: any) => item.status === 1) : []
+    const params: any = { page: 1, page_size: 100 }
+    if (activeProductCategoryId.value > 0) {
+      params.category_id = activeProductCategoryId.value
+    }
+    const keyword = productKeyword.value.trim()
+    if (keyword) {
+      params.keyword = keyword
+    }
+    const productRes = await getProductList(params)
+    if (requestSeq !== productRequestSeq) return
     productList.value = productRes.data?.list || []
   } catch {}
+  finally {
+    if (requestSeq === productRequestSeq) {
+      productLoading.value = false
+    }
+  }
 }
+
+async function loadProductCategories() {
+  try {
+    const categoryRes = await getProductCategories()
+    productCategories.value = Array.isArray(categoryRes.data) ? categoryRes.data.filter((item: any) => item.status === 1) : []
+  } catch {}
+}
+
+function setActiveProductCategory(categoryId: number) {
+  if (activeProductCategoryId.value === categoryId) return
+  activeProductCategoryId.value = categoryId
+  triggerProductSearch(true)
+}
+
+function triggerProductSearch(immediate = false) {
+  if (productSearchTimer) clearTimeout(productSearchTimer)
+  if (immediate) {
+    loadProductData()
+    return
+  }
+  productSearchTimer = setTimeout(() => {
+    loadProductData()
+  }, 250)
+}
+
+watch(productKeyword, () => {
+  triggerProductSearch(false)
+})
 
 async function loadStaffs() {
   try {
@@ -1143,6 +1183,31 @@ function roundCurrency(value: number) {
   border-color: #A5B4FC;
   box-shadow: 0 12rpx 28rpx rgba(79, 70, 229, 0.12);
 }
+.search-shell:focus-within .search-placeholder {
+  opacity: 0;
+  visibility: hidden;
+}
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.search-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12rpx;
+  font-size: 26rpx;
+  line-height: 1.2;
+  color: #9CA3AF;
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
 .search-accent {
   flex-shrink: 0;
   min-width: 104rpx;
@@ -1211,22 +1276,10 @@ function roundCurrency(value: number) {
   padding: 0 12rpx !important;
 }
 .search-input :deep(.uni-input-placeholder) {
-  font-size: 26rpx;
-  color: #9CA3AF;
-  text-align: center;
-  width: 100%;
+  display: none !important;
 }
 .search-input-centered :deep(.uni-input-placeholder) {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-height: 88rpx !important;
-  height: 88rpx !important;
-  line-height: 88rpx !important;
-  text-align: center !important;
-  width: 100% !important;
-  padding: 0 12rpx !important;
-  box-sizing: border-box;
+  display: none !important;
 }
 .option-list {
   margin-top: 12rpx;

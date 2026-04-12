@@ -10,7 +10,6 @@
         <view class="card" v-for="item in list" :key="item.ID" @click="goDetail(item.ID)">
           <view class="card-top">
             <view class="info">
-              <text class="order-no">{{ item.order_no }}</text>
               <text class="customer">{{ getOrderTitle(item) }}</text>
             </view>
             <view class="btn-restore" @click.stop="onRestore(item)">恢复</view>
@@ -96,8 +95,7 @@ onMounted(loadData)
 .card { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04); }
 .card-top { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
 .info { flex: 1; min-width: 0; }
-.order-no { display: block; font-size: 24rpx; color: #9CA3AF; }
-.customer { display: block; font-size: 28rpx; font-weight: 600; color: #1F2937; margin-top: 6rpx; }
+.customer { display: block; font-size: 28rpx; font-weight: 600; color: #1F2937; }
 .btn-restore { font-size: 26rpx; color: #4F46E5; background: #EEF2FF; padding: 10rpx 24rpx; border-radius: 12rpx; flex-shrink: 0; }
 .meta-row { display: flex; justify-content: space-between; align-items: center; gap: 12rpx; margin-top: 14rpx; }
 .meta { font-size: 24rpx; color: #6B7280; }

@@ -51,7 +51,7 @@
           <view v-if="group.orders?.length" class="order-list">
             <view class="order-row" v-for="item in group.orders" :key="item.ID" @click="go(`/pages/boarding/detail?id=${item.ID}`)">
               <view>
-                <text class="order-pets">{{ petNames(item) }}</text>
+                <text class="order-pets">{{ roomLabel(item) }} · {{ petNames(item) }}</text>
                 <text class="order-meta">{{ item.customer?.nickname || item.customer?.phone || '-' }} · {{ statusLabel(item.status) }}</text>
               </view>
               <text class="order-date">{{ item.check_in_at }} → {{ item.check_out_at }}</text>
@@ -87,11 +87,16 @@ function statusLabel(status: string) {
     checked_in: '在住',
     checked_out: '已离店',
     cancelled: '已取消',
+    mixed: '混合状态',
   }[status] || status
 }
 
 function petNames(order?: BoardingOrder) {
   return order?.pets?.map((item) => item.pet?.name || item.pet_name_snapshot).filter(Boolean).join('、') || '未选猫咪'
+}
+
+function roomLabel(order?: BoardingOrder) {
+  return `房间${order?.room_index || 1}`
 }
 
 async function loadData() {

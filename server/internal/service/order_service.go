@@ -719,7 +719,7 @@ func buildOrderPetGroups(order *model.Order) []model.OrderPetGroup {
 	for _, item := range order.Items {
 		groupKey := ""
 		itemName := item.Name
-		if item.ItemType == 2 || item.ItemType == 3 {
+		if item.ItemType == 2 {
 			groupKey = "零售商品"
 		} else {
 			petName, strippedName := splitOrderItemPetName(item.Name)

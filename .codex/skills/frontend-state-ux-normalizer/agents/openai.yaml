@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend State UX Normalizer"
+  short_description: "Normalize H5 page states and feedback in this repo"
+  default_prompt: "Use $frontend-state-ux-normalizer to normalize loading, empty, error, and feedback states for an H5 page in this repository."

@@ -1623,7 +1623,7 @@ async function submitNewCustomer() {
     if (notesParts.length > 0) {
       form.value.notes = notesParts.join('\n')
     } else {
-      form.value.notes = `客户信息未填写，系统自动创建${customerName}/${createdPets.map((pet, index) => pet.name || (index === 0 ? '新咪' : `新咪${index + 1}`)).join('、')}`
+      form.value.notes = ''
     }
 
     step.value = 2

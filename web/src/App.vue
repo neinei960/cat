@@ -116,6 +116,20 @@ uni-page-head {
 .uni-modal__btn:active {
   background: #F3F4F6;
 }
+/* uni.showActionSheet 需要显式压过全局 .uni-mask，否则遮罩会盖住菜单项 */
+.uni-actionsheet__mask {
+  z-index: 5999 !important;
+}
+.uni-actionsheet {
+  z-index: 6001 !important;
+}
+.uni-actionsheet__menu,
+.uni-actionsheet__action,
+.uni-actionsheet__cell {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto !important;
+}
 /* #endif */
 
 button {

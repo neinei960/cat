@@ -30,9 +30,9 @@
       </view>
     </view>
 
-    <view class="card" v-if="appt.notes || appt.staff_notes">
+    <view class="card" v-if="displayCustomerNotes || appt.staff_notes">
       <text class="card-title">备注</text>
-      <text class="notes" v-if="appt.notes">客户: {{ appt.notes }}</text>
+      <text class="notes" v-if="displayCustomerNotes">客户: {{ displayCustomerNotes }}</text>
       <text class="notes" v-if="appt.staff_notes">洗护师: {{ appt.staff_notes }}</text>
     </view>
 
@@ -144,6 +144,7 @@ import SideLayout from '@/components/SideLayout.vue'
 import { getAppointment, getAppointmentStatusLogs, updateAppointmentStatus, assignStaff } from '@/api/appointment'
 import { getStaffList } from '@/api/staff'
 import { APPOINTMENT_STATUS_META, getAppointmentStatusBarStyle, getAppointmentStatusLabel } from '@/utils/appointment-status'
+import { sanitizeAppointmentNotes } from '@/utils/appointment-notes'
 import { request } from '@/api/request'
 import { compareStaffRole } from '@/utils/staff-role'
 
@@ -234,6 +235,8 @@ const appointmentPets = computed(() => {
   }
   return []
 })
+
+const displayCustomerNotes = computed(() => sanitizeAppointmentNotes(appt.value?.notes))
 
 onLoad(async (query) => {
   if (query?.id) {

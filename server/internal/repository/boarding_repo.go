@@ -58,6 +58,8 @@ func (r *BoardingRepository) FindBoardingOrderByID(shopID, id uint) (*model.Boar
 		Preload("Customer").
 		Preload("Staff").
 		Preload("Cabinet").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
 		Preload("Logs.Operator").
 		Where("shop_id = ?", shopID).
@@ -78,6 +80,8 @@ func (r *BoardingRepository) ListBoardingOrders(shopID uint, status string, page
 	offset := (page - 1) * pageSize
 	err := db.Preload("Customer").
 		Preload("Cabinet").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
 		Order("id DESC").
 		Offset(offset).
@@ -90,8 +94,10 @@ func (r *BoardingRepository) ListActiveOrders(shopID uint) ([]model.BoardingOrde
 	var orders []model.BoardingOrder
 	err := database.DB.Preload("Customer").
 		Preload("Cabinet").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
-		Where("shop_id = ? AND status IN ?", shopID, []string{model.BoardingOrderStatusPendingCheckin, model.BoardingOrderStatusCheckedIn}).
+		Where("shop_id = ? AND status IN ?", shopID, []string{model.BoardingOrderStatusPendingCheckin, model.BoardingOrderStatusCheckedIn, model.BoardingOrderStatusMixed}).
 		Order("check_in_at ASC, id ASC").
 		Find(&orders).Error
 	return orders, err

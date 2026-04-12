@@ -12,7 +12,7 @@ export function updateBoardingCabinet(id: number, data: Partial<BoardingCabinet>
   return request<BoardingCabinet>({ url: `/b/boarding/cabinets/${id}`, method: 'PUT', data })
 }
 
-export function getAvailableBoardingCabinets(params: { check_in_at: string; check_out_at: string; pet_count: number; exclude_order_id?: number }) {
+export function getAvailableBoardingCabinets(params: { check_in_at: string; check_out_at: string; pet_count: number; exclude_order_id?: number; exclude_room_id?: number }) {
   return request<BoardingCabinet[]>({ url: '/b/boarding/cabinets/availability', data: params })
 }
 
@@ -44,21 +44,35 @@ export function previewBoardingOrder(data: {
   customer_id?: number
   pet_ids?: number[]
   pet_count?: number
-  cabinet_id: number
-  check_in_at: string
-  check_out_at: string
+  cabinet_id?: number
+  check_in_at?: string
+  check_out_at?: string
   policy_ids?: number[]
+  room_groups?: Array<{
+    pet_ids?: number[]
+    pet_count?: number
+    cabinet_id: number
+    check_in_at: string
+    check_out_at: string
+  }>
 }) {
   return request<BoardingPricePreview>({ url: '/b/boarding/orders/price-preview', method: 'POST', data })
 }
 
 export function createBoardingOrder(data: {
   customer_id: number
-  pet_ids: number[]
-  cabinet_id: number
-  check_in_at: string
-  check_out_at: string
+  pet_ids?: number[]
+  cabinet_id?: number
+  check_in_at?: string
+  check_out_at?: string
   policy_ids?: number[]
+  room_groups?: Array<{
+    pet_ids?: number[]
+    pet_count?: number
+    cabinet_id: number
+    check_in_at: string
+    check_out_at: string
+  }>
   has_deworming?: boolean | null
   remark?: string
 }) {
@@ -81,18 +95,38 @@ export function checkInBoardingOrder(id: number, data?: { discount_amount?: numb
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/check-in`, method: 'PUT', data: data || {} })
 }
 
+export function checkInBoardingRoom(id: number, roomId: number, data?: { discount_amount?: number }) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/check-in`, method: 'PUT', data: data || {} })
+}
+
 export function checkOutBoardingOrder(id: number, actualCheckOutAt: string) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/check-out`, method: 'PUT', data: { actual_check_out_at: actualCheckOutAt } })
+}
+
+export function checkOutBoardingRoom(id: number, roomId: number, actualCheckOutAt: string) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/check-out`, method: 'PUT', data: { actual_check_out_at: actualCheckOutAt } })
 }
 
 export function extendBoardingOrder(id: number, checkOutAt: string) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/extend`, method: 'PUT', data: { check_out_at: checkOutAt } })
 }
 
+export function extendBoardingRoom(id: number, roomId: number, checkOutAt: string) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/extend`, method: 'PUT', data: { check_out_at: checkOutAt } })
+}
+
 export function changeBoardingCabinet(id: number, cabinetId: number) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/change-cabinet`, method: 'PUT', data: { cabinet_id: cabinetId } })
 }
 
+export function changeBoardingRoomCabinet(id: number, roomId: number, cabinetId: number) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/change-cabinet`, method: 'PUT', data: { cabinet_id: cabinetId } })
+}
+
 export function cancelBoardingOrder(id: number) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/cancel`, method: 'PUT', data: {} })
+}
+
+export function cancelBoardingRoom(id: number, roomId: number) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/cancel`, method: 'PUT', data: {} })
 }

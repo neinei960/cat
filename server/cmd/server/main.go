@@ -62,6 +62,7 @@ func main() {
 		&model.BoardingHoliday{},
 		&model.BoardingDiscountPolicy{},
 		&model.BoardingOrder{},
+		&model.BoardingOrderRoom{},
 		&model.BoardingOrderPet{},
 		&model.BoardingOrderLog{},
 		&model.NotificationLog{},

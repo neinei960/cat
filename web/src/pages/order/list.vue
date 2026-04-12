@@ -16,7 +16,7 @@
     <view class="search-bar">
       <input
         v-model="keyword"
-        placeholder="搜索订单号 / 客户 / 猫咪 / 商品 / 服务"
+        placeholder="搜索客户 / 猫咪 / 商品 / 服务"
         class="search-input"
         confirm-type="search"
         @confirm="onSearch"
@@ -81,7 +81,6 @@
         @touchmove="clearCardLongPress"
       >
         <view class="card-top">
-          <text class="order-no">{{ item.order_no }}</text>
           <view class="card-top-right">
             <view :class="['status', `s${item.status}`]">{{ statusMap[item.status] }}</view>
             <view
@@ -409,32 +408,31 @@ onShow(loadData)
 .empty-title { font-size: 30rpx; font-weight: 500; color: #4B5563; }
 .empty-desc { font-size: 24rpx; color: #9CA3AF; }
 @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12rpx); } }
-.card { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12rpx; gap: 12rpx; }
+.card { background: #fff; border-radius: 16rpx; padding: 18rpx 20rpx; margin-bottom: 12rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
+.card-top { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 8rpx; gap: 10rpx; }
 .card-top-right { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
-.order-no { font-size: 24rpx; color: #9CA3AF; }
-.status { font-size: 22rpx; padding: 6rpx 16rpx; border-radius: 16rpx; }
+.status { font-size: 20rpx; padding: 5rpx 14rpx; border-radius: 16rpx; }
 .s0 { background: #FEF3C7; color: #92400E; }
 .s1 { background: #D1FAE5; color: #059669; }
 .s2 { background: #F3F4F6; color: #6B7280; }
 .s3 { background: #FEE2E2; color: #DC2626; }
-.card-action-btn { padding: 8rpx 16rpx; border-radius: 999rpx; font-size: 22rpx; font-weight: 700; }
+.card-action-btn { padding: 6rpx 14rpx; border-radius: 999rpx; font-size: 20rpx; font-weight: 700; }
 .card-action-btn.primary { color: #4F46E5; background: #EEF2FF; }
 .card-action-btn.danger { color: #DC2626; background: #FEF2F2; }
-.card-body { margin-bottom: 12rpx; }
-.customer { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; }
+.card-body { margin-bottom: 10rpx; }
+.customer { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; line-height: 1.35; }
 .customer-pet { font-size: 24rpx; font-weight: 400; color: #6B7280; }
-.order-meta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 4rpx; }
-.order-time { font-size: 22rpx; color: #9CA3AF; display: block; }
-.appointment-date { font-size: 22rpx; color: #4F46E5; background: #EEF2FF; border-radius: 999rpx; padding: 4rpx 12rpx; flex-shrink: 0; }
-.items-summary { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
-.card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12rpx; border-top: 1rpx solid #F3F4F6; }
+.order-meta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 2rpx; }
+.order-time { font-size: 20rpx; color: #9CA3AF; display: block; }
+.appointment-date { font-size: 20rpx; color: #4F46E5; background: #EEF2FF; border-radius: 999rpx; padding: 3rpx 10rpx; flex-shrink: 0; }
+.items-summary { font-size: 22rpx; color: #6B7280; display: block; margin-top: 2rpx; line-height: 1.35; }
+.card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 10rpx; border-top: 1rpx solid #F3F4F6; }
 .footer-left { display: flex; align-items: center; gap: 10rpx; flex-wrap: wrap; }
 .order-kind { font-size: 20rpx; color: #4F46E5; background: #EEF2FF; padding: 4rpx 10rpx; border-radius: 8rpx; }
 .pay-method {
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 700;
-  padding: 6rpx 14rpx;
+  padding: 5rpx 12rpx;
   border-radius: 999rpx;
   border: 1rpx solid transparent;
 }
@@ -496,9 +494,9 @@ onShow(loadData)
   border-color: #CBD5E1;
 }
 .footer-right { display: flex; align-items: center; gap: 16rpx; }
-.card-edit-btn { font-size: 22rpx; color: #4F46E5; padding: 6rpx 16rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
+.card-edit-btn { font-size: 20rpx; color: #4F46E5; padding: 5rpx 14rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
 .card-edit-btn:active { background: #C7D2FE; }
-.amount { font-size: 36rpx; font-weight: 700; color: #4F46E5; }
+.amount { font-size: 32rpx; font-weight: 700; color: #4F46E5; }
 
 @media (max-width: 768px) {
   .header {

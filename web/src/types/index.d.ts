@@ -334,15 +334,58 @@ interface BoardingPricePreview {
   pay_amount: number
   policies: BoardingDiscountPolicy[]
   lines: BoardingPriceLine[]
+  rooms?: BoardingRoomPreview[]
+}
+
+interface BoardingRoomPreview {
+  room_index: number
+  cabinet_id: number
+  cabinet_type: string
+  pet_ids?: number[]
+  pet_count: number
+  check_in_at: string
+  check_out_at: string
+  nights: number
+  regular_nights: number
+  holiday_nights: number
+  base_amount: number
+  extra_pet_amount: number
+  holiday_surcharge_amount: number
+  discount_amount: number
+  manual_discount_amount: number
+  pay_amount: number
+  lines: BoardingPriceLine[]
 }
 
 interface BoardingOrderPet {
   ID: number
   boarding_order_id: number
+  boarding_order_room_id?: number
   pet_id: number
   pet_name_snapshot: string
   remark: string
   pet?: Pet
+}
+
+interface BoardingOrderRoom {
+  ID: number
+  boarding_order_id: number
+  cabinet_id: number
+  room_index: number
+  check_in_at: string
+  check_out_at: string
+  actual_check_out_at: string
+  nights: number
+  base_amount: number
+  holiday_surcharge_amount: number
+  discount_amount: number
+  manual_discount_amount: number
+  pay_amount: number
+  status: string
+  policy_snapshot_json: string
+  price_snapshot_json: string
+  cabinet?: BoardingCabinet
+  pets?: BoardingOrderPet[]
 }
 
 interface BoardingOrderLog {
@@ -372,6 +415,7 @@ interface BoardingOrder {
   manual_discount_amount: number
   pay_amount: number
   status: string
+  room_index?: number
   has_deworming?: boolean | null
   remark: string
   policy_snapshot_json: string
@@ -379,6 +423,7 @@ interface BoardingOrder {
   customer?: Customer
   staff?: Staff
   cabinet?: BoardingCabinet
+  rooms?: BoardingOrderRoom[]
   pets?: BoardingOrderPet[]
   logs?: BoardingOrderLog[]
   order?: Order

@@ -312,6 +312,7 @@ import {
   getAppointmentStatusBlockStyle,
   getAppointmentStatusLabel,
 } from '@/utils/appointment-status'
+import { sanitizeAppointmentNotes } from '@/utils/appointment-notes'
 
 function localDateStr(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -1062,7 +1063,7 @@ function isNewCustomer(appt: any): boolean {
 }
 
 function normalizeNoteText(text?: string): string {
-  return String(text || '')
+  return sanitizeAppointmentNotes(text)
     .replace(/\r\n/g, '\n')
     .split('\n')
     .map(line => line.trim())
