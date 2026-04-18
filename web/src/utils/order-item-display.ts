@@ -11,12 +11,31 @@ export function splitOrderItemName(name: string | undefined): [string, string] {
   return [parts[0], parts.slice(1).join(' · ')]
 }
 
-export function getReceiptItemDisplayName(name: string | undefined, isRetailGroup: boolean, retailPrefixes: string[] = []) {
+function stripBoardingReceiptSuffix(name: string) {
+  return name.replace(/(?:\s*·\s*|\s+)寄养住宿$/, '').trim()
+}
+
+export function getReceiptGroupName(groupName: string | undefined, orderKind?: string) {
+  const normalizedGroupName = String(groupName || '').trim()
+  if (!normalizedGroupName) return ''
+  if (orderKind === 'boarding') return '寄养托管'
+  return normalizedGroupName
+}
+
+export function getReceiptItemDisplayName(
+  name: string | undefined,
+  isRetailGroup: boolean,
+  retailPrefixes: string[] = [],
+  orderKind?: string,
+) {
   const rawName = String(name || '').trim()
   if (!rawName) return ''
 
   if (!isRetailGroup) {
     const [, itemName] = splitOrderItemName(rawName)
+    if (orderKind === 'boarding') {
+      return stripBoardingReceiptSuffix(itemName)
+    }
     return itemName
   }
 

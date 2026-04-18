@@ -93,12 +93,11 @@ const loading = ref(true)
 const showFilter = ref(false)
 const staffList = ref<any[]>([])
 const categories = ref<any[]>([])
-const primaryStatuses = [0, 1, 2, 3]
+const primaryStatuses = [0, 1, 3]
 
 const apptStatusOptions = [
   { value: 0, label: '待确认' },
   { value: 1, label: '已确认' },
-  { value: 2, label: '服务中' },
   { value: 3, label: '待结算' },
   { value: 7, label: '已开单' },
   { value: 4, label: '已取消' },

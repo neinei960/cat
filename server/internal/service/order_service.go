@@ -1028,6 +1028,9 @@ func buildOrderKind(order *model.Order) string {
 	if order.FeedingPlanID != nil && *order.FeedingPlanID > 0 {
 		return "feeding"
 	}
+	if hasBoardingOrderItems(order) {
+		return "boarding"
+	}
 	hasService := order.ServiceTotal > 0
 	hasProduct := order.ProductTotal > 0
 	switch {
@@ -1038,6 +1041,19 @@ func buildOrderKind(order *model.Order) string {
 	default:
 		return "service"
 	}
+}
+
+func hasBoardingOrderItems(order *model.Order) bool {
+	if order == nil {
+		return false
+	}
+	for _, item := range order.Items {
+		switch item.ItemType {
+		case 4, 5, 6:
+			return true
+		}
+	}
+	return false
 }
 
 func splitOrderItemPetName(name string) (string, string) {

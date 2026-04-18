@@ -61,6 +61,7 @@ function getOrderTitle(item: any) {
   if (item.pet?.name) return `${customerName} · 🐱${item.pet.name}`
   if (item.order_kind === 'product') return `${customerName} · 商品零售`
   if (item.order_kind === 'feeding') return `${customerName} · 上门喂养`
+  if (item.order_kind === 'boarding') return `${customerName} · 寄养订单`
   return customerName
 }
 

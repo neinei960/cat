@@ -83,10 +83,7 @@ func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) 
 				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, like),
 		)
 	}
-	if f.OrderKind == "feeding" {
-		db = db.Where("feeding_plan_id IS NOT NULL AND feeding_plan_id > 0")
-	}
-	return db
+	return applyOrderKindFilter(db, "orders", f.OrderKind)
 }
 
 func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
@@ -140,15 +137,32 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, productLike),
 		)
 	}
-	if f.OrderKind == "feeding" {
-		db = db.Where("orders.feeding_plan_id IS NOT NULL AND orders.feeding_plan_id > 0")
-	}
+	db = applyOrderKindFilter(db, "orders", f.OrderKind)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
 	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
 		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
 		Order("orders.id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
+}
+
+func applyOrderKindFilter(db *gorm.DB, orderTable string, orderKind string) *gorm.DB {
+	orderIDColumn := orderTable + ".id"
+	feedingPlanColumn := orderTable + ".feeding_plan_id"
+
+	switch orderKind {
+	case "feeding":
+		return db.Where(feedingPlanColumn + " IS NOT NULL AND " + feedingPlanColumn + " > 0")
+	case "boarding":
+		return db.Where(
+			"EXISTS (?)",
+			database.DB.Model(&model.OrderItem{}).
+				Select("1").
+				Where("order_items.order_id = "+orderIDColumn+" AND order_items.deleted_at IS NULL AND order_items.item_type IN ?", []int{4, 5, 6}),
+		)
+	default:
+		return db
+	}
 }
 
 func applyPayMethodFilter(db *gorm.DB, column string, payMethod string) *gorm.DB {

@@ -49,6 +49,93 @@ func TestRestoreBalancePaidOrderReappliesMemberCardDeduction(t *testing.T) {
 	assertOrderDeleted(t, state.order.ID, false)
 }
 
+func TestBuildOrderKindRecognizesBoardingOrders(t *testing.T) {
+	order := &model.Order{
+		ServiceTotal: 455,
+		Items: []model.OrderItem{
+			{ItemType: 4, Name: "康娜温柔乡 寄养住宿", Quantity: 8, UnitPrice: 65, Amount: 520},
+			{ItemType: 6, Name: "会员折扣", Quantity: 1, UnitPrice: -65, Amount: -65},
+		},
+	}
+
+	if got := buildOrderKind(order); got != "boarding" {
+		t.Fatalf("expected boarding order kind, got %q", got)
+	}
+}
+
+func TestOrderRepositoryFiltersBoardingAndFeedingOrders(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	feedingPlan := seedOrderFilterFeedingPlan(t, customer.ID)
+	repo := repository.NewOrderRepository()
+
+	serviceOrder := seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:      "TEST-SERVICE-ORDER",
+		ShopID:       1,
+		CustomerID:   customer.ID,
+		ServiceTotal: 88,
+		PayAmount:    88,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 101, Name: "基础洗护", Quantity: 1, UnitPrice: 88, Amount: 88},
+		},
+	})
+	feedingOrder := seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-FEEDING-ORDER",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		FeedingPlanID: &feedingPlan.ID,
+		ServiceTotal:  120,
+		PayAmount:     120,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 201, Name: "上门喂养服务", Quantity: 1, UnitPrice: 120, Amount: 120},
+		},
+	})
+	boardingOrder := seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:      "TEST-BOARDING-ORDER",
+		ShopID:       1,
+		CustomerID:   customer.ID,
+		ServiceTotal: 455,
+		PayAmount:    455,
+		Items: []model.OrderItem{
+			{ItemType: 4, ItemID: 301, Name: "康娜温柔乡 寄养住宿", Quantity: 8, UnitPrice: 65, Amount: 520},
+			{ItemType: 6, ItemID: 301, Name: "会员折扣", Quantity: 1, UnitPrice: -65, Amount: -65},
+		},
+	})
+
+	list, total, err := repo.FindByShopPaged(1, repository.OrderFilter{OrderKind: "feeding"}, 1, 20)
+	if err != nil {
+		t.Fatalf("filter feeding orders: %v", err)
+	}
+	assertOrderFilterResult(t, "feeding paged filter", list, total, feedingOrder.ID)
+
+	list, total, err = repo.FindByShopPaged(1, repository.OrderFilter{OrderKind: "boarding"}, 1, 20)
+	if err != nil {
+		t.Fatalf("filter boarding orders: %v", err)
+	}
+	assertOrderFilterResult(t, "boarding paged filter", list, total, boardingOrder.ID)
+
+	searchList, searchTotal, err := repo.Search(1, customer.Nickname, repository.OrderFilter{OrderKind: "feeding"}, 1, 20)
+	if err != nil {
+		t.Fatalf("search feeding orders: %v", err)
+	}
+	assertOrderFilterResult(t, "feeding search filter", searchList, searchTotal, feedingOrder.ID)
+
+	searchList, searchTotal, err = repo.Search(1, customer.Nickname, repository.OrderFilter{OrderKind: "boarding"}, 1, 20)
+	if err != nil {
+		t.Fatalf("search boarding orders: %v", err)
+	}
+	assertOrderFilterResult(t, "boarding search filter", searchList, searchTotal, boardingOrder.ID)
+
+	unfilteredList, unfilteredTotal, err := repo.FindByShopPaged(1, repository.OrderFilter{}, 1, 20)
+	if err != nil {
+		t.Fatalf("list unfiltered orders: %v", err)
+	}
+	if unfilteredTotal != 3 || len(unfilteredList) != 3 {
+		t.Fatalf("expected 3 unfiltered orders including service=%d, got total=%d len=%d", serviceOrder.ID, unfilteredTotal, len(unfilteredList))
+	}
+}
+
 type balanceOrderTestState struct {
 	shopID      uint
 	customer    model.Customer
@@ -83,6 +170,97 @@ func setupOrderServiceTestDB(t *testing.T) {
 		&model.FeedingPlanPet{},
 	); err != nil {
 		t.Fatalf("auto migrate: %v", err)
+	}
+}
+
+type seedOrderFilterOrderInput struct {
+	OrderNo       string
+	ShopID        uint
+	CustomerID    uint
+	FeedingPlanID *uint
+	ServiceTotal  float64
+	PayAmount     float64
+	Items         []model.OrderItem
+}
+
+func seedOrderFilterCustomer(t *testing.T, shopID uint) model.Customer {
+	t.Helper()
+
+	customer := model.Customer{
+		ShopID:       shopID,
+		Phone:        "13800138111",
+		Nickname:     "筛选客户",
+		DiscountRate: 1,
+	}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create filter customer: %v", err)
+	}
+	return customer
+}
+
+func seedOrderFilterFeedingPlan(t *testing.T, customerID uint) model.FeedingPlan {
+	t.Helper()
+
+	plan := model.FeedingPlan{
+		ShopID:          1,
+		CustomerID:      customerID,
+		ContactName:     "筛选客户",
+		ContactPhone:    "13800138111",
+		StartDate:       "2026-04-18",
+		EndDate:         "2026-04-20",
+		TimeGranularity: model.FeedingWindowMorning,
+		Status:          model.FeedingPlanStatusActive,
+		TotalAmount:     120,
+		UnpaidAmount:    120,
+	}
+	if err := database.DB.Create(&plan).Error; err != nil {
+		t.Fatalf("create feeding plan: %v", err)
+	}
+	return plan
+}
+
+func seedOrderFilterOrder(t *testing.T, input seedOrderFilterOrderInput) model.Order {
+	t.Helper()
+
+	order := model.Order{
+		OrderNo:       input.OrderNo,
+		ShopID:        input.ShopID,
+		CustomerID:    &input.CustomerID,
+		FeedingPlanID: input.FeedingPlanID,
+		TotalAmount:   input.PayAmount,
+		ServiceTotal:  input.ServiceTotal,
+		PayAmount:     input.PayAmount,
+		Status:        1,
+		PayStatus:     1,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order %s: %v", input.OrderNo, err)
+	}
+	if len(input.Items) == 0 {
+		return order
+	}
+	items := make([]model.OrderItem, 0, len(input.Items))
+	for _, item := range input.Items {
+		item.OrderID = order.ID
+		items = append(items, item)
+	}
+	if err := database.DB.Create(&items).Error; err != nil {
+		t.Fatalf("create order items %s: %v", input.OrderNo, err)
+	}
+	return order
+}
+
+func assertOrderFilterResult(t *testing.T, label string, list []model.Order, total int64, wantID uint) {
+	t.Helper()
+
+	if total != 1 {
+		t.Fatalf("%s: expected total 1, got %d", label, total)
+	}
+	if len(list) != 1 {
+		t.Fatalf("%s: expected 1 order in page, got %d", label, len(list))
+	}
+	if list[0].ID != wantID {
+		t.Fatalf("%s: expected order %d, got %d", label, wantID, list[0].ID)
 	}
 }
 

@@ -32,7 +32,8 @@
       <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已支付</view>
       <view :class="['tab', filter.status === 3 ? 'active' : '']" @click="filter.status = 3; loadData()">已退款</view>
       <view class="tab-sep"></view>
-      <view :class="['tab tab-feeding', filter.orderKind === 'feeding' ? 'active' : '']" @click="toggleFeeding">喂养</view>
+      <view :class="['tab tab-feeding', filter.orderKind === 'feeding' ? 'active' : '']" @click="setOrderKind('feeding')">喂养</view>
+      <view :class="['tab tab-boarding', filter.orderKind === 'boarding' ? 'active' : '']" @click="setOrderKind('boarding')">寄养</view>
       <view :class="['tab tab-meituan', filter.payMethod === 'meituan' ? 'active' : '']" @click="toggleMeituan">美团</view>
     </view>
 
@@ -42,6 +43,7 @@
       <text v-if="filter.dateFrom || filter.dateTo" class="filter-tag">{{ filter.dateFrom || '...' }} ~ {{ filter.dateTo || '...' }} <text @click="filter.dateFrom = ''; filter.dateTo = ''; loadData()">✕</text></text>
       <text v-if="filter.staffId > 0" class="filter-tag">{{ getStaffName(filter.staffId) }} <text @click="filter.staffId = 0; loadData()">✕</text></text>
       <text v-if="filter.payMethod" class="filter-tag">{{ payMethodMap[filter.payMethod] || filter.payMethod }} <text @click="filter.payMethod = ''; loadData()">✕</text></text>
+      <text v-if="filter.orderKind" class="filter-tag">{{ getOrderKindLabel(filter.orderKind) }} <text @click="filter.orderKind = ''; loadData()">✕</text></text>
       <text v-if="filter.productKeyword.trim()" class="filter-tag">商品: {{ filter.productKeyword }} <text @click="filter.productKeyword = ''; loadData()">✕</text></text>
     </view>
 
@@ -51,6 +53,7 @@
       :status-options="orderStatusOptions"
       status-label="订单状态"
       :pay-methods="orderPayMethods"
+      :order-kinds="orderKindOptions"
       :show-product-keyword="true"
       :staff-list="staffList"
       :categories="categories"
@@ -183,6 +186,10 @@ const orderPayMethods = [
   { value: 'balance', label: '会员余额' },
   { value: 'other', label: '其他' },
 ]
+const orderKindOptions = [
+  { value: 'feeding', label: '上门喂养' },
+  { value: 'boarding', label: '寄养' },
+]
 
 const filter = reactive({
   dateFrom: '',
@@ -200,6 +207,7 @@ const activeFilterCount = computed(() => {
   if (filter.dateFrom || filter.dateTo) c++
   if (filter.staffId > 0) c++
   if (filter.payMethod) c++
+  if (filter.orderKind) c++
   if (filter.categoryId > 0) c++
   if (filter.productKeyword.trim()) c++
   return c
@@ -209,8 +217,8 @@ function getStaffName(id: number) {
   return staffList.value.find((s: any) => s.ID === id)?.name || '未知'
 }
 
-function toggleFeeding() {
-  filter.orderKind = filter.orderKind === 'feeding' ? '' : 'feeding'
+function setOrderKind(kind: string) {
+  filter.orderKind = filter.orderKind === kind ? '' : kind
   loadData()
 }
 
@@ -230,6 +238,9 @@ function getOrderTitle(item: any) {
   if (item.order_kind === 'product') {
     return `${customerName} · 商品零售`
   }
+  if (item.order_kind === 'boarding') {
+    return `${customerName} · 寄养订单`
+  }
   return customerName
 }
 
@@ -237,6 +248,7 @@ function getOrderKindLabel(kind: string) {
   if (kind === 'mixed') return '服务 + 商品'
   if (kind === 'product') return '商品零售'
   if (kind === 'feeding') return '上门喂养'
+  if (kind === 'boarding') return '寄养'
   return '服务订单'
 }
 
@@ -287,6 +299,10 @@ function getEditUrl(item: any) {
 }
 
 function canEditOrder(item: any) {
+  const orderKind = String(item?.order_kind || '')
+  if (orderKind === 'feeding' || orderKind === 'boarding' || Number(item?.feeding_plan_id || 0) > 0) {
+    return false
+  }
   const status = Number(item?.status || 0)
   const payStatus = Number(item?.pay_status || 0)
   if ([2, 3].includes(status)) return false
@@ -411,6 +427,8 @@ onShow(loadData)
 .tab-sep { width: 1rpx; height: 28rpx; background: #E5E7EB; }
 .tab-feeding { background: #F0FDF4; color: #15803D; border: 1rpx solid #BBF7D0; }
 .tab-feeding.active { background: #15803D; color: #fff; border-color: #15803D; }
+.tab-boarding { background: #EFF6FF; color: #1D4ED8; border: 1rpx solid #BFDBFE; }
+.tab-boarding.active { background: #1D4ED8; color: #fff; border-color: #1D4ED8; }
 .tab-meituan { background: #FFF7ED; color: #EA580C; border: 1rpx solid #FED7AA; }
 .tab-meituan.active { background: #EA580C; color: #fff; border-color: #EA580C; }
 .loading, .empty { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 16rpx; }

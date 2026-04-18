@@ -601,7 +601,7 @@ interface Order {
   pay_status: number
   status: number
   remark: string
-  order_kind?: 'service' | 'product' | 'mixed' | 'feeding'
+  order_kind?: 'service' | 'product' | 'mixed' | 'feeding' | 'boarding'
   pet_summary?: string
   pet_groups?: OrderPetGroup[]
   customer?: Customer

@@ -77,8 +77,10 @@
       <view v-if="records.length > 0" class="records">
         <view class="records-header">
           <text class="records-title">充值/消费记录</text>
-          <text v-if="records.length > 3 && !showAllRecords" class="records-toggle" @click="showAllRecords = true">查看全部 {{ records.length }} 条</text>
-          <text v-if="showAllRecords" class="records-toggle" @click="showAllRecords = false">收起</text>
+          <view v-if="hasExpandableRecords" class="records-arrow" @click="showAllRecords = !showAllRecords">
+            <text class="records-arrow-count">{{ records.length }}条</text>
+            <text :class="['records-arrow-icon', showAllRecords ? 'open' : '']">⌄</text>
+          </view>
         </view>
         <view class="record-item" v-for="r in displayRecords" :key="r.ID">
           <view class="record-left">
@@ -367,7 +369,8 @@ const tagOptions = ref<CustomerTag[]>([])
 const selectedTagIDs = ref<number[]>([])
 
 const showAllRecords = ref(false)
-const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 3))
+const hasExpandableRecords = computed(() => records.value.length > 1)
+const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 1))
 const editingRecord = ref<RechargeRecord | null>(null)
 const editForm = ref({ amount: '', remark: '' })
 const deletingRecordId = ref<number | null>(null)
@@ -663,7 +666,10 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .records { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
 .records-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12rpx; }
 .records-title { font-size: 26rpx; font-weight: 600; color: #6B7280; }
-.records-toggle { font-size: 24rpx; color: #4F46E5; }
+.records-arrow { display: inline-flex; align-items: center; gap: 8rpx; color: #4F46E5; }
+.records-arrow-count { font-size: 22rpx; color: #9CA3AF; }
+.records-arrow-icon { font-size: 26rpx; line-height: 1; transform: rotate(0deg); transition: transform 0.2s ease; }
+.records-arrow-icon.open { transform: rotate(180deg); }
 .record-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F9FAFB; }
 .record-item:last-child { border-bottom: none; }
 .record-left { display: flex; align-items: center; gap: 12rpx; }

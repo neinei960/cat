@@ -39,6 +39,17 @@
           </view>
         </view>
 
+        <view class="fp-section" v-if="orderKinds.length > 0">
+          <text class="fp-label">订单类型</text>
+          <view class="fp-chips">
+            <view
+              v-for="kind in orderKinds" :key="kind.value"
+              :class="['fp-chip', localFilter.orderKind === kind.value ? 'active' : '']"
+              @click="localFilter.orderKind = localFilter.orderKind === kind.value ? '' : kind.value"
+            >{{ kind.label }}</view>
+          </view>
+        </view>
+
         <view class="fp-section" v-if="showProductKeyword">
           <text class="fp-label">商品名称</text>
           <input
@@ -91,6 +102,7 @@ interface FilterState {
   status: number
   staffId: number
   payMethod: string
+  orderKind: string
   categoryId: number
   productKeyword: string
 }
@@ -101,6 +113,7 @@ const props = withDefaults(defineProps<{
   statusOptions?: { value: number; label: string }[]
   statusLabel?: string
   payMethods?: { value: string; label: string }[]
+  orderKinds?: { value: string; label: string }[]
   staffList?: any[]
   categories?: any[]
   showProductKeyword?: boolean
@@ -108,6 +121,7 @@ const props = withDefaults(defineProps<{
   statusOptions: () => [],
   statusLabel: '状态',
   payMethods: () => [],
+  orderKinds: () => [],
   staffList: () => [],
   categories: () => [],
   showProductKeyword: false,
@@ -124,6 +138,7 @@ const localFilter = reactive<FilterState>({
   status: -1,
   staffId: 0,
   payMethod: '',
+  orderKind: '',
   categoryId: 0,
   productKeyword: '',
 })
@@ -138,6 +153,7 @@ function onReset() {
   localFilter.status = -1
   localFilter.staffId = 0
   localFilter.payMethod = ''
+  localFilter.orderKind = ''
   localFilter.categoryId = 0
   localFilter.productKeyword = ''
 }

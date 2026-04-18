@@ -742,7 +742,13 @@ func (s *BoardingService) Dashboard(shopID uint) ([]BoardingDashboardGroup, erro
 		})
 	}
 	sort.Slice(groups, func(i, j int) bool {
-		return groups[i].CabinetType < groups[j].CabinetType
+		if groups[i].BasePrice != groups[j].BasePrice {
+			return groups[i].BasePrice < groups[j].BasePrice
+		}
+		if groups[i].CabinetType != groups[j].CabinetType {
+			return groups[i].CabinetType < groups[j].CabinetType
+		}
+		return groups[i].CabinetID < groups[j].CabinetID
 	})
 	return groups, nil
 }

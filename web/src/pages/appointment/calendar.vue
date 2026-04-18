@@ -70,7 +70,6 @@
           <view :class="['p-tab', pendingFilter.status === -1 ? 'active' : '']" @click="pendingFilter.status = -1; loadPending()">全部</view>
           <view :class="['p-tab', pendingFilter.status === 0 ? 'active' : '']" @click="pendingFilter.status = 0; loadPending()">待确认</view>
           <view :class="['p-tab', pendingFilter.status === 1 ? 'active' : '']" @click="pendingFilter.status = 1; loadPending()">已确认</view>
-          <view :class="['p-tab', pendingFilter.status === 2 ? 'active' : '']" @click="pendingFilter.status = 2; loadPending()">服务中</view>
           <view :class="['p-tab', pendingFilter.status === 3 ? 'active' : '']" @click="pendingFilter.status = 3; loadPending()">待结算</view>
           <view :class="['p-tab', pendingFilter.status === 7 ? 'active' : '']" @click="pendingFilter.status = 7; loadPending()">已开单</view>
         </view>
@@ -354,7 +353,6 @@ const pendingFilter = reactive({
 const pendingStatusOptions = [
   { value: 0, label: '待确认' },
   { value: 1, label: '已确认' },
-  { value: 2, label: '服务中' },
   { value: 3, label: '待结算' },
   { value: 7, label: '已开单' },
   { value: 4, label: '已取消' },

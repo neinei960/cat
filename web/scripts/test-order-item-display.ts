@@ -1,4 +1,4 @@
-import { getReceiptItemDisplayName } from '../src/utils/order-item-display'
+import { getReceiptGroupName, getReceiptItemDisplayName } from '../src/utils/order-item-display'
 
 function assertEqual(actual: unknown, expected: unknown, label: string) {
   if (actual !== expected) {
@@ -31,12 +31,30 @@ function testStripsLegacyRetailGroupPrefix() {
   assertEqual(actual, '奈夫·奶芙豆系列', 'retail.group.prefix')
 }
 
+function testStripsBoardingStaySuffixFromReceiptName() {
+  const actual = getReceiptItemDisplayName('房间1 · 康娜温柔乡 · 寄养住宿', false, [], 'boarding')
+  assertEqual(actual, '康娜温柔乡', 'boarding.receipt.item.name')
+}
+
+function testStripsBoardingStaySuffixFromSpaceSeparatedReceiptName() {
+  const actual = getReceiptItemDisplayName('房间1 · 康娜温柔乡 寄养住宿', false, [], 'boarding')
+  assertEqual(actual, '康娜温柔乡', 'boarding.receipt.item.name.space.separated')
+}
+
+function testMapsBoardingReceiptGroupName() {
+  const actual = getReceiptGroupName('房间1', 'boarding')
+  assertEqual(actual, '寄养托管', 'boarding.receipt.group.name')
+}
+
 function main() {
   testKeepsRetailProductNameWithSpec()
   testStripsPetPrefixForServiceItems()
   testStripsRetailPetPrefixWhenPrefixIsPresent()
   testStripsRetailPetPrefixWithoutParens()
   testStripsLegacyRetailGroupPrefix()
+  testStripsBoardingStaySuffixFromReceiptName()
+  testStripsBoardingStaySuffixFromSpaceSeparatedReceiptName()
+  testMapsBoardingReceiptGroupName()
   console.log('order-item-display tests passed')
 }
 

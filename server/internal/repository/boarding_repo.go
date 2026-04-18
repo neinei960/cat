@@ -90,7 +90,8 @@ func (r *BoardingRepository) ListBoardingOrders(shopID uint, status, dateFrom, d
 		return nil, 0, err
 	}
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").
+	err := db.Preload("Order").
+		Preload("Customer").
 		Preload("Cabinet").
 		Preload("Rooms.Cabinet").
 		Preload("Rooms.Pets.Pet").

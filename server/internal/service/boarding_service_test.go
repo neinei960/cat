@@ -49,6 +49,66 @@ func TestCancelRoomClearsMissingLinkedPayOrder(t *testing.T) {
 	}
 }
 
+func TestDashboardSortsCabinetsByBasePrice(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "测试门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+
+	cabinets := []model.BoardingCabinet{
+		{
+			ShopID:      shop.ID,
+			Code:        "high-price",
+			CabinetType: "高价房",
+			RoomCount:   2,
+			Capacity:    1,
+			BasePrice:   165,
+			Status:      model.BoardingCabinetStatusEnabled,
+		},
+		{
+			ShopID:      shop.ID,
+			Code:        "low-price",
+			CabinetType: "低价房",
+			RoomCount:   2,
+			Capacity:    1,
+			BasePrice:   85,
+			Status:      model.BoardingCabinetStatusEnabled,
+		},
+		{
+			ShopID:      shop.ID,
+			Code:        "mid-price",
+			CabinetType: "中价房",
+			RoomCount:   2,
+			Capacity:    1,
+			BasePrice:   120,
+			Status:      model.BoardingCabinetStatusEnabled,
+		},
+	}
+	if err := database.DB.Create(&cabinets).Error; err != nil {
+		t.Fatalf("create cabinets: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+
+	groups, err := svc.Dashboard(shop.ID)
+	if err != nil {
+		t.Fatalf("dashboard: %v", err)
+	}
+	if len(groups) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(groups))
+	}
+	if groups[0].CabinetType != "低价房" || groups[1].CabinetType != "中价房" || groups[2].CabinetType != "高价房" {
+		t.Fatalf("expected groups sorted by base price asc, got %q, %q, %q", groups[0].CabinetType, groups[1].CabinetType, groups[2].CabinetType)
+	}
+}
+
 type boardingServiceTestState struct {
 	shopID     uint
 	operatorID uint

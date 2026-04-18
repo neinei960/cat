@@ -32,9 +32,9 @@
           <text v-else class="row-value">-</text>
         </view>
       </view>
-      <view class="row" v-if="order.order_kind === 'product'">
+      <view class="row" v-if="showOrderKindRow">
         <text class="label">订单类型</text>
-        <text class="row-value">商品零售</text>
+        <text class="row-value">{{ orderKindLabel }}</text>
       </view>
       <view class="row"><text class="label">经手员工</text><text>{{ order.staff?.name || '-' }}</text></view>
       <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ payMethodMap[order.pay_method] || order.pay_method }}</text></view>
@@ -195,7 +195,7 @@
             <view class="receipt-total-row">
               <view class="receipt-total-copy">
                 <text class="receipt-total-label">实付总计</text>
-                <text class="receipt-total-tip">{{ receiptTotalSaving > 0 ? `本次已节省 ¥${receiptTotalSaving.toFixed(2)}` : '感谢本次光临' }}</text>
+                <text class="receipt-total-tip">{{ receiptTotalSaving > 0 ? `本次已节省 ¥${receiptTotalSaving.toFixed(2)}` : '期待下次见 👋🏻' }}</text>
               </view>
               <text class="receipt-total-price">¥{{ Number(order.pay_amount || 0).toFixed(2) }}</text>
             </view>
@@ -229,8 +229,20 @@
         </view>
         <!-- 生成后显示图片 -->
         <view v-if="receiptImageUrl" class="receipt-image-wrap">
-          <text class="receipt-image-hint">点击「保存图片」或长按图片保存</text>
-          <image :src="receiptBlobUrl || receiptImageUrl" mode="widthFix" class="receipt-image" show-menu-by-longpress />
+          <text class="receipt-image-hint">{{ receiptImageHint }}</text>
+          <img
+            v-if="showNativeReceiptImage"
+            :src="receiptPreviewSrc"
+            class="receipt-image receipt-image-native"
+            alt="小票图片"
+          />
+          <image
+            v-else
+            :src="receiptPreviewSrc"
+            mode="widthFix"
+            class="receipt-image"
+            show-menu-by-longpress
+          />
           <view class="receipt-actions">
             <view class="btn-receipt-save" @click="downloadReceiptImage">保存图片</view>
             <view class="btn-receipt-close" @click="closeReceipt">关闭</view>
@@ -311,7 +323,7 @@ import { getCustomerCard } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import html2canvas from 'html2canvas'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
-import { getReceiptItemDisplayName, splitOrderItemName } from '@/utils/order-item-display'
+import { getReceiptGroupName, getReceiptItemDisplayName, splitOrderItemName } from '@/utils/order-item-display'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
@@ -447,12 +459,35 @@ const productDiscountRate = computed(() => {
 const canEditPrice = computed(() => {
   if (!order.value) return false
   if (isDeletedView.value) return false
-  if (order.value.order_kind === 'feeding' || Number(order.value.feeding_plan_id || 0) > 0) return false
+  if (
+    order.value.order_kind === 'feeding' ||
+    order.value.order_kind === 'boarding' ||
+    Number(order.value.feeding_plan_id || 0) > 0
+  ) return false
   const status = Number(order.value.status || 0)
   const payStatus = Number(order.value.pay_status || 0)
   if ([2, 3].includes(status)) return false
   if (payStatus === 0) return true
   return payStatus === 1 && status === 1 && canManageOpenedOrder.value
+})
+
+const orderKindLabel = computed(() => {
+  switch (order.value?.order_kind) {
+    case 'product':
+      return '商品零售'
+    case 'mixed':
+      return '服务 + 商品'
+    case 'feeding':
+      return '上门喂养'
+    case 'boarding':
+      return '寄养'
+    default:
+      return '服务订单'
+  }
+})
+
+const showOrderKindRow = computed(() => {
+  return !!order.value?.order_kind && order.value.order_kind !== 'service'
 })
 
 const headerPets = computed(() => {
@@ -474,8 +509,10 @@ const headerPets = computed(() => {
 
   appendPet(order.value?.pet?.name, Number(order.value?.pet_id || order.value?.pet?.ID || 0))
 
-  for (const group of petGroups.value) {
-    appendPet(group?.pet_name, Number(group?.pet_id || 0))
+  if (order.value?.order_kind !== 'boarding') {
+    for (const group of petGroups.value) {
+      appendPet(group?.pet_name, Number(group?.pet_id || 0))
+    }
   }
 
   if (result.length === 0) {
@@ -541,10 +578,11 @@ const petGroups = computed(() => {
   if (Array.isArray(groups) && groups.length > 0) {
     return groups.map((group: any) => ({
       ...group,
+      pet_name: getReceiptGroupName(group.pet_name, order.value?.order_kind),
       items: Array.isArray(group.items)
         ? group.items.map((item: any) => ({
             ...item,
-            name: getReceiptItemDisplayName(item.name, group.pet_name === '零售商品', retailNamePrefixes.value),
+            name: getReceiptItemDisplayName(item.name, group.pet_name === '零售商品', retailNamePrefixes.value, order.value?.order_kind),
           }))
         : [],
     }))
@@ -571,13 +609,13 @@ const petGroups = computed(() => {
     const [petName, itemName] = splitOrderItemName(item.name)
     const key = petName || order.value?.pet?.name || '未分组'
     if (!groupMap.has(key)) {
-      const nextGroup = { pet_name: key, items: [] as any[] }
+      const nextGroup = { pet_name: getReceiptGroupName(key, order.value?.order_kind), items: [] as any[] }
       groupMap.set(key, nextGroup)
       grouped.push(nextGroup)
     }
     groupMap.get(key)!.items.push({
       ...item,
-      name: itemName || item.name,
+      name: getReceiptItemDisplayName(item.name, false, retailNamePrefixes.value, order.value?.order_kind) || itemName || item.name,
     })
   }
   return grouped
@@ -588,11 +626,12 @@ const receiptGroups = computed(() => {
     const isRetailGroup = group.pet_name === '零售商品'
     return {
       ...group,
+      pet_name: getReceiptGroupName(group.pet_name, order.value?.order_kind),
       items: Array.isArray(group.items)
         ? group.items.map((item: any) => {
             return {
               ...item,
-              name: getReceiptItemDisplayName(item.name, isRetailGroup, retailNamePrefixes.value),
+              name: getReceiptItemDisplayName(item.name, isRetailGroup, retailNamePrefixes.value, order.value?.order_kind),
             }
           })
         : [],
@@ -666,6 +705,25 @@ function getReceiptDiscountText(item: any) {
 const receiptImageUrl = ref('')
 const receiptBlobUrl = ref('')
 const generatingImage = ref(false)
+const isAppleSafariBrowser = computed(() => {
+  if (typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent || ''
+  const vendor = navigator.vendor || ''
+  const isAppleMobile = /iP(hone|od|ad)/i.test(userAgent)
+  const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|Android/i.test(userAgent) && /Apple/i.test(vendor)
+  return isAppleMobile && isSafari
+})
+const showNativeReceiptImage = computed(() => isAppleSafariBrowser.value)
+const receiptPreviewSrc = computed(() => {
+  if (!receiptImageUrl.value) return ''
+  return isAppleSafariBrowser.value ? receiptImageUrl.value : receiptBlobUrl.value || receiptImageUrl.value
+})
+const receiptImageHint = computed(() => {
+  if (isAppleSafariBrowser.value) {
+    return '长按图片保存到相册；如未出现菜单，点击「保存图片」后在新页面长按'
+  }
+  return '点击「保存图片」或长按图片保存'
+})
 
 function dataURLtoBlob(dataURL: string): Blob {
   const parts = dataURL.split(',')
@@ -697,7 +755,7 @@ async function saveReceiptImage() {
     })
     const dataUrl = canvas.toDataURL('image/png')
     receiptImageUrl.value = dataUrl
-    // Create blob URL for iOS Safari compatibility
+    // Keep a blob URL for non-Safari download fallback.
     const blob = dataURLtoBlob(dataUrl)
     if (receiptBlobUrl.value) URL.revokeObjectURL(receiptBlobUrl.value)
     receiptBlobUrl.value = URL.createObjectURL(blob)
@@ -707,6 +765,23 @@ async function saveReceiptImage() {
   } finally {
     generatingImage.value = false
   }
+}
+
+function openReceiptImagePreview(src: string) {
+  if (!src || typeof window === 'undefined') return false
+  const previewWindow = window.open('', '_blank')
+  if (!previewWindow) return false
+
+  const doc = previewWindow.document
+  doc.open()
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>小票图片</title><style>html,body{margin:0;padding:0;background:#111;}body{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:16px;box-sizing:border-box;}img{display:block;max-width:100%;height:auto;border-radius:12px;-webkit-user-select:auto;user-select:auto;-webkit-touch-callout:default;box-shadow:0 6px 24px rgba(0,0,0,.24);}</style></head><body></body></html>`)
+  doc.close()
+
+  const img = doc.createElement('img')
+  img.src = src
+  img.alt = '小票图片'
+  doc.body.appendChild(img)
+  return true
 }
 
 async function downloadReceiptImage() {
@@ -732,16 +807,10 @@ async function downloadReceiptImage() {
     }
   }
 
-  if (typeof navigator !== 'undefined') {
-    const userAgent = navigator.userAgent || ''
-    const isAppleMobile = /iP(hone|od|ad)/i.test(userAgent)
-    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent)
-    if (isAppleMobile || isSafari) {
-      const previewWindow = window.open(receiptImageUrl.value, '_blank')
-      if (previewWindow) {
-        uni.showToast({ title: '请长按图片保存', icon: 'none' })
-        return
-      }
+  if (isAppleSafariBrowser.value) {
+    if (openReceiptImagePreview(receiptImageUrl.value)) {
+      uni.showToast({ title: '新页面已打开，请长按图片保存', icon: 'none' })
+      return
     }
   }
 
@@ -1302,7 +1371,7 @@ async function saveRemark() {
 .pay-card-sub.warn { color: #DC2626; }
 
 /* Receipt button */
-.btn.receipt { background: #F8FAFC; color: #334155; border-color: #CBD5E1; }
+.btn.receipt { background: #FBF5E6; color: #8A6B2F; border-color: #E8D5A0; }
 
 /* ===== Receipt Modal ===== */
 .receipt-outer {
@@ -1322,44 +1391,45 @@ async function saveRemark() {
 }
 
 .receipt {
-  background: #F6F2EA;
+  background: #FDF8ED;
   border-radius: 32rpx;
-  box-shadow: 0 18rpx 48rpx rgba(71, 56, 24, 0.12);
-  padding: 20rpx;
+  box-shadow: 0 18rpx 48rpx rgba(116, 86, 36, 0.14);
+  padding: 16rpx;
   font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 .receipt-card {
-  background: #FFFFFF;
+  background: linear-gradient(180deg, #FFFDF8, #FFF9EE);
   border-radius: 24rpx;
-  padding: 24rpx;
-  box-shadow: 0 10rpx 28rpx rgba(50, 40, 20, 0.06);
+  padding: 18rpx;
+  border: 1rpx solid #F0E1BD;
+  box-shadow: 0 10rpx 26rpx rgba(117, 89, 42, 0.08);
 }
 .receipt-brand-card {
-  padding: 26rpx 24rpx 24rpx;
+  padding: 20rpx 18rpx 18rpx;
 }
 .receipt-brand-top {
   display: flex;
   align-items: flex-start;
-  gap: 18rpx;
-  margin-bottom: 22rpx;
+  gap: 12rpx;
+  margin-bottom: 30rpx;
 }
 .receipt-logo {
-  width: 96rpx;
-  height: 96rpx;
-  min-width: 96rpx;
-  border-radius: 28rpx;
+  width: 84rpx;
+  height: 84rpx;
+  min-width: 84rpx;
+  border-radius: 999rpx;
   overflow: hidden;
-  background: linear-gradient(135deg, #E8D9B5, #D8C29D);
-  color: #4D3D2D;
+  background: linear-gradient(135deg, #F4DE9A, #E8C46B);
+  color: #6B5531;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .receipt-logo-emoji {
-  font-size: 42rpx;
+  font-size: 36rpx;
   line-height: 1;
   text-align: center;
   display: block;
@@ -1368,63 +1438,64 @@ async function saveRemark() {
 .receipt-logo-img {
   width: 100%;
   height: 100%;
-  border-radius: 28rpx;
+  border-radius: 999rpx;
 }
 .receipt-brand-main {
   flex: 1;
   min-width: 0;
+  margin-top: -2rpx;
 }
 .receipt-shop {
   margin: 0;
-  font-size: 34rpx;
-  line-height: 1.2;
+  font-size: 32rpx;
+  line-height: 1.12;
   font-weight: 700;
   color: #2F2A26;
   display: block;
 }
 .receipt-sub {
-  margin-top: 10rpx;
+  margin-top: 2rpx;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4rpx;
+  gap: 0;
 }
 .receipt-sub-line {
-  font-size: 22rpx;
-  line-height: 1.5;
-  color: #8B847C;
+  font-size: 20rpx;
+  line-height: 1.24;
+  color: #8F7950;
   display: block;
 }
 .receipt-brand-tag {
-  padding: 8rpx 16rpx;
+  padding: 6rpx 12rpx;
   border-radius: 999rpx;
-  background: #F6EFD9;
+  background: #F7E5B5;
   color: #8A6B2F;
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 700;
   flex-shrink: 0;
 }
 .receipt-brand-tag.muted {
-  background: #F1EDE6;
-  color: #8B847C;
+  background: #F7EEDB;
+  color: #9B8760;
 }
 .receipt-meta-list {
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 10rpx;
 }
 .receipt-meta-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 .receipt-meta-label {
-  font-size: 22rpx;
-  color: #8B847C;
+  font-size: 20rpx;
+  color: #8F7950;
 }
 .receipt-meta-value {
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: #2F2A26;
   text-align: right;
 }
@@ -1435,40 +1506,40 @@ async function saveRemark() {
 .receipt-member-badge {
   display: inline-flex;
   align-items: center;
-  gap: 12rpx;
-  padding: 8rpx 18rpx;
+  gap: 8rpx;
+  padding: 6rpx 14rpx;
   border-radius: 999rpx;
-  background: #FBF5E6;
-  border: 1rpx solid #E8D5A0;
+  background: #FCF2D9;
+  border: 1rpx solid #E7CB82;
 }
 .receipt-member-level {
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 700;
   color: #9A6A21;
   letter-spacing: 0.5rpx;
 }
 .receipt-member-amount {
-  font-size: 22rpx;
+  font-size: 20rpx;
   font-weight: 600;
-  color: #A07830;
+  color: #9C7426;
 }
 .receipt-group-card {
-  padding-top: 16rpx;
+  padding-top: 12rpx;
 }
 .receipt-group-title {
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 600;
-  color: #2F2A26;
-  margin-bottom: 8rpx;
+  color: #6E5631;
+  margin-bottom: 6rpx;
   display: block;
 }
 .receipt-item {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16rpx;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid #F0EBE2;
+  gap: 12rpx;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid #EEE0BF;
 }
 .receipt-item:last-child {
   border-bottom: none;
@@ -1479,10 +1550,10 @@ async function saveRemark() {
   min-width: 0;
 }
 .receipt-item-name {
-  font-size: 24rpx;
-  line-height: 1.4;
+  font-size: 22rpx;
+  line-height: 1.28;
   color: #2F2A26;
-  margin-bottom: 8rpx;
+  margin-bottom: 4rpx;
   display: block;
   white-space: nowrap;
   overflow: hidden;
@@ -1492,124 +1563,125 @@ async function saveRemark() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  font-size: 20rpx;
-  line-height: 1.5;
-  color: #8B847C;
+  font-size: 18rpx;
+  line-height: 1.3;
+  color: #8F7950;
 }
 .receipt-item-dot {
-  margin: 0 8rpx;
-  color: #C0B8AE;
+  margin: 0 6rpx;
+  color: #D2BE94;
 }
 .receipt-item-price {
-  font-size: 26rpx;
-  line-height: 1.4;
+  font-size: 24rpx;
+  line-height: 1.2;
   color: #2F2A26;
   font-weight: 600;
   white-space: nowrap;
 }
 .receipt-summary-card {
-  padding-top: 20rpx;
+  padding-top: 14rpx;
 }
 .receipt-summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: #3B342F;
-  padding: 8rpx 0;
+  padding: 5rpx 0;
 }
 .receipt-summary-row.saving {
-  color: #8A6B2F;
+  color: #9A7121;
 }
 .receipt-summary-divider {
   height: 1rpx;
-  background: #EEE7DD;
-  margin: 12rpx 0 16rpx;
+  background: #E9D8B2;
+  margin: 8rpx 0 12rpx;
 }
 .receipt-total-row {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 .receipt-total-copy {
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
+  gap: 4rpx;
 }
 .receipt-total-label {
-  font-size: 22rpx;
-  color: #8B847C;
+  font-size: 20rpx;
+  color: #8F7950;
 }
 .receipt-total-tip {
-  font-size: 20rpx;
-  color: #B08A3C;
+  font-size: 18rpx;
+  color: #AF812A;
 }
 .receipt-total-price {
   font-size: 52rpx;
   line-height: 1;
-  font-weight: 800;
-  color: #2F2A26;
+  font-weight: 300;
+  color: #C4A35A;
+  letter-spacing: -1rpx;
 }
 .receipt-balance-row {
-  margin-top: 18rpx;
-  padding-top: 18rpx;
-  border-top: 1rpx solid #F0EBE2;
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid #E9D8B2;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .receipt-footer-card {
-  padding-top: 16rpx;
-  padding-bottom: 16rpx;
+  padding-top: 12rpx;
+  padding-bottom: 12rpx;
 }
 .receipt-footer-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16rpx;
-  padding: 8rpx 0;
+  gap: 12rpx;
+  padding: 5rpx 0;
 }
 .receipt-footer-label {
-  font-size: 22rpx;
-  color: #8B847C;
+  font-size: 20rpx;
+  color: #8F7950;
 }
 .receipt-footer-value {
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: #2F2A26;
   text-align: right;
 }
 .receipt-thanks {
-  padding: 10rpx 12rpx 4rpx;
+  padding: 4rpx 8rpx 0;
   text-align: center;
 }
 .receipt-thanks-cn {
-  font-size: 20rpx;
+  font-size: 18rpx;
   color: #4A3F2F;
   letter-spacing: 1rpx;
   display: block;
 }
 .receipt-thanks-en {
-  font-size: 17rpx;
-  color: #A9894A;
+  font-size: 15rpx;
+  color: #B18939;
   font-weight: 300;
   display: block;
-  margin-top: 4rpx;
+  margin-top: 2rpx;
 }
 
 /* ---- 操作按钮区 ---- */
 .receipt-actions {
   display: flex;
-  gap: 16rpx;
-  padding: 20rpx 0 calc(8rpx + env(safe-area-inset-bottom));
+  gap: 12rpx;
+  padding: 12rpx 0 calc(4rpx + env(safe-area-inset-bottom));
   flex-shrink: 0;
 }
 .btn-receipt-save,
 .btn-receipt-close {
   flex: 1;
-  min-height: 92rpx;
-  border-radius: 20rpx;
-  font-size: 27rpx;
+  min-height: 76rpx;
+  border-radius: 16rpx;
+  font-size: 24rpx;
   font-weight: 700;
   text-align: center;
   display: flex;
@@ -1617,8 +1689,8 @@ async function saveRemark() {
   justify-content: center;
   box-sizing: border-box;
 }
-.btn-receipt-save { background: linear-gradient(135deg, #6366F1, #4F46E5); color: #fff; box-shadow: 0 14rpx 28rpx rgba(79, 70, 229, 0.2); }
-.btn-receipt-close { background: #F8FAFC; color: #64748B; border: 2rpx solid #CBD5E1; }
+.btn-receipt-save { background: linear-gradient(135deg, #E8C86E, #D7A843); color: #5E4617; box-shadow: 0 14rpx 28rpx rgba(164, 122, 32, 0.22); }
+.btn-receipt-close { background: #FFF6E4; color: #8A6B2F; border: 2rpx solid #E7CB82; }
 
 .btn:active,
 .btn-receipt-save:active,
@@ -1632,6 +1704,7 @@ async function saveRemark() {
 
 /* Receipt image preview */
 .receipt-image-wrap { margin-top: 20rpx; text-align: center; }
-.receipt-image-hint { font-size: 26rpx; color: #C4A35A; font-weight: 500; display: block; margin-bottom: 16rpx; }
+.receipt-image-hint { font-size: 26rpx; color: #B18939; font-weight: 500; display: block; margin-bottom: 16rpx; }
 .receipt-image { width: 100%; border-radius: 16rpx; box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.1); }
+.receipt-image-native { display: block; height: auto; -webkit-touch-callout: default; -webkit-user-select: auto; user-select: auto; object-fit: contain; }
 </style>

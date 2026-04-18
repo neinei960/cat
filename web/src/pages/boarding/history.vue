@@ -50,28 +50,33 @@
               <text class="card-title">{{ petNames(item) }}</text>
               <text class="card-sub">{{ customerLabel(item) }}</text>
             </view>
-            <text class="status-pill">已离店</text>
+            <text class="status-pill history-status-pill">已离店</text>
           </view>
 
-          <view class="meta-list">
-            <view class="meta-row">
-              <text class="meta-label">日期</text>
-              <text class="meta-value">{{ item.check_in_at }} → {{ displayCheckOut(item) }}</text>
+          <view class="card-body">
+            <view class="card-info">
+              <view class="meta-list">
+                <view class="meta-row">
+                  <text class="meta-label">寄养日期</text>
+                  <text class="meta-value">{{ item.check_in_at }} → {{ displayCheckOut(item) }}</text>
+                </view>
+                <view class="meta-row">
+                  <text class="meta-label">房型</text>
+                  <text class="meta-value">{{ roomSummary(item) }}</text>
+                </view>
+              </view>
+
+              <view v-if="remarkSummary(item.remark)" class="remark-row">
+                <text class="remark-label">备注</text>
+                <text class="remark-value">{{ remarkSummary(item.remark) }}</text>
+              </view>
             </view>
-            <view class="meta-row">
-              <text class="meta-label">房型</text>
-              <text class="meta-value">{{ roomSummary(item) }}</text>
+
+            <view v-if="showBilling(item)" class="card-billing">
+              <text class="billing-label">账单金额</text>
+              <text class="billing-amount">{{ billingAmount(item) }}</text>
+              <text :class="['pay-pill', payStatusClass(item)]">{{ payStatusLabel(item) }}</text>
             </view>
-          </view>
-
-          <view v-if="remarkSummary(item.remark)" class="remark-row">
-            <text class="remark-label">备注</text>
-            <text class="remark-value">{{ remarkSummary(item.remark) }}</text>
-          </view>
-
-          <view class="card-foot">
-            <text class="foot-copy">{{ roomCountCopy(item) }}</text>
-            <text class="foot-link">查看详情</text>
           </view>
         </view>
       </view>
@@ -157,10 +162,28 @@ function displayCheckOut(order: BoardingOrder) {
   return order.actual_check_out_at || order.check_out_at
 }
 
-function roomCountCopy(order: BoardingOrder) {
-  const roomCount = order.rooms?.length || 0
-  if (roomCount > 1) return `${roomCount} 个房间`
-  return `${roomSummary(order)} · ${displayCheckOut(order)}`
+function showBilling(order: BoardingOrder) {
+  const linkedOrder = order.order
+  if (!linkedOrder) return false
+  const orderStatus = Number(linkedOrder.status || 0)
+  const payStatus = Number(linkedOrder.pay_status || 0)
+  if ([2, 3].includes(orderStatus)) return false
+  if (payStatus === 2) return false
+  return payStatus === 0 || payStatus === 1
+}
+
+function billingAmount(order: BoardingOrder) {
+  const amount = Number(order.order?.pay_amount || 0)
+  if (!Number.isFinite(amount)) return '--'
+  return `¥${amount.toFixed(amount % 1 === 0 ? 0 : 2)}`
+}
+
+function payStatusLabel(order: BoardingOrder) {
+  return Number(order.order?.pay_status || 0) === 1 ? '已支付' : '未付款'
+}
+
+function payStatusClass(order: BoardingOrder) {
+  return Number(order.order?.pay_status || 0) === 1 ? 'paid' : 'unpaid'
 }
 
 function goDetail(id: number) {
@@ -360,86 +383,125 @@ onReachBottom(loadMore)
 }
 .history-card {
   background: rgba(255, 255, 255, 0.96);
-  border-radius: 18rpx;
-  padding: 16rpx 16rpx 14rpx;
+  border-radius: 22rpx;
+  padding: 18rpx 18rpx 16rpx;
   border: 1rpx solid rgba(226, 232, 240, 0.95);
-  box-shadow: 0 8rpx 18rpx rgba(15, 23, 42, 0.045);
+  box-shadow: 0 10rpx 24rpx rgba(15, 23, 42, 0.048);
 }
-.card-head,
-.card-foot {
+.card-head {
   display: flex;
   justify-content: space-between;
-  gap: 12rpx;
-  align-items: center;
+  gap: 20rpx;
+  align-items: flex-start;
 }
 .head-copy {
   min-width: 0;
+  flex: 1;
 }
 .card-title {
   display: block;
-  font-size: 27rpx;
+  font-size: 34rpx;
   font-weight: 800;
   color: #111827;
-  line-height: 1.4;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
 }
 .card-sub {
   display: block;
-  margin-top: 4rpx;
-  font-size: 21rpx;
-  color: #64748b;
-  line-height: 1.5;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #6b7280;
+  line-height: 1.4;
 }
 .status-pill {
-  padding: 6rpx 12rpx;
+  padding: 8rpx 16rpx;
   border-radius: 999rpx;
-  background: #f3f4f6;
-  color: #6b7280;
   font-size: 20rpx;
   font-weight: 700;
   white-space: nowrap;
+  border: 1rpx solid currentColor;
+  background: transparent;
+}
+.history-status-pill {
+  color: #9ca3af;
+}
+.card-body {
+  margin-top: 16rpx;
+  display: flex;
+  justify-content: space-between;
+  gap: 24rpx;
+  align-items: flex-start;
+}
+.card-info {
+  flex: 1;
+  min-width: 0;
+}
+.card-billing {
+  min-width: 0;
+  text-align: right;
+  flex-shrink: 0;
+}
+.billing-label {
+  display: block;
+  font-size: 20rpx;
+  color: #9ca3af;
+  letter-spacing: 0.08em;
+}
+.billing-amount {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 40rpx;
+  line-height: 1;
+  font-weight: 800;
+  color: #312e81;
+  letter-spacing: -0.03em;
+}
+.pay-pill {
+  display: inline-flex;
+  margin-top: 12rpx;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid currentColor;
+  background: transparent;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+.pay-pill.paid {
+  color: #16a34a;
+}
+.pay-pill.unpaid {
+  color: #dc2626;
 }
 .meta-list {
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
-  margin-top: 10rpx;
+  gap: 10rpx;
 }
 .meta-row,
 .remark-row {
   display: flex;
   justify-content: space-between;
-  gap: 14rpx;
+  gap: 18rpx;
   align-items: center;
   min-width: 0;
 }
 .meta-value,
 .remark-value {
   min-width: 0;
-  text-align: right;
+  text-align: left;
+  flex: 1;
 }
 .remark-row {
-  margin-top: 8rpx;
+  margin-top: 12rpx;
 }
 .remark-value {
-  font-size: 21rpx;
+  font-size: 22rpx;
   line-height: 1.5;
-  color: #475569;
+  color: #4b5563;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.card-foot {
-  margin-top: 8rpx;
-}
-.foot-copy {
-  font-size: 20rpx;
-  color: #94a3b8;
-  line-height: 1.4;
-}
-.foot-link {
-  font-size: 20rpx;
-  font-weight: 700;
-  color: #4f46e5;
 }
 .load-more {
   padding: 18rpx 0 12rpx;
@@ -466,9 +528,8 @@ onReachBottom(loadMore)
     align-items: flex-start;
     gap: 10rpx;
   }
-  .meta-value,
-  .remark-value {
-    flex: 1;
+  .billing-amount {
+    font-size: 34rpx;
   }
 }
 </style>
