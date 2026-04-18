@@ -438,7 +438,7 @@ func (s *OrderService) CreateDirect(order *model.Order, items []model.OrderItem)
 	return tx.Commit().Error
 }
 
-func (s *OrderService) UpdateDraft(shopID, id uint, patch *model.Order, items []model.OrderItem) error {
+func (s *OrderService) UpdateDraft(shopID uint, role string, id uint, patch *model.Order, items []model.OrderItem) error {
 	order, err := s.orderRepo.FindByID(id)
 	if err != nil {
 		return errors.New("订单不存在")
@@ -446,7 +446,8 @@ func (s *OrderService) UpdateDraft(shopID, id uint, patch *model.Order, items []
 	if order.ShopID != shopID {
 		return errors.New("订单不存在")
 	}
-	if order.PayStatus != 0 {
+	canModifyOpenedOrder := model.HasStaffRoleAtLeast(role, model.StaffRoleManager)
+	if order.PayStatus == 1 && !canModifyOpenedOrder {
 		return errors.New("已支付订单不可修改价格")
 	}
 	if order.Status == 2 || order.Status == 3 {
@@ -645,6 +646,9 @@ func (s *OrderService) Delete(shopID, id uint, role ...string) error {
 	}
 
 	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := rollbackBalancePaymentOnDelete(tx, order); err != nil {
+			return err
+		}
 		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
 			return err
 		}
@@ -684,11 +688,122 @@ func (s *OrderService) Restore(shopID, id uint) error {
 	if deletedOrder.DeletedAt.Time.Before(time.Now().Add(-48 * time.Hour)) {
 		return errors.New("订单已超过 2 天恢复期限")
 	}
-	if err := s.orderRepo.Restore(shopID, id); err != nil {
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Model(&model.OrderItem{}).Where("order_id = ?", id).Update("deleted_at", nil).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Model(&model.Order{}).Where("id = ?", id).Update("deleted_at", nil).Error; err != nil {
+			return err
+		}
+		if err := reapplyBalancePaymentOnRestore(tx, &deletedOrder); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	_ = s.syncAppointmentSettlementPtr(deletedOrder.AppointmentID)
 	return nil
+}
+
+func isBalancePayMethod(payMethod string) bool {
+	return payMethod == "balance" || payMethod == "card"
+}
+
+func rollbackBalancePaymentOnDelete(tx *gorm.DB, order *model.Order) error {
+	if order == nil || order.PayStatus != 1 || !isBalancePayMethod(order.PayMethod) {
+		return nil
+	}
+
+	record, err := findOrderBalanceRechargeRecord(tx, order.ID, false)
+	if err != nil {
+		return err
+	}
+
+	var card model.MemberCard
+	if err := tx.Where("id = ?", record.CardID).First(&card).Error; err != nil {
+		return fmt.Errorf("会员卡不存在")
+	}
+
+	card.Balance = roundOrderAmount(card.Balance + record.Amount)
+	card.TotalSpent = roundOrderAmount(card.TotalSpent - record.Amount)
+	if card.TotalSpent < 0 {
+		card.TotalSpent = 0
+	}
+	if err := tx.Save(&card).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", card.Balance).Error; err != nil {
+		return err
+	}
+	if err := shiftLaterRechargeBalancesForOrder(tx, record, record.Amount).Error; err != nil {
+		return err
+	}
+	return tx.Delete(&record).Error
+}
+
+func reapplyBalancePaymentOnRestore(tx *gorm.DB, order *model.Order) error {
+	if order == nil || order.PayStatus != 1 || !isBalancePayMethod(order.PayMethod) {
+		return nil
+	}
+
+	record, err := findOrderBalanceRechargeRecord(tx, order.ID, true)
+	if err != nil {
+		return err
+	}
+
+	var card model.MemberCard
+	if err := tx.Where("id = ?", record.CardID).First(&card).Error; err != nil {
+		return fmt.Errorf("会员卡不存在")
+	}
+	if card.Balance < record.Amount {
+		return fmt.Errorf("会员卡余额不足，无法恢复订单")
+	}
+
+	card.Balance = roundOrderAmount(card.Balance - record.Amount)
+	card.TotalSpent = roundOrderAmount(card.TotalSpent + record.Amount)
+	if err := tx.Save(&card).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&model.Customer{}).Where("id = ?", record.CustomerID).Update("member_balance", card.Balance).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Model(&model.RechargeRecord{}).Where("id = ?", record.ID).Update("deleted_at", nil).Error; err != nil {
+		return err
+	}
+	return shiftLaterRechargeBalancesForOrder(tx, record, -record.Amount).Error
+}
+
+func findOrderBalanceRechargeRecord(tx *gorm.DB, orderID uint, deleted bool) (model.RechargeRecord, error) {
+	var record model.RechargeRecord
+	query := tx.Unscoped().Where("order_id = ? AND type = ?", orderID, 2)
+	if deleted {
+		query = query.Where("deleted_at IS NOT NULL")
+	} else {
+		query = query.Where("deleted_at IS NULL")
+	}
+	if err := query.First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return record, fmt.Errorf("未找到订单对应的会员卡消费记录")
+		}
+		return record, err
+	}
+	return record, nil
+}
+
+func shiftLaterRechargeBalancesForOrder(tx *gorm.DB, record model.RechargeRecord, deltaBalance float64) *gorm.DB {
+	if deltaBalance == 0 {
+		return tx
+	}
+	return tx.Model(&model.RechargeRecord{}).
+		Where(
+			"card_id = ? AND deleted_at IS NULL AND (created_at > ? OR (created_at = ? AND id > ?))",
+			record.CardID,
+			record.CreatedAt,
+			record.CreatedAt,
+			record.ID,
+		).
+		UpdateColumn("balance_after", gorm.Expr("balance_after + ?", deltaBalance))
 }
 
 func (s *OrderService) decorateOrders(list []model.Order) {

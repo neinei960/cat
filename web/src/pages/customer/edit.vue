@@ -58,19 +58,7 @@
       <view class="field-group">
         <text class="group-label">备注</text>
         <view class="field-card field-card-textarea">
-          <!-- #ifdef H5 -->
-          <div
-            ref="remarkEditorRef"
-            class="remark-editor"
-            contenteditable="plaintext-only"
-            :data-placeholder="form.remark ? '' : '添加文字'"
-            @input="onRemarkInput"
-            @blur="syncRemarkEditor"
-          />
-          <!-- #endif -->
-          <!-- #ifndef H5 -->
           <textarea v-model="form.remark" placeholder="添加文字" class="field-textarea" :auto-height="false" />
-          <!-- #endif -->
         </view>
       </view>
 
@@ -112,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getCustomer, createCustomer, updateCustomer } from '@/api/customer'
@@ -127,7 +115,6 @@ const form = ref({ nickname: '', phone: '', gender: 0, remark: '', address: '', 
 const selectedTags = computed(() => availableTags.value.filter(tag => form.value.customer_tag_ids.includes(tag.ID)))
 const selectedTagSummary = computed(() => selectedTags.value.length ? selectedTags.value.map(tag => tag.name).join('、') : '添加标签')
 const canSubmit = computed(() => form.value.nickname.trim().length > 0)
-const remarkEditorRef = ref<HTMLElement | null>(null)
 
 onLoad((query) => {
   if (query?.id) {
@@ -148,7 +135,6 @@ async function loadData() {
     address: res.data.address || '', address_detail: res.data.address_detail || '', door_code: res.data.door_code || '',
     customer_tag_ids: (res.data.customer_tags || []).map(tag => tag.ID),
   }
-  syncRemarkEditor()
 }
 
 async function loadTags() {
@@ -181,32 +167,6 @@ function goTagManage() {
 function goBack() {
   safeBack()
 }
-
-function normalizeRemarkText(value: string) {
-  return value.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n')
-}
-
-function onRemarkInput(event: Event) {
-  const target = event.target as HTMLElement | null
-  if (!target) return
-  form.value.remark = normalizeRemarkText(target.innerText || '')
-}
-
-function syncRemarkEditor() {
-  // #ifdef H5
-  nextTick(() => {
-    if (!remarkEditorRef.value) return
-    const normalized = normalizeRemarkText(form.value.remark || '')
-    if (remarkEditorRef.value.innerText !== normalized) {
-      remarkEditorRef.value.innerText = normalized
-    }
-  })
-  // #endif
-}
-
-watch(() => form.value.remark, () => {
-  syncRemarkEditor()
-})
 
 async function onSubmit() {
   if (!canSubmit.value || submitting.value) return
@@ -312,23 +272,6 @@ async function onSubmit() {
   font-size: 28rpx;
   color: #1F2937;
   line-height: 1.5;
-}
-.remark-editor {
-  width: 100%;
-  min-height: 72rpx;
-  max-height: 72rpx;
-  overflow-y: auto;
-  font-size: 28rpx;
-  color: #1F2937;
-  line-height: 36rpx;
-  outline: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.remark-editor:empty::before {
-  content: attr(data-placeholder);
-  color: #B3B9C5;
-  pointer-events: none;
 }
 .field-summary {
   flex: 1;

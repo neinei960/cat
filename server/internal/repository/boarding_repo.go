@@ -67,12 +67,24 @@ func (r *BoardingRepository) FindBoardingOrderByID(shopID, id uint) (*model.Boar
 	return &order, err
 }
 
-func (r *BoardingRepository) ListBoardingOrders(shopID uint, status string, page, pageSize int) ([]model.BoardingOrder, int64, error) {
+func (r *BoardingRepository) ListBoardingOrders(shopID uint, status, dateFrom, dateTo string, cabinetID uint, page, pageSize int) ([]model.BoardingOrder, int64, error) {
 	var list []model.BoardingOrder
 	var total int64
 	db := database.DB.Model(&model.BoardingOrder{}).Where("shop_id = ?", shopID)
 	if status != "" {
 		db = db.Where("status = ?", status)
+	}
+	if dateFrom != "" {
+		db = db.Where("COALESCE(NULLIF(actual_check_out_at, ''), check_out_at) >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		db = db.Where("check_in_at <= ?", dateTo)
+	}
+	if cabinetID > 0 {
+		roomOrderIDs := database.DB.Model(&model.BoardingOrderRoom{}).
+			Select("boarding_order_id").
+			Where("cabinet_id = ?", cabinetID)
+		db = db.Where("cabinet_id = ? OR id IN (?)", cabinetID, roomOrderIDs)
 	}
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err

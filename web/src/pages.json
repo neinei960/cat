@@ -182,6 +182,12 @@
 			}
 		},
 		{
+			"path": "pages/boarding/history",
+			"style": {
+				"navigationBarTitleText": "历史寄养记录"
+			}
+		},
+		{
 			"path": "pages/boarding/cabinets",
 			"style": {
 				"navigationBarTitleText": "寄养房型设置"

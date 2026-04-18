@@ -15,7 +15,7 @@
       :src="cropperSrc"
       :visible="showCropper"
       @confirm="onCropConfirm"
-      @cancel="showCropper = false"
+      @cancel="onCropCancel"
     />
 
     <!-- 基本身份 -->
@@ -255,6 +255,7 @@ import { getShop, updateShop } from '@/api/shop'
 import { uploadFile } from '@/api/upload'
 import { safeBack } from '@/utils/navigate'
 import { useDesktopInteraction } from '@/utils/interaction'
+import { createCropperPreviewUrl } from '@/utils/image-cropper'
 import {
   addPersonalityTag,
   buildBusinessHoursWithPersonality,
@@ -652,23 +653,28 @@ function chooseAvatar() {
     return
   }
 
-  // H5 使用 input[type=file]，并把 iPhone 常见的 HEIC/HEIF 统一转成 JPEG 后再上传
+  // H5 进入裁剪器前先按拍摄方向生成预览，避免 iPhone 原图在裁剪页倒立
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
   input.style.display = 'none'
   document.body.appendChild(input)
-  input.onchange = () => {
+  input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) {
       input.remove()
       return
     }
-    // 打开裁剪器
-    cropperSrc.value = URL.createObjectURL(file)
-    showCropper.value = true
-    input.value = ''
-    input.remove()
+    try {
+      clearCropperSrc()
+      cropperSrc.value = await createCropperPreviewUrl(file)
+      showCropper.value = true
+    } catch (error: any) {
+      uni.showToast({ title: error?.message || '图片读取失败', icon: 'none' })
+    } finally {
+      input.value = ''
+      input.remove()
+    }
   }
   input.click()
 }
@@ -678,10 +684,21 @@ function goBathReportPage() {
   uni.navigateTo({ url: `/pages/pet/report?id=${id.value}` })
 }
 
+function clearCropperSrc() {
+  if (cropperSrc.value && cropperSrc.value.startsWith('blob:')) {
+    URL.revokeObjectURL(cropperSrc.value)
+  }
+  cropperSrc.value = ''
+}
+
+function onCropCancel() {
+  showCropper.value = false
+  clearCropperSrc()
+}
+
 async function onCropConfirm(blob: Blob) {
   showCropper.value = false
-  // 清理裁剪源
-  if (cropperSrc.value) { URL.revokeObjectURL(cropperSrc.value); cropperSrc.value = '' }
+  clearCropperSrc()
 
   uni.showLoading({ title: '上传中...' })
   try {

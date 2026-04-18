@@ -42,20 +42,14 @@
         v-for="item in tabItems"
         :key="item.path"
         class="tab-item"
-        :class="{ active: isActive(item.path), 'tab-item-highlight': item.highlight }"
+        :class="{ active: isActive(item.path) }"
         @click="navigate(item.path)"
       >
-        <view v-if="item.highlight" class="tab-icon-highlight">
-          <view class="tab-icon" :class="{ 'tab-icon-cat': item.catIcon }">
-            <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
-            <text v-else>{{ item.icon }}</text>
-          </view>
-        </view>
-        <view v-else class="tab-icon" :class="{ 'tab-icon-cat': item.catIcon }">
+        <view class="tab-icon" :class="{ 'tab-icon-cat': item.catIcon }">
           <image v-if="item.catIcon" class="cat-sticker" :src="catSticker" mode="aspectFit" />
           <text v-else>{{ item.icon }}</text>
         </view>
-        <text class="tab-label" :style="item.highlight ? 'color: #4F46E5;' : ''">{{ item.label }}</text>
+        <text class="tab-label">{{ item.label }}</text>
       </view>
       <view class="tab-item" @click="showMoreMenu = true">
         <text class="tab-icon">⚙️</text>
@@ -155,7 +149,7 @@ const menuItems = computed(() => allMenuItems.filter(m => !m.minRole || hasStaff
 
 const tabItems = [
   { icon: '🏠', label: '工作台', path: '/pages/index/index' },
-  { icon: '🧾', label: '开单', path: '/pages/order/create', highlight: true },
+  { icon: '🧾', label: '开单', path: '/pages/order/create' },
   { icon: '📅', label: '预约', path: '/pages/appointment/calendar' },
   { icon: '🐱', label: '猫咪', path: '/pages/pet/list', catIcon: true },
   { icon: '📋', label: '订单', path: '/pages/order/list' },
@@ -394,10 +388,6 @@ function handleLogout() {
   background-color: #EEF2FF;
 }
 
-.tab-icon-highlight .tab-icon {
-  background: none;
-}
-
 .tab-label {
   font-size: 10px;
   color: #6B7280;
@@ -405,23 +395,6 @@ function handleLogout() {
 }
 
 .tab-item.active .tab-label {
-  color: #4F46E5;
-  font-weight: 500;
-}
-
-.tab-icon-highlight {
-  background: linear-gradient(135deg, #6366F1, #4F46E5);
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: -15px;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-}
-
-.tab-item-highlight .tab-label {
   color: #4F46E5;
   font-weight: 500;
 }

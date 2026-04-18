@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -8,12 +9,15 @@ import (
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/internal/service"
 	"github.com/neinei960/cat/server/pkg/response"
+	"gorm.io/gorm"
 )
 
 type CustomerHandler struct {
 	customerService *service.CustomerService
 	petService      *service.PetService
 }
+
+var errDuplicateCustomerPhone = errors.New("该手机号客户已存在")
 
 func NewCustomerHandler(customerService *service.CustomerService, petService *service.PetService) *CustomerHandler {
 	return &CustomerHandler{customerService: customerService, petService: petService}
@@ -40,12 +44,22 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 		return
 	}
 
+	shopID := c.GetUint("shop_id")
+	if err := h.ensurePhoneUnique(shopID, req.Phone, 0); err != nil {
+		if errors.Is(err, errDuplicateCustomerPhone) {
+			response.Error(c, http.StatusConflict, err.Error())
+		} else {
+			response.Error(c, http.StatusInternalServerError, "校验手机号失败")
+		}
+		return
+	}
+
 	discountRate := req.DiscountRate
 	if discountRate <= 0 {
 		discountRate = 1
 	}
 	customer := &model.Customer{
-		ShopID:        c.GetUint("shop_id"),
+		ShopID:        shopID,
 		Phone:         req.Phone,
 		Nickname:      req.Nickname,
 		Gender:        req.Gender,
@@ -114,6 +128,15 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if err := h.ensurePhoneUnique(customer.ShopID, req.Phone, customer.ID); err != nil {
+		if errors.Is(err, errDuplicateCustomerPhone) {
+			response.Error(c, http.StatusConflict, err.Error())
+		} else {
+			response.Error(c, http.StatusInternalServerError, "校验手机号失败")
+		}
+		return
+	}
+
 	customer.Nickname = req.Nickname
 	customer.Phone = req.Phone
 	customer.Gender = req.Gender
@@ -173,4 +196,19 @@ func (h *CustomerHandler) GetPets(c *gin.Context) {
 		return
 	}
 	response.Success(c, pets)
+}
+
+func (h *CustomerHandler) ensurePhoneUnique(shopID uint, phone string, currentCustomerID uint) error {
+	if phone == "" {
+		return nil
+	}
+
+	customer, err := h.customerService.GetByPhone(phone, shopID)
+	if err == nil && customer.ID != currentCustomerID {
+		return errDuplicateCustomerPhone
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return err
 }

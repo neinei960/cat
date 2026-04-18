@@ -81,10 +81,11 @@
         @touchmove="clearCardLongPress"
       >
         <view class="card-top">
+          <text class="customer">{{ getOrderTitle(item) }}</text>
           <view class="card-top-right">
             <view :class="['status', `s${item.status}`]">{{ statusMap[item.status] }}</view>
             <view
-              v-if="isDesktopInteraction && item.status === 0"
+              v-if="isDesktopInteraction && canEditOrder(item)"
               class="card-action-btn primary"
               @click.stop="editOrder(item)"
             >修改</view>
@@ -96,7 +97,6 @@
           </view>
         </view>
         <view class="card-body">
-          <text class="customer">{{ getOrderTitle(item) }}</text>
           <view class="order-meta">
             <text class="order-time">{{ item.CreatedAt?.substring(0, 16).replace('T', ' ') }}</text>
             <text v-if="item.appointment?.date" class="appointment-date">预约 {{ item.appointment.date }}</text>
@@ -116,7 +116,7 @@
             >{{ payMethodBadgeMap[resolvePayMethodKey(item.pay_method)] }}</text>
           </view>
           <view class="footer-right">
-            <view v-if="item.status === 0" class="card-edit-btn" @click.stop="editOrder(item)">修改订单</view>
+            <view v-if="canEditOrder(item)" class="card-edit-btn" @click.stop="editOrder(item)">修改订单</view>
             <text class="amount">¥{{ item.pay_amount }}</text>
           </view>
         </view>
@@ -135,6 +135,8 @@ import { deleteOrder, getOrderList } from '@/api/order'
 import { getStaffList } from '@/api/staff'
 import { getCategoryTree } from '@/api/service-category'
 import { useDesktopInteraction } from '@/utils/interaction'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
 const list = ref<any[]>([])
 const loading = ref(true)
@@ -147,6 +149,8 @@ let suppressCardClickUntil = 0
 let cardLongPressTimer: ReturnType<typeof setTimeout> | null = null
 let cardLongPressTriggered = false
 const { isDesktopInteraction } = useDesktopInteraction()
+const authStore = useAuthStore()
+const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const statusMap: Record<number, string> = { 0: '待付款', 1: '已支付', 2: '已取消', 3: '已退款' }
 const payMethodMap: Record<string, string> = {
   qrcode: '扫码',
@@ -282,6 +286,14 @@ function getEditUrl(item: any) {
     : `/pages/order/create?order_id=${item.ID}`
 }
 
+function canEditOrder(item: any) {
+  const status = Number(item?.status || 0)
+  const payStatus = Number(item?.pay_status || 0)
+  if ([2, 3].includes(status)) return false
+  if (payStatus === 0) return true
+  return payStatus === 1 && status === 1 && canManageOpenedOrder.value
+}
+
 function editOrder(item: any) {
   uni.navigateTo({ url: getEditUrl(item) })
 }
@@ -332,7 +344,7 @@ function clearCardLongPress() {
 function openCardActions(item: any) {
   clearCardLongPress()
   suppressCardClickUntil = Date.now() + 800
-  const actions = item.status === 0 ? ['修改订单', '删除订单'] : ['删除订单']
+  const actions = canEditOrder(item) ? ['修改订单', '删除订单'] : ['删除订单']
   uni.showActionSheet({
     itemList: actions,
     success: ({ tapIndex }) => {
@@ -409,7 +421,7 @@ onShow(loadData)
 .empty-desc { font-size: 24rpx; color: #9CA3AF; }
 @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12rpx); } }
 .card { background: #fff; border-radius: 16rpx; padding: 18rpx 20rpx; margin-bottom: 12rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.card-top { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 8rpx; gap: 10rpx; }
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8rpx; gap: 12rpx; }
 .card-top-right { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
 .status { font-size: 20rpx; padding: 5rpx 14rpx; border-radius: 16rpx; }
 .s0 { background: #FEF3C7; color: #92400E; }
@@ -420,7 +432,7 @@ onShow(loadData)
 .card-action-btn.primary { color: #4F46E5; background: #EEF2FF; }
 .card-action-btn.danger { color: #DC2626; background: #FEF2F2; }
 .card-body { margin-bottom: 10rpx; }
-.customer { font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; line-height: 1.35; }
+.customer { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; line-height: 1.35; }
 .customer-pet { font-size: 24rpx; font-weight: 400; color: #6B7280; }
 .order-meta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 2rpx; }
 .order-time { font-size: 20rpx; color: #9CA3AF; display: block; }

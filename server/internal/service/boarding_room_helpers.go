@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -409,13 +410,36 @@ func applyAggregatePreviewToBoardingOrder(order *model.BoardingOrder, rooms []mo
 	return preview, nil
 }
 
+func loadLinkedBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder) (*model.Order, bool, error) {
+	if order == nil || order.OrderID == nil || *order.OrderID == 0 {
+		return nil, false, nil
+	}
+
+	var payOrder model.Order
+	if err := tx.First(&payOrder, *order.OrderID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := tx.Model(order).Update("order_id", nil).Error; err != nil {
+				return nil, false, err
+			}
+			order.OrderID = nil
+			order.Order = nil
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return &payOrder, true, nil
+}
+
 func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *BoardingPricePreview, allowPaidCheckOut bool) error {
 	if order == nil || preview == nil || order.OrderID == nil || *order.OrderID == 0 {
 		return nil
 	}
-	var payOrder model.Order
-	if err := tx.First(&payOrder, *order.OrderID).Error; err != nil {
+	payOrder, ok, err := loadLinkedBoardingPayOrder(tx, order)
+	if err != nil {
 		return err
+	}
+	if !ok {
+		return nil
 	}
 	if payOrder.PayStatus == 1 && !allowPaidCheckOut {
 		return fmt.Errorf("已支付订单不可修改")

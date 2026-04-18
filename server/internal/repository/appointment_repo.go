@@ -137,13 +137,17 @@ func (r *AppointmentRepository) DeleteServicesByAppointment(appointmentID uint) 
 
 func (r *AppointmentRepository) withRelations() *gorm.DB {
 	return database.DB.Preload("Customer").
-		Preload("Pet").
+		Preload("Pet", func(db *gorm.DB) *gorm.DB {
+			return db.Unscoped()
+		}).
 		Preload("Staff").
 		Preload("Services").
 		Preload("Pets", func(db *gorm.DB) *gorm.DB {
 			return db.Order("sort_order ASC, id ASC")
 		}).
-		Preload("Pets.Pet").
+		Preload("Pets.Pet", func(db *gorm.DB) *gorm.DB {
+			return db.Unscoped()
+		}).
 		Preload("Pets.Services")
 }
 

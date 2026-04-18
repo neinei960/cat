@@ -649,14 +649,14 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 	return s.repo.FindBoardingOrderByID(shopID, createdID)
 }
 
-func (s *BoardingService) ListOrders(shopID uint, status string, page, pageSize int) ([]model.BoardingOrder, int64, error) {
+func (s *BoardingService) ListOrders(shopID uint, status, dateFrom, dateTo string, cabinetID uint, page, pageSize int) ([]model.BoardingOrder, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	list, total, err := s.repo.ListBoardingOrders(shopID, status, page, pageSize)
+	list, total, err := s.repo.ListBoardingOrders(shopID, status, dateFrom, dateTo, cabinetID, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1405,9 +1405,12 @@ func (s *BoardingService) syncOrder(tx *gorm.DB, boardingOrder *model.BoardingOr
 	if boardingOrder.OrderID == nil || *boardingOrder.OrderID == 0 {
 		return nil
 	}
-	var payOrder model.Order
-	if err := tx.First(&payOrder, *boardingOrder.OrderID).Error; err != nil {
+	payOrder, ok, err := loadLinkedBoardingPayOrder(tx, boardingOrder)
+	if err != nil {
 		return err
+	}
+	if !ok {
+		return nil
 	}
 	if payOrder.PayStatus == 1 && !allowPaidCheckOut {
 		return errors.New("已支付订单不可修改")

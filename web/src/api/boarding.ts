@@ -79,7 +79,12 @@ export function createBoardingOrder(data: {
   return request<BoardingOrder>({ url: '/b/boarding/orders', method: 'POST', data })
 }
 
-export function getBoardingOrders(params?: PageParams & { status?: string }) {
+export function getBoardingOrders(params?: PageParams & {
+  status?: string
+  date_from?: string
+  date_to?: string
+  cabinet_id?: number
+}) {
   return request<PageResult<BoardingOrder>>({ url: '/b/boarding/orders', data: params })
 }
 

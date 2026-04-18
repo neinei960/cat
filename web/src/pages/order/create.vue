@@ -146,10 +146,34 @@
         <view v-if="productLoading" class="empty-block">商品加载中...</view>
         <view v-else-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
         <view v-else class="product-grid">
-          <view class="product-card" v-for="product in filteredProducts" :key="product.ID" @click="openProductPicker(product)">
+          <view class="product-card" v-for="product in filteredProducts" :key="product.ID">
             <view class="product-card-top">
-              <text class="product-name">{{ product.name }}</text>
+              <view class="product-name-wrap" @click="openProductPicker(product)">
+                <text class="product-name">{{ product.name }}</text>
+                <view
+                  v-if="getSellableSkus(product).length > 1"
+                  :class="['product-expand-arrow', isProductExpanded(product) ? 'open' : '']"
+                >
+                  <view class="product-expand-arrow-shaft left"></view>
+                  <view class="product-expand-arrow-shaft right"></view>
+                </view>
+              </view>
               <text class="product-price">{{ formatProductPrice(product) }}</text>
+            </view>
+            <view
+              v-if="isProductExpanded(product) && getSellableSkus(product).length > 1"
+              class="product-sku-list"
+              @click.stop
+            >
+              <view
+                v-for="sku in getSellableSkus(product)"
+                :key="sku.ID"
+                class="product-sku-item"
+                @click.stop="selectProductSku(product, sku)"
+              >
+                <text class="product-sku-name">{{ sku.spec_name || '默认规格' }}</text>
+                <text class="product-sku-price">¥{{ Number(sku.price || 0).toFixed(2) }}</text>
+              </view>
             </view>
             <view class="product-card-bottom">
               <text class="product-meta">{{ product.brand || product.category?.name || '零售商品' }}</text>
@@ -289,26 +313,26 @@
         <view class="section-head compact">
           <view>
             <text class="section-title">金额汇总</text>
-            <text class="section-desc">服务和商品分开统计。</text>
+            <text class="section-desc">{{ showSummaryBreakdown ? '服务和商品分开统计。' : '按最终应付金额结算。' }}</text>
           </view>
         </view>
-        <view class="summary-row" v-if="serviceSubtotal > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && serviceSubtotal > 0">
           <text>服务小计</text>
           <text>¥{{ serviceSubtotal.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="serviceDiscountAmount > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && serviceDiscountAmount > 0">
           <text>服务优惠</text>
           <text class="discount">-¥{{ serviceDiscountAmount.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="productSubtotal > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && productSubtotal > 0">
           <text>商品小计</text>
           <text>¥{{ productSubtotal.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="productDiscountAmount > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && productDiscountAmount > 0">
           <text>商品优惠</text>
           <text class="discount">-¥{{ productDiscountAmount.toFixed(2) }}</text>
         </view>
-        <view class="summary-row">
+        <view class="summary-row" v-if="showSummaryBreakdown">
           <text>订单总价</text>
           <text>¥{{ totalAmount.toFixed(2) }}</text>
         </view>
@@ -352,6 +376,8 @@ import { getCategoryTree } from '@/api/service-category'
 import { getStaffList } from '@/api/staff'
 import { getCustomerCard } from '@/api/member-card'
 import { getAppointment } from '@/api/appointment'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
 type CustomerOption = Customer
 type PetOption = Pet
@@ -414,7 +440,9 @@ let petSearchTimer: ReturnType<typeof setTimeout> | null = null
 let productSearchTimer: ReturnType<typeof setTimeout> | null = null
 let productRequestSeq = 0
 
+const authStore = useAuthStore()
 const isEditing = computed(() => editingOrderId.value > 0)
+const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
 const staffNames = computed(() => ['未选择', ...staffList.value.map((staff: any) => staff.name)])
 
@@ -474,6 +502,13 @@ const productDiscountAmount = computed(() => roundCurrency(productSubtotal.value
 const payAmount = computed(() => roundCurrency(totalAmount.value - serviceDiscountAmount.value - productDiscountAmount.value))
 const hasServiceItem = computed(() => selectedServiceId.value > 0)
 const hasChargeItems = computed(() => hasServiceItem.value || cartItems.value.length > 0)
+const chargeBucketCount = computed(() => {
+  let count = 0
+  if (serviceSubtotal.value > 0) count += 1
+  if (productSubtotal.value > 0) count += 1
+  return count
+})
+const showSummaryBreakdown = computed(() => chargeBucketCount.value > 1)
 
 onLoad((query) => {
   if (query?.appointment_id) {
@@ -841,6 +876,17 @@ function formatCartDisplayName(productName: string, specName: string) {
   return specName ? `${productName} · ${specName}` : productName
 }
 
+function isProductExpanded(product: ProductOption & { __expanded?: boolean }) {
+  return !!product.__expanded
+}
+
+function collapseOtherProducts(activeId?: number) {
+  for (const item of productList.value as Array<ProductOption & { __expanded?: boolean }>) {
+    if (activeId && item.ID === activeId) continue
+    item.__expanded = false
+  }
+}
+
 function openProductPicker(product: ProductOption) {
   const skus = getSellableSkus(product)
   if (skus.length === 0) {
@@ -849,17 +895,16 @@ function openProductPicker(product: ProductOption) {
   }
   if (skus.length === 1) {
     addProductToCart(product, skus[0])
+    collapseOtherProducts()
     return
   }
-  uni.showActionSheet({
-    itemList: skus.map((sku) => `${sku.spec_name || '默认规格'} · ¥${Number(sku.price || 0).toFixed(2)}`),
-    success: ({ tapIndex }) => {
-      const selectedSku = skus[tapIndex]
-      if (selectedSku) {
-        addProductToCart(product, selectedSku)
-      }
-    },
-  })
+  const nextExpanded = !isProductExpanded(product as ProductOption & { __expanded?: boolean })
+  collapseOtherProducts(nextExpanded ? product.ID : undefined)
+  ;(product as ProductOption & { __expanded?: boolean }).__expanded = nextExpanded
+}
+
+function selectProductSku(product: ProductOption, sku: ProductSkuOption) {
+  addProductToCart(product, sku)
 }
 
 function getProductCartCount(productId: number) {
@@ -941,8 +986,14 @@ async function prefillFromOrder(orderId: number) {
       uni.showToast({ title: '订单不存在', icon: 'none' })
       return
     }
-    if (order.status !== 0) {
-      uni.showToast({ title: '仅待付款订单可修改', icon: 'none' })
+    const status = Number(order.status || 0)
+    const payStatus = Number(order.pay_status || 0)
+    if ([2, 3].includes(status)) {
+      uni.showToast({ title: '当前订单不可修改', icon: 'none' })
+      return
+    }
+    if (!(payStatus === 0 || (payStatus === 1 && status === 1 && canManageOpenedOrder.value))) {
+      uni.showToast({ title: '仅店长可修改已开单订单', icon: 'none' })
       return
     }
 
@@ -1690,14 +1741,91 @@ function roundCurrency(value: number) {
   align-items: center;
 }
 .product-card-bottom { margin-top: 8rpx; }
+.product-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+  flex: 1;
+}
 .product-name {
   font-size: 28rpx;
   font-weight: 600;
   color: #111827;
+  min-width: 0;
+  flex: 1;
+}
+.product-expand-arrow {
+  position: relative;
+  flex-shrink: 0;
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  border: 1rpx solid #E5E7EB;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.product-expand-arrow.open {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+}
+.product-expand-arrow-shaft {
+  position: absolute;
+  top: 16rpx;
+  width: 10rpx;
+  height: 3rpx;
+  border-radius: 999rpx;
+  background: #6B7280;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.product-expand-arrow-shaft.left {
+  left: 9rpx;
+  transform: rotate(45deg);
+}
+.product-expand-arrow-shaft.right {
+  right: 9rpx;
+  transform: rotate(-45deg);
+}
+.product-expand-arrow.open .product-expand-arrow-shaft {
+  background: #4F46E5;
+}
+.product-expand-arrow.open .product-expand-arrow-shaft.left {
+  transform: rotate(-45deg);
+}
+.product-expand-arrow.open .product-expand-arrow-shaft.right {
+  transform: rotate(45deg);
 }
 .product-price {
   font-size: 28rpx;
   font-weight: 700;
+  color: #4F46E5;
+}
+.product-sku-list {
+  margin-top: 12rpx;
+  border-top: 1rpx solid #EEF2F7;
+  padding-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.product-sku-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: #F8FAFC;
+  border: 2rpx solid #E5E7EB;
+}
+.product-sku-name {
+  font-size: 24rpx;
+  color: #374151;
+}
+.product-sku-price {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 600;
   color: #4F46E5;
 }
 .product-meta {

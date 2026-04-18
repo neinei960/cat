@@ -765,10 +765,37 @@ const customerSuggestions = computed<CustomerSuggestion[]>(() => {
       }]
   }).slice(0, 20)
 })
+
+function findEditingAppointmentPet(petId: number): Pet | undefined {
+  if (!editingAppointment.value || !petId) return undefined
+  const appointmentPet = Array.isArray(editingAppointment.value?.pets)
+    ? editingAppointment.value.pets.find((item: any) => Number(item.pet_id || item.pet?.ID) === Number(petId))
+    : null
+  const appointmentPetData = appointmentPet?.pet
+  if (appointmentPetData?.ID) {
+    return appointmentPetData as Pet
+  }
+  if (editingAppointment.value?.pet?.ID === petId) {
+    return editingAppointment.value.pet as Pet
+  }
+  return undefined
+}
+
+function getPetById(petId: number): Pet | undefined {
+  return petList.value.find((item) => item.ID === petId) || findEditingAppointmentPet(petId)
+}
+
+function mergePetsIntoPetList(pets: Array<Pet | undefined | null>) {
+  const existingIds = new Set(petList.value.map((item) => item.ID))
+  const extras = pets.filter((pet): pet is Pet => !!pet?.ID && !existingIds.has(pet.ID))
+  if (extras.length === 0) return
+  petList.value = [...petList.value, ...extras]
+}
+
 const selectedPetConfigs = computed(() =>
   form.value.pets
     .map(selection => {
-      const pet = petList.value.find(item => item.ID === selection.pet_id)
+      const pet = getPetById(selection.pet_id)
       if (!pet) return null
       return { pet, selection }
     })
@@ -983,7 +1010,7 @@ function normalizeAppointmentPets(appointment: any): AppointmentPetFormItem[] {
 function buildAppointmentPetNoteMap(text?: string): Record<string, string> {
   const noteMap: Record<string, string[]> = {}
   const petNames = form.value.pets
-    .map((item, index) => petList.value.find((pet) => pet.ID === item.pet_id)?.name || `猫咪${index + 1}`)
+    .map((item, index) => getPetById(item.pet_id)?.name || `猫咪${index + 1}`)
     .filter(Boolean)
     .sort((a, b) => b.length - a.length)
 
@@ -1034,10 +1061,7 @@ function hydrateEditNewCustomerDrafts(appointment: any) {
   }
   const noteMap = buildAppointmentPetNoteMap(appointment?.notes)
   const drafts = form.value.pets.map((item, index) => {
-    const pet =
-      petList.value.find((entry) => entry.ID === item.pet_id) ||
-      appointment?.pets?.find((petItem: any) => Number(petItem.pet_id) === Number(item.pet_id))?.pet ||
-      null
+    const pet = getPetById(item.pet_id) || null
     const fallbackName = pet?.name || `猫咪${index + 1}`
     return createDraftFromExistingPet(pet, noteMap[fallbackName] || '')
   })
@@ -1056,6 +1080,10 @@ async function loadAppointmentForEdit(id: number) {
     const customer = (appointment.customer || customerList.value.find(item => item.ID === customerId) || { ID: customerId }) as Customer
     await selectCustomer(customer)
   }
+  mergePetsIntoPetList([
+    appointment?.pet as Pet,
+    ...(Array.isArray(appointment?.pets) ? appointment.pets.map((petItem: any) => petItem?.pet as Pet) : []),
+  ])
 
   form.value = {
     customer_id: customerId,
@@ -1439,7 +1467,7 @@ function applyDraftsToEditNewCustomerState() {
   form.value.pets.forEach((selection, index) => {
     const draft = newPetDrafts.value[index]
     if (!draft) return
-    const pet = petList.value.find((item) => item.ID === selection.pet_id)
+    const pet = getPetById(selection.pet_id)
     const nextName = draft.parsed.name.trim() || pet?.name || `猫咪${index + 1}`
 
     if (pet) {
@@ -1479,7 +1507,7 @@ async function persistEditNewCustomerEntities() {
     const selection = form.value.pets[index]
     const draft = newPetDrafts.value[index]
     if (!draft) continue
-    const existingPet = petList.value.find((item) => item.ID === selection.pet_id)
+    const existingPet = getPetById(selection.pet_id)
     const birthDate = draft.parsed.birthDate || ageToBirthDate(draft.parsed.age)
     const payload: Partial<Pet> = {
       name: draft.parsed.name.trim() || existingPet?.name || `猫咪${index + 1}`,

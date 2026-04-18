@@ -329,7 +329,16 @@ func (h *BoardingHandler) CreateOrder(c *gin.Context) {
 func (h *BoardingHandler) ListOrders(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	list, total, err := h.service.ListOrders(c.GetUint("shop_id"), c.Query("status"), page, pageSize)
+	cabinetID, _ := strconv.ParseUint(c.DefaultQuery("cabinet_id", "0"), 10, 64)
+	list, total, err := h.service.ListOrders(
+		c.GetUint("shop_id"),
+		c.Query("status"),
+		c.Query("date_from"),
+		c.Query("date_to"),
+		uint(cabinetID),
+		page,
+		pageSize,
+	)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return

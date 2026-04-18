@@ -157,6 +157,10 @@ var (
 )
 
 func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing *model.Order) (*model.Order, []model.OrderItem, error) {
+	if existing != nil && existing.AppointmentID != nil && existing.PetID == nil {
+		return h.buildBatchOrderDraft(shopID, req, existing)
+	}
+
 	var items []model.OrderItem
 	var selectedPet *model.Pet
 	hasServiceItems := false
@@ -246,6 +250,61 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 	if !hasServiceItems && !hasProductItems {
 		return nil, nil, errDraftItemsMissing
 	}
+
+	return h.finalizeOrderDraft(shopID, req, existing, items, selectedPet, hasServiceItems, addonTotal)
+}
+
+func (h *OrderHandler) buildBatchOrderDraft(shopID uint, req createOrderReq, existing *model.Order) (*model.Order, []model.OrderItem, error) {
+	var items []model.OrderItem
+	hasServiceItems := false
+	hasProductItems := false
+
+	for _, it := range req.Items {
+		if it.ItemType == 1 {
+			hasServiceItems = true
+		}
+		if it.ItemType == 2 {
+			hasProductItems = true
+		}
+		qty := it.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		amount := it.UnitPrice * float64(qty)
+		items = append(items, model.OrderItem{
+			ItemType:  it.ItemType,
+			ItemID:    it.ItemID,
+			Name:      it.Name,
+			Quantity:  qty,
+			UnitPrice: it.UnitPrice,
+			Amount:    amount,
+		})
+	}
+
+	var addonTotal float64
+	for _, addon := range req.Addons {
+		if addon.Amount <= 0 {
+			continue
+		}
+		addonTotal += addon.Amount
+		items = append(items, model.OrderItem{
+			ItemType:  3,
+			ItemID:    0,
+			Name:      addon.Name,
+			Quantity:  1,
+			UnitPrice: addon.Amount,
+			Amount:    addon.Amount,
+		})
+	}
+
+	if !hasServiceItems && !hasProductItems {
+		return nil, nil, errDraftItemsMissing
+	}
+
+	return h.finalizeOrderDraft(shopID, req, existing, items, nil, hasServiceItems, addonTotal)
+}
+
+func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, existing *model.Order, items []model.OrderItem, selectedPet *model.Pet, hasServiceItems bool, addonTotal float64) (*model.Order, []model.OrderItem, error) {
 
 	var customerID *uint
 	if existing != nil {
@@ -428,7 +487,7 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.orderService.UpdateDraft(c.GetUint("shop_id"), uint(id), order, items); err != nil {
+	if err := h.orderService.UpdateDraft(c.GetUint("shop_id"), c.GetString("role"), uint(id), order, items); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}

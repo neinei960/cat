@@ -7,9 +7,9 @@
         <view class="card summary-card">
           <view class="summary-head">
             <view class="summary-copy">
-              <text class="summary-caption">寄养详情</text>
-              <text class="summary-title">{{ order.customer?.nickname || order.customer?.phone || '-' }}</text>
-              <text class="summary-sub">{{ allPetNames }} · {{ displayRooms.length }} 个房间分组</text>
+              <text class="summary-caption">{{ isHistoryOrder ? '历史寄养详情' : '寄养详情' }}</text>
+              <text class="summary-title">{{ customerLabel }}</text>
+              <text class="summary-sub">{{ allPetNames }} · {{ roomSummary }}</text>
             </view>
             <view class="summary-side">
               <text :class="['status-pill', order.status, 'summary-status']">{{ statusLabel(order.status) }}</text>
@@ -45,8 +45,45 @@
         <view class="card section-card">
           <view class="section-headline">
             <view>
+              <text class="section-title">家长与猫咪</text>
+              <text class="section-subtitle">回看本次寄养对应的家长信息和猫咪基础档案。</text>
+            </view>
+          </view>
+
+          <view class="profile-grid">
+            <view class="profile-panel">
+              <text class="profile-title">家长信息</text>
+              <view class="profile-row">
+                <text class="profile-label">家长</text>
+                <text class="profile-value">{{ customerLabel }}</text>
+              </view>
+              <view class="profile-row">
+                <text class="profile-label">手机号</text>
+                <text class="profile-value">{{ customerPhone }}</text>
+              </view>
+              <view v-if="customerRemark" class="profile-row block">
+                <text class="profile-label">家长备注</text>
+                <text class="profile-value multiline">{{ customerRemark }}</text>
+              </view>
+            </view>
+
+            <view class="profile-panel">
+              <text class="profile-title">猫咪信息</text>
+              <view class="pet-profile-list">
+                <view v-for="pet in petProfiles" :key="pet.name" class="pet-profile-row">
+                  <text class="pet-profile-name">{{ pet.name }}</text>
+                  <text class="pet-profile-meta">{{ pet.meta || '未补充档案' }}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view class="card section-card">
+          <view class="section-headline">
+            <view>
               <text class="section-title">房间安排</text>
-              <text class="section-subtitle">先看每个房间的猫咪、日期和金额，明细按需展开。</text>
+              <text class="section-subtitle">{{ isHistoryOrder ? '回看每个房间的猫咪、日期和金额，明细按需展开。' : '先看每个房间的猫咪、日期和金额，明细按需展开。' }}</text>
             </view>
           </view>
           <view class="room-list">
@@ -195,6 +232,11 @@ import {
   getAvailableBoardingCabinets,
   getBoardingOrder,
 } from '@/api/boarding'
+import {
+  buildBoardingHistoryPetProfiles,
+  getBoardingHistoryCustomerLabel,
+  getBoardingHistoryRoomSummary,
+} from '@/utils/boarding-history'
 
 const id = ref(0)
 const loading = ref(false)
@@ -219,6 +261,12 @@ const aggregateLines = computed(() => aggregatePreview.value?.lines || [])
 const logs = computed(() => order.value?.logs || [])
 const allPetNames = computed(() => order.value?.pets?.map((item) => item.pet?.name || item.pet_name_snapshot).filter(Boolean).join('、') || '-')
 const canCancelWholeOrder = computed(() => displayRooms.value.length > 1 && displayRooms.value.every((room) => room.status === 'pending_checkin'))
+const isHistoryOrder = computed(() => order.value?.status === 'checked_out')
+const customerLabel = computed(() => getBoardingHistoryCustomerLabel(order.value))
+const customerPhone = computed(() => order.value?.customer?.phone || '-')
+const customerRemark = computed(() => (order.value?.customer?.remark || '').trim())
+const roomSummary = computed(() => getBoardingHistoryRoomSummary(order.value))
+const petProfiles = computed(() => buildBoardingHistoryPetProfiles(order.value))
 
 function roomKey(room: BoardingOrderRoom) {
   return String(room.ID || `legacy-${room.room_index || 1}`)
@@ -647,6 +695,78 @@ onShow(loadData)
   font-weight: 800;
   color: #111827;
 }
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+.profile-panel {
+  border-radius: 22rpx;
+  background: #f8fafc;
+  border: 1rpx solid #e5e7eb;
+  padding: 20rpx;
+}
+.profile-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  align-items: flex-start;
+  padding-top: 16rpx;
+}
+.profile-row.block {
+  display: block;
+}
+.profile-label {
+  font-size: 22rpx;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.profile-value {
+  font-size: 24rpx;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: right;
+}
+.profile-value.multiline {
+  display: block;
+  margin-top: 8rpx;
+  text-align: left;
+  color: #475569;
+  font-weight: 500;
+}
+.pet-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+.pet-profile-row {
+  padding: 16rpx 18rpx;
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1rpx solid #e5e7eb;
+}
+.pet-profile-name {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #111827;
+}
+.pet-profile-meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #64748b;
+}
 .mini-link {
   padding: 10rpx 14rpx;
   border-radius: 999rpx;
@@ -948,6 +1068,9 @@ onShow(loadData)
   .section-headline,
   .total-strip {
     flex-direction: column;
+  }
+  .profile-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .summary-side {
     width: 100%;

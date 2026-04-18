@@ -385,8 +385,30 @@ async function onDelete() {
 .form-item { padding: 24rpx 0; border-bottom: 1rpx solid #F3F4F6; position: relative; }
 .form-item:last-child { border-bottom: none; }
 .label { font-size: 28rpx; color: #374151; display: block; margin-bottom: 12rpx; }
-.input { background: #F9FAFB; border-radius: 8rpx; height: 72rpx; padding: 0 16rpx; font-size: 28rpx; color: #1F2937; }
-.textarea { background: #F9FAFB; border-radius: 8rpx; padding: 16rpx; font-size: 28rpx; color: #1F2937; width: 100%; height: 160rpx; }
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #F9FAFB;
+  border-radius: 8rpx;
+  height: 72rpx;
+  padding: 0 16rpx;
+  font-size: 28rpx;
+  color: #1F2937;
+  text-align: left;
+}
+.input :deep(.uni-input-wrapper) { width: 100%; }
+.input :deep(.uni-input-input),
+.input :deep(.uni-input-placeholder) { text-align: left !important; }
+.textarea {
+  background: #F9FAFB;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  font-size: 28rpx;
+  color: #1F2937;
+  width: 100%;
+  height: 160rpx;
+  box-sizing: border-box;
+}
 .picker { background: #F9FAFB; border-radius: 8rpx; height: 72rpx; line-height: 72rpx; padding: 0 16rpx; font-size: 28rpx; color: #1F2937; }
 .brand-suggestions {
   position: absolute; left: 0; right: 0; top: 100%; z-index: 100;

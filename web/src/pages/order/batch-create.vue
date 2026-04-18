@@ -69,7 +69,7 @@
               </view>
             </view>
           </view>
-          <view class="add-service-row" @click="openAddProduct(di)">
+          <view v-if="di === drafts.length - 1" class="add-service-row" @click="openAddProduct(di)">
             <text class="add-service-text">+ 添加商品</text>
           </view>
         </view>

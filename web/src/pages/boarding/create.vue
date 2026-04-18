@@ -339,7 +339,7 @@
           </view>
           <text v-if="preview" class="action-price">¥{{ preview.pay_amount.toFixed(2) }}</text>
         </view>
-        <button class="submit-btn block" :loading="submitting" @click="submit">确认创建</button>
+        <button class="submit-btn block" :loading="submitting" :disabled="submitting" @click="submit">确认创建</button>
       </view>
 
       <view v-if="assignmentModalPet" class="assign-modal-mask" @click="closePetAssignment">
@@ -385,6 +385,7 @@ import { computed, ref, watch } from 'vue'
 import SideLayout from '@/components/SideLayout.vue'
 import { getCustomerList, createCustomer, getCustomerPets } from '@/api/customer'
 import { createPet } from '@/api/pet'
+import { singleFlight } from '@/utils/single-flight'
 import {
   createBoardingOrder,
   getAvailableBoardingCabinets,
@@ -911,6 +912,7 @@ function selectCabinet(groupId: number, cabinetId: number) {
 }
 
 async function loadPreview() {
+  if (previewLoading.value) return
   if (!validateRoomGroups(true)) return
   previewLoading.value = true
   try {
@@ -930,18 +932,18 @@ async function loadPreview() {
   }
 }
 
-async function submit() {
-  if (!preview.value) {
-    await loadPreview()
-    if (!preview.value) return
-  }
-  if (form.value.hasDeworming === null) {
-    uni.showToast({ title: '请选择是否已驱虫', icon: 'none' })
-    return
-  }
-
+const runSubmit = singleFlight(async () => {
   submitting.value = true
   try {
+    if (!preview.value) {
+      await loadPreview()
+      if (!preview.value) return
+    }
+    if (form.value.hasDeworming === null) {
+      uni.showToast({ title: '请选择是否已驱虫', icon: 'none' })
+      return
+    }
+
     let customerId = selectedCustomer.value?.ID || 0
     const petIdMap: Record<string, number> = {}
 
@@ -980,6 +982,10 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+})
+
+async function submit() {
+  await runSubmit()
 }
 
 ensurePoliciesLoaded()
