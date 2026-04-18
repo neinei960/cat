@@ -1453,13 +1453,13 @@ async function saveRemark() {
   color: #A07830;
 }
 .receipt-group-card {
-  padding-top: 20rpx;
+  padding-top: 16rpx;
 }
 .receipt-group-title {
-  font-size: 28rpx;
-  font-weight: 700;
+  font-size: 24rpx;
+  font-weight: 600;
   color: #2F2A26;
-  margin-bottom: 12rpx;
+  margin-bottom: 8rpx;
   display: block;
 }
 .receipt-item {
