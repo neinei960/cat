@@ -16,12 +16,21 @@ import (
 )
 
 type BoardingPriceLine struct {
-	Type      string  `json:"type"`
-	Label     string  `json:"label"`
-	Quantity  int     `json:"quantity"`
-	UnitPrice float64 `json:"unit_price"`
-	Amount    float64 `json:"amount"`
+	Type          string  `json:"type"`
+	Label         string  `json:"label"`
+	Quantity      int     `json:"quantity"`
+	UnitPrice     float64 `json:"unit_price"`
+	Amount        float64 `json:"amount"`
+	SpecialItemID uint    `json:"special_item_id,omitempty"`
 }
+
+const (
+	fixedBoardingDepositAmount      = 200.0
+	defaultHolidaySurchargeAmount   = 30.0
+	defaultHolidaySurchargeName     = "节假日加收"
+	defaultHolidaySurchargeRemark   = "创建寄养节假日时自动生成，可在寄养优惠中修改金额或停用"
+	defaultHolidaySurchargePriority = 20
+)
 
 type BoardingPricePreview struct {
 	CheckInAt              string                         `json:"check_in_at"`
@@ -33,6 +42,11 @@ type BoardingPricePreview struct {
 	BaseAmount             float64                        `json:"base_amount"`
 	ExtraPetAmount         float64                        `json:"extra_pet_amount"`
 	HolidaySurchargeAmount float64                        `json:"holiday_surcharge_amount"`
+	SpecialItemID          *uint                          `json:"special_item_id,omitempty"`
+	SpecialItemName        string                         `json:"special_item_name,omitempty"`
+	SpecialItemDailyPrice  float64                        `json:"special_item_daily_price,omitempty"`
+	SpecialItemDays        int                            `json:"special_item_days,omitempty"`
+	SpecialItemAmount      float64                        `json:"special_item_amount"`
 	DiscountAmount         float64                        `json:"discount_amount"`
 	PayAmount              float64                        `json:"pay_amount"`
 	Policies               []model.BoardingDiscountPolicy `json:"policies"`
@@ -41,41 +55,59 @@ type BoardingPricePreview struct {
 }
 
 type BoardingPreviewInput struct {
-	CustomerID     uint
-	PetIDs         []uint
-	PetCount       int
-	CabinetID      uint
-	CheckInAt      string
-	CheckOutAt     string
-	PolicyIDs      []uint
-	RoomGroups     []BoardingRoomGroupInput
-	ExcludeOrderID uint
-	ExcludeRoomID  uint
+	CustomerID            uint
+	PetIDs                []uint
+	PetCount              int
+	CabinetID             uint
+	CheckInAt             string
+	CheckOutAt            string
+	DepositEnabled        bool
+	PolicyIDs             []uint
+	RoomGroups            []BoardingRoomGroupInput
+	SpecialItemID         uint
+	SpecialItemDailyPrice float64
+	SpecialItemDays       int
+	SpecialItems          []BoardingSpecialItemSelection
+	ExcludeOrderID        uint
+	ExcludeRoomID         uint
 }
 
 type BoardingCreateInput struct {
-	CustomerID   uint
-	PetIDs       []uint
-	CabinetID    uint
-	CheckInAt    string
-	CheckOutAt   string
-	PolicyIDs    []uint
-	RoomGroups   []BoardingRoomGroupInput
-	HasDeworming *bool
-	Remark       string
-	OperatorID   uint
+	CustomerID            uint
+	PetIDs                []uint
+	CabinetID             uint
+	CheckInAt             string
+	CheckOutAt            string
+	DepositEnabled        bool
+	SpecialItemID         uint
+	SpecialItemDailyPrice float64
+	SpecialItemDays       int
+	SpecialItems          []BoardingSpecialItemSelection
+	PolicyIDs             []uint
+	RoomGroups            []BoardingRoomGroupInput
+	HasDeworming          *bool
+	Remark                string
+	OperatorID            uint
 }
 
 type BoardingRoomGroupInput struct {
-	PetIDs     []uint
-	PetCount   int
-	CabinetID  uint
-	CheckInAt  string
-	CheckOutAt string
+	PetIDs                []uint
+	PetCount              int
+	CabinetID             uint
+	CheckInAt             string
+	CheckOutAt            string
+	SpecialItemID         uint
+	SpecialItemDailyPrice float64
+	SpecialItemDays       int
+	SpecialItems          []BoardingSpecialItemSelection
 }
 
 type BoardingCheckInInput struct {
-	DiscountAmount float64
+	DiscountAmount        float64
+	SpecialItemID         *uint
+	SpecialItemDailyPrice *float64
+	SpecialItemDays       *int
+	SpecialItems          *[]BoardingSpecialItemSelection
 }
 
 type BoardingRoomPreview struct {
@@ -84,6 +116,10 @@ type BoardingRoomPreview struct {
 	CabinetType            string              `json:"cabinet_type"`
 	PetIDs                 []uint              `json:"pet_ids,omitempty"`
 	PetCount               int                 `json:"pet_count"`
+	SpecialItemID          *uint               `json:"special_item_id,omitempty"`
+	SpecialItemName        string              `json:"special_item_name,omitempty"`
+	SpecialItemDailyPrice  float64             `json:"special_item_daily_price,omitempty"`
+	SpecialItemDays        int                 `json:"special_item_days,omitempty"`
 	CheckInAt              string              `json:"check_in_at"`
 	CheckOutAt             string              `json:"check_out_at"`
 	Nights                 int                 `json:"nights"`
@@ -92,6 +128,7 @@ type BoardingRoomPreview struct {
 	BaseAmount             float64             `json:"base_amount"`
 	ExtraPetAmount         float64             `json:"extra_pet_amount"`
 	HolidaySurchargeAmount float64             `json:"holiday_surcharge_amount"`
+	SpecialItemAmount      float64             `json:"special_item_amount"`
 	DiscountAmount         float64             `json:"discount_amount"`
 	ManualDiscountAmount   float64             `json:"manual_discount_amount"`
 	PayAmount              float64             `json:"pay_amount"`
@@ -122,6 +159,21 @@ type surchargeRule struct {
 	Surcharge float64 `json:"surcharge"`
 }
 
+type resolvedBoardingSpecialItem struct {
+	ID         *uint
+	Name       string
+	DailyPrice float64
+	Days       int
+	Amount     float64
+	Lines      []BoardingPriceLine
+}
+
+type BoardingSpecialItemSelection struct {
+	ID         uint
+	DailyPrice float64
+	Days       int
+}
+
 type BoardingService struct {
 	repo         *repository.BoardingRepository
 	orderRepo    *repository.OrderRepository
@@ -143,15 +195,20 @@ func applyMemberDiscountToBoardingPreview(customerID uint, preview *BoardingPric
 		return preview
 	}
 
-	discountedPay := roundMoney(preview.PayAmount * serviceDiscountRate)
-	memberDiscountAmount := roundMoney(preview.PayAmount - discountedPay)
+	discountableAmount := roundMoney(maxFloat(preview.PayAmount-preview.SpecialItemAmount, 0))
+	if discountableAmount <= 0 {
+		return preview
+	}
+
+	discountedPay := roundMoney(discountableAmount * serviceDiscountRate)
+	memberDiscountAmount := roundMoney(discountableAmount - discountedPay)
 	if memberDiscountAmount <= 0 {
 		return preview
 	}
 
 	adjusted := *preview
 	adjusted.DiscountAmount = roundMoney(preview.DiscountAmount + memberDiscountAmount)
-	adjusted.PayAmount = discountedPay
+	adjusted.PayAmount = roundMoney(discountedPay + preview.SpecialItemAmount)
 	adjusted.Lines = append(append([]BoardingPriceLine{}, preview.Lines...), BoardingPriceLine{
 		Type:      "member_discount",
 		Label:     "会员折扣",
@@ -188,6 +245,61 @@ func applyManualDiscountToBoardingPreview(preview *BoardingPricePreview, amount 
 		Amount:    -amount,
 	})
 	return &adjusted, nil
+}
+
+func applyBoardingDepositToPreview(preview *BoardingPricePreview, deposit float64) (*BoardingPricePreview, float64) {
+	if preview == nil {
+		return nil, 0
+	}
+
+	deposit = roundMoney(deposit)
+	if deposit <= 0 {
+		return preview, 0
+	}
+
+	deduction := roundMoney(minFloat(deposit, preview.PayAmount))
+	if deduction <= 0 {
+		return preview, 0
+	}
+
+	adjusted := *preview
+	adjusted.PayAmount = roundMoney(preview.PayAmount - deduction)
+	adjusted.Lines = append(append([]BoardingPriceLine{}, preview.Lines...), BoardingPriceLine{
+		Type:      "boarding_deposit",
+		Label:     "定金抵扣",
+		Quantity:  1,
+		UnitPrice: -deduction,
+		Amount:    -deduction,
+	})
+	return &adjusted, deduction
+}
+
+func applyBoardingDepositFields(order *model.Order, deposit, deduction float64) {
+	if order == nil {
+		return
+	}
+
+	order.AppointmentDepositAmount = roundMoney(maxFloat(deposit, 0))
+	order.AppointmentDepositDeductionAmount = roundMoney(maxFloat(deduction, 0))
+}
+
+func boardingDepositAmountForOrder(order *model.BoardingOrder) float64 {
+	if order == nil || order.Order == nil {
+		return 0
+	}
+	return roundMoney(maxFloat(order.Order.AppointmentDepositAmount, 0))
+}
+
+func boardingDepositDeductionFromPreview(preview *BoardingPricePreview) float64 {
+	if preview == nil {
+		return 0
+	}
+	for _, line := range preview.Lines {
+		if line.Type == "boarding_deposit" {
+			return roundMoney(maxFloat(-line.Amount, 0))
+		}
+	}
+	return 0
 }
 
 func (s *BoardingService) ListCabinets(shopID uint) ([]model.BoardingCabinet, error) {
@@ -245,7 +357,63 @@ func (s *BoardingService) CreateHoliday(holiday *model.BoardingHoliday) error {
 	if holiday.Name == "" {
 		holiday.Name = "节假日"
 	}
-	return database.DB.Create(holiday).Error
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(holiday).Error; err != nil {
+			return err
+		}
+		return s.ensureDefaultHolidaySurchargePolicy(tx, holiday.ShopID)
+	})
+}
+
+func (s *BoardingService) CreateHolidayRange(shopID uint, startDate, endDate, name string) ([]model.BoardingHoliday, error) {
+	startText, err := normalizeDate(startDate)
+	if err != nil {
+		return nil, errors.New("开始日期格式错误")
+	}
+	endText, err := normalizeDate(endDate)
+	if err != nil {
+		return nil, errors.New("结束日期格式错误")
+	}
+	if endText < startText {
+		return nil, errors.New("结束日期不能早于开始日期")
+	}
+	if name == "" {
+		name = "节假日"
+	}
+
+	existing, err := s.repo.ListHolidaysInRange(shopID, startText, addDays(endText, 1))
+	if err != nil {
+		return nil, err
+	}
+	existingDates := make(map[string]struct{}, len(existing))
+	for _, holiday := range existing {
+		existingDates[holiday.HolidayDate] = struct{}{}
+	}
+
+	created := make([]model.BoardingHoliday, 0)
+	for cursor := startText; cursor <= endText; cursor = addDays(cursor, 1) {
+		if _, ok := existingDates[cursor]; ok {
+			continue
+		}
+		created = append(created, model.BoardingHoliday{
+			ShopID:      shopID,
+			HolidayDate: cursor,
+			Name:        name,
+		})
+	}
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if len(created) > 0 {
+			if err := tx.Create(&created).Error; err != nil {
+				return err
+			}
+		}
+		return s.ensureDefaultHolidaySurchargePolicy(tx, shopID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func (s *BoardingService) DeleteHoliday(shopID, id uint) error {
@@ -261,6 +429,32 @@ func (s *BoardingService) CreatePolicy(policy *model.BoardingDiscountPolicy) err
 		return err
 	}
 	return database.DB.Create(policy).Error
+}
+
+func (s *BoardingService) ensureDefaultHolidaySurchargePolicy(tx *gorm.DB, shopID uint) error {
+	var existing model.BoardingDiscountPolicy
+	err := tx.Where("shop_id = ? AND policy_type = ?", shopID, model.BoardingPolicyTypeHolidaySurcharge).First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	ruleJSON, _ := json.Marshal(surchargeRule{Surcharge: defaultHolidaySurchargeAmount})
+	policy := model.BoardingDiscountPolicy{
+		ShopID:     shopID,
+		Name:       defaultHolidaySurchargeName,
+		PolicyType: model.BoardingPolicyTypeHolidaySurcharge,
+		RuleJSON:   string(ruleJSON),
+		Priority:   defaultHolidaySurchargePriority,
+		Stackable:  true,
+		Status:     1,
+		Remark:     defaultHolidaySurchargeRemark,
+	}
+	if err := validateBoardingPolicy(&policy); err != nil {
+		return err
+	}
+	return tx.Create(&policy).Error
 }
 
 func (s *BoardingService) UpdatePolicy(shopID uint, policy *model.BoardingDiscountPolicy) error {
@@ -281,6 +475,37 @@ func (s *BoardingService) UpdatePolicy(shopID uint, policy *model.BoardingDiscou
 		return err
 	}
 	return database.DB.Save(&existing).Error
+}
+
+func (s *BoardingService) ListSpecialItems(shopID uint, onlyActive bool) ([]model.BoardingSpecialItem, error) {
+	return s.repo.ListSpecialItems(shopID, onlyActive)
+}
+
+func (s *BoardingService) CreateSpecialItem(item *model.BoardingSpecialItem) error {
+	if err := validateBoardingSpecialItem(item); err != nil {
+		return err
+	}
+	return database.DB.Create(item).Error
+}
+
+func (s *BoardingService) UpdateSpecialItem(shopID uint, item *model.BoardingSpecialItem) error {
+	existing, err := s.repo.FindSpecialItemByID(shopID, item.ID)
+	if err != nil {
+		return err
+	}
+	existing.Name = item.Name
+	existing.DefaultDailyPrice = item.DefaultDailyPrice
+	existing.SortOrder = item.SortOrder
+	existing.Status = item.Status
+	existing.Remark = item.Remark
+	if err := validateBoardingSpecialItem(existing); err != nil {
+		return err
+	}
+	return database.DB.Save(existing).Error
+}
+
+func (s *BoardingService) DeleteSpecialItem(shopID, id uint) error {
+	return database.DB.Where("shop_id = ?", shopID).Delete(&model.BoardingSpecialItem{}, id).Error
 }
 
 func (s *BoardingService) GetAvailableCabinets(shopID uint, checkInAt, checkOutAt string, petCount int, excludeOrderID, excludeRoomID uint) ([]model.BoardingCabinet, error) {
@@ -364,6 +589,10 @@ func (s *BoardingService) Preview(shopID uint, input BoardingPreviewInput) (*Boa
 		input.CabinetID = groups[0].CabinetID
 		input.CheckInAt = groups[0].CheckInAt
 		input.CheckOutAt = groups[0].CheckOutAt
+		input.SpecialItemID = groups[0].SpecialItemID
+		input.SpecialItemDailyPrice = groups[0].SpecialItemDailyPrice
+		input.SpecialItemDays = groups[0].SpecialItemDays
+		input.SpecialItems = groups[0].SpecialItems
 	}
 	cabinet, err := s.repo.FindCabinetByID(shopID, input.CabinetID)
 	if err != nil {
@@ -401,7 +630,11 @@ func (s *BoardingService) Preview(shopID uint, input BoardingPreviewInput) (*Boa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	preview, err := s.computePreview(shopID, cabinet, input.CheckInAt, input.CheckOutAt, petCount, selectedPolicies)
+	specialItem, err := s.resolveSpecialItemSelection(shopID, input)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	preview, err := s.computePreview(shopID, cabinet, input.CheckInAt, input.CheckOutAt, petCount, selectedPolicies, specialItem)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -423,11 +656,15 @@ func normalizeBoardingRoomGroups(groups []BoardingRoomGroupInput, legacy Boardin
 		return nil
 	}
 	return []BoardingRoomGroupInput{{
-		PetIDs:     append([]uint(nil), legacy.PetIDs...),
-		PetCount:   legacy.PetCount,
-		CabinetID:  legacy.CabinetID,
-		CheckInAt:  legacy.CheckInAt,
-		CheckOutAt: legacy.CheckOutAt,
+		PetIDs:                append([]uint(nil), legacy.PetIDs...),
+		PetCount:              legacy.PetCount,
+		CabinetID:             legacy.CabinetID,
+		CheckInAt:             legacy.CheckInAt,
+		CheckOutAt:            legacy.CheckOutAt,
+		SpecialItemID:         legacy.SpecialItemID,
+		SpecialItemDailyPrice: legacy.SpecialItemDailyPrice,
+		SpecialItemDays:       legacy.SpecialItemDays,
+		SpecialItems:          append([]BoardingSpecialItemSelection(nil), legacy.SpecialItems...),
 	}}
 }
 
@@ -442,15 +679,19 @@ func (s *BoardingService) resolveRoomModels(shopID, customerID uint, groups []Bo
 
 	for index, group := range groups {
 		preview, cabinet, petIDs, err := s.Preview(shopID, BoardingPreviewInput{
-			CustomerID:     customerID,
-			PetIDs:         group.PetIDs,
-			PetCount:       group.PetCount,
-			CabinetID:      group.CabinetID,
-			CheckInAt:      group.CheckInAt,
-			CheckOutAt:     group.CheckOutAt,
-			PolicyIDs:      policyIDs,
-			ExcludeOrderID: excludeOrderID,
-			ExcludeRoomID:  excludeRoomID,
+			CustomerID:            customerID,
+			PetIDs:                group.PetIDs,
+			PetCount:              group.PetCount,
+			CabinetID:             group.CabinetID,
+			CheckInAt:             group.CheckInAt,
+			CheckOutAt:            group.CheckOutAt,
+			SpecialItemID:         group.SpecialItemID,
+			SpecialItemDailyPrice: group.SpecialItemDailyPrice,
+			SpecialItemDays:       group.SpecialItemDays,
+			SpecialItems:          append([]BoardingSpecialItemSelection(nil), group.SpecialItems...),
+			PolicyIDs:             policyIDs,
+			ExcludeOrderID:        excludeOrderID,
+			ExcludeRoomID:         excludeRoomID,
 		})
 		if err != nil {
 			return nil, err
@@ -482,6 +723,11 @@ func (s *BoardingService) resolveRoomModels(shopID, customerID uint, groups []Bo
 		priceSnapshot, _ := json.Marshal(preview)
 		room := model.BoardingOrderRoom{
 			CabinetID:              cabinet.ID,
+			SpecialItemID:          cloneUint(preview.SpecialItemID),
+			SpecialItemName:        strings.TrimSpace(preview.SpecialItemName),
+			SpecialItemDailyPrice:  roundMoney(preview.SpecialItemDailyPrice),
+			SpecialItemDays:        preview.SpecialItemDays,
+			SpecialItemAmount:      roundMoney(preview.SpecialItemAmount),
 			RoomIndex:              index + 1,
 			CheckInAt:              preview.CheckInAt,
 			CheckOutAt:             preview.CheckOutAt,
@@ -520,6 +766,9 @@ func (s *BoardingService) PreviewOrder(shopID uint, input BoardingPreviewInput) 
 	if preview == nil {
 		return nil, errors.New("无法生成寄养预览")
 	}
+	if input.DepositEnabled {
+		preview, _ = applyBoardingDepositToPreview(preview, fixedBoardingDepositAmount)
+	}
 	return preview, nil
 }
 
@@ -528,10 +777,14 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 		return nil, errors.New("请选择客户")
 	}
 	roomGroups := normalizeBoardingRoomGroups(input.RoomGroups, BoardingPreviewInput{
-		PetIDs:     input.PetIDs,
-		CabinetID:  input.CabinetID,
-		CheckInAt:  input.CheckInAt,
-		CheckOutAt: input.CheckOutAt,
+		PetIDs:                input.PetIDs,
+		CabinetID:             input.CabinetID,
+		CheckInAt:             input.CheckInAt,
+		CheckOutAt:            input.CheckOutAt,
+		SpecialItemID:         input.SpecialItemID,
+		SpecialItemDailyPrice: input.SpecialItemDailyPrice,
+		SpecialItemDays:       input.SpecialItemDays,
+		SpecialItems:          append([]BoardingSpecialItemSelection(nil), input.SpecialItems...),
 	})
 	rooms, err := s.resolveRoomModels(shopID, input.CustomerID, roomGroups, input.PolicyIDs, 0, 0)
 	if err != nil {
@@ -541,6 +794,11 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 	if preview == nil {
 		return nil, errors.New("无法生成寄养预览")
 	}
+	depositAmount := 0.0
+	if input.DepositEnabled {
+		depositAmount = fixedBoardingDepositAmount
+	}
+	preview, depositDeduction := applyBoardingDepositToPreview(preview, depositAmount)
 	if _, err := s.customerRepo.FindByID(input.CustomerID); err != nil {
 		return nil, errors.New("客户不存在")
 	}
@@ -557,6 +815,7 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 		Nights:                 preview.Nights,
 		BaseAmount:             preview.BaseAmount,
 		HolidaySurchargeAmount: preview.HolidaySurchargeAmount,
+		SpecialItemAmount:      preview.SpecialItemAmount,
 		DiscountAmount:         preview.DiscountAmount,
 		PayAmount:              preview.PayAmount,
 		Status:                 model.BoardingOrderStatusPendingCheckin,
@@ -583,7 +842,8 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 		if len(allPetIDs) == 1 {
 			orderPetID = &allPetIDs[0]
 		}
-		orderTotal := roundMoney(preview.BaseAmount + preview.HolidaySurchargeAmount)
+		serviceTotal := boardingServiceAmount(preview)
+		orderTotal := roundMoney(serviceTotal + preview.SpecialItemAmount)
 		order := &model.Order{
 			OrderNo:               utils.GenerateOrderNo(),
 			ShopID:                shopID,
@@ -591,7 +851,8 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 			PetID:                 orderPetID,
 			StaffID:               uintPtr(input.OperatorID),
 			TotalAmount:           orderTotal,
-			ServiceTotal:          orderTotal,
+			ServiceTotal:          serviceTotal,
+			AddonTotal:            roundMoney(preview.SpecialItemAmount),
 			DiscountAmount:        preview.DiscountAmount,
 			ServiceDiscountAmount: preview.DiscountAmount,
 			DiscountRate:          calculateOrderDiscountRate(orderTotal, preview.PayAmount),
@@ -600,6 +861,7 @@ func (s *BoardingService) CreateOrder(shopID uint, input BoardingCreateInput) (*
 			Status:                0,
 			Remark:                strings.TrimSpace(input.Remark),
 		}
+		applyBoardingDepositFields(order, depositAmount, depositDeduction)
 		if err := tx.Create(order).Error; err != nil {
 			return err
 		}
@@ -675,6 +937,37 @@ func (s *BoardingService) GetOrder(shopID, id uint) (*model.BoardingOrder, error
 	return order, nil
 }
 
+func (s *BoardingService) UpdateDeworming(shopID, id, operatorID uint, hasDeworming *bool) (*model.BoardingOrder, error) {
+	order, err := s.repo.FindBoardingOrderByID(shopID, id)
+	if err != nil {
+		return nil, err
+	}
+	if boardingDewormingEqual(order.HasDeworming, hasDeworming) {
+		normalizeLoadedBoardingOrder(order)
+		return order, nil
+	}
+
+	previousLabel := boardingDewormingLabel(order.HasDeworming)
+	currentLabel := boardingDewormingLabel(hasDeworming)
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.BoardingOrder{}).
+			Where("id = ? AND shop_id = ?", order.ID, shopID).
+			Update("has_deworming", hasDeworming).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.BoardingOrderLog{
+			BoardingOrderID: order.ID,
+			OperatorID:      operatorID,
+			Action:          "update_deworming",
+			Content:         fmt.Sprintf("更新驱虫状态：%s -> %s", previousLabel, currentLabel),
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetOrder(shopID, id)
+}
+
 func (s *BoardingService) Dashboard(shopID uint) ([]BoardingDashboardGroup, error) {
 	cabinets, err := s.repo.ListCabinets(shopID)
 	if err != nil {
@@ -692,6 +985,9 @@ func (s *BoardingService) Dashboard(shopID uint) ([]BoardingDashboardGroup, erro
 		normalizeLoadedBoardingOrder(&order)
 		for _, room := range order.Rooms {
 			if !activeBoardingRoomStatus(room.Status) {
+				continue
+			}
+			if boardingRoomHistoryDate(room) < today {
 				continue
 			}
 			entry := order
@@ -753,6 +1049,13 @@ func (s *BoardingService) Dashboard(shopID uint) ([]BoardingDashboardGroup, erro
 	return groups, nil
 }
 
+func boardingRoomHistoryDate(room model.BoardingOrderRoom) string {
+	if room.ActualCheckOutAt != "" {
+		return room.ActualCheckOutAt
+	}
+	return room.CheckOutAt
+}
+
 func (s *BoardingService) CheckIn(shopID, id, operatorID uint, input BoardingCheckInInput) (*model.BoardingOrder, error) {
 	order, err := s.repo.FindBoardingOrderByID(shopID, id)
 	if err != nil {
@@ -765,6 +1068,20 @@ func (s *BoardingService) CheckIn(shopID, id, operatorID uint, input BoardingChe
 		return nil, errors.New("多房寄养请在房间分组中操作")
 	}
 	return s.CheckInRoom(shopID, id, order.Rooms[0].ID, operatorID, input)
+}
+
+func (s *BoardingService) AdjustPrice(shopID, id, operatorID uint, input BoardingCheckInInput) (*model.BoardingOrder, error) {
+	order, err := s.repo.FindBoardingOrderByID(shopID, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(order.Rooms) == 0 {
+		return s.adjustPriceLegacy(shopID, order, operatorID, input)
+	}
+	if len(order.Rooms) != 1 {
+		return nil, errors.New("多房寄养请在房间分组中操作")
+	}
+	return s.AdjustRoomPrice(shopID, id, order.Rooms[0].ID, operatorID, input)
 }
 
 func (s *BoardingService) CheckInRoom(shopID, id, roomID, operatorID uint, input BoardingCheckInInput) (*model.BoardingOrder, error) {
@@ -782,7 +1099,7 @@ func (s *BoardingService) CheckInRoom(shopID, id, roomID, operatorID uint, input
 	if room.Status != model.BoardingOrderStatusPendingCheckin {
 		return nil, errors.New("当前房间状态不可办理入住")
 	}
-	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, room.CheckOutAt)
+	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, room.CheckOutAt, &input)
 	if err != nil {
 		return nil, err
 	}
@@ -801,14 +1118,7 @@ func (s *BoardingService) CheckInRoom(shopID, id, roomID, operatorID uint, input
 			}
 		}
 		room.Status = model.BoardingOrderStatusCheckedIn
-		room.Nights = preview.Nights
-		room.BaseAmount = preview.BaseAmount
-		room.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
-		room.DiscountAmount = preview.DiscountAmount
-		room.ManualDiscountAmount = manualDiscount
-		room.PayAmount = preview.PayAmount
-		room.PolicySnapshotJSON = string(policySnapshot)
-		room.PriceSnapshotJSON = string(priceSnapshot)
+		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
 		if err := tx.Save(room).Error; err != nil {
 			return err
 		}
@@ -830,6 +1140,61 @@ func (s *BoardingService) CheckInRoom(shopID, id, roomID, operatorID uint, input
 			BoardingOrderID: order.ID,
 			OperatorID:      operatorID,
 			Action:          "check_in",
+			Content:         content,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.FindBoardingOrderByID(shopID, id)
+}
+
+func (s *BoardingService) AdjustRoomPrice(shopID, id, roomID, operatorID uint, input BoardingCheckInInput) (*model.BoardingOrder, error) {
+	order, err := s.repo.FindBoardingOrderByID(shopID, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(order.Rooms) == 0 || roomID == 0 {
+		return s.adjustPriceLegacy(shopID, order, operatorID, input)
+	}
+	room, err := findBoardingRoom(order.Rooms, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureEditableRoom(order, room); err != nil {
+		return nil, err
+	}
+	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, room.CheckOutAt, &input)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := applyManualDiscountToBoardingPreview(preview, input.DiscountAmount); err != nil {
+		return nil, err
+	}
+	policySnapshot, _ := json.Marshal(preview.Policies)
+	priceSnapshot, _ := json.Marshal(preview)
+	manualDiscount := roundMoney(input.DiscountAmount)
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
+		if err := tx.Save(room).Error; err != nil {
+			return err
+		}
+		_, aggregatePreview, err := s.refreshBoardingOrderAggregate(tx, order)
+		if err != nil {
+			return err
+		}
+		if err := syncBoardingPayOrder(tx, order, aggregatePreview, false); err != nil {
+			return err
+		}
+		content := fmt.Sprintf("%s 调整价格", roomGroupLabel(room.RoomIndex))
+		if manualDiscount > 0 {
+			content = fmt.Sprintf("%s 调整入住优惠为 ¥%.2f", roomGroupLabel(room.RoomIndex), manualDiscount)
+		}
+		return tx.Create(&model.BoardingOrderLog{
+			BoardingOrderID: order.ID,
+			OperatorID:      operatorID,
+			Action:          "adjust_price",
 			Content:         content,
 		}).Error
 	})
@@ -872,7 +1237,7 @@ func (s *BoardingService) CheckOutRoom(shopID, id, roomID, operatorID uint, actu
 	if err != nil {
 		return nil, err
 	}
-	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, actualDate)
+	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, actualDate, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -883,15 +1248,8 @@ func (s *BoardingService) CheckOutRoom(shopID, id, roomID, operatorID uint, actu
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		room.ActualCheckOutAt = actualDate
 		room.CheckOutAt = actualDate
-		room.Nights = preview.Nights
-		room.BaseAmount = preview.BaseAmount
-		room.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
-		room.DiscountAmount = preview.DiscountAmount
-		room.ManualDiscountAmount = manualDiscount
-		room.PayAmount = preview.PayAmount
+		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
 		room.Status = model.BoardingOrderStatusCheckedOut
-		room.PolicySnapshotJSON = string(policySnapshot)
-		room.PriceSnapshotJSON = string(priceSnapshot)
 		if err := tx.Save(room).Error; err != nil {
 			return err
 		}
@@ -942,7 +1300,7 @@ func (s *BoardingService) ExtendRoom(shopID, id, roomID, operatorID uint, newChe
 	if err := s.ensureEditableRoom(order, room); err != nil {
 		return nil, err
 	}
-	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, newCheckOutAt)
+	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, newCheckOutAt, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -952,14 +1310,7 @@ func (s *BoardingService) ExtendRoom(shopID, id, roomID, operatorID uint, newChe
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		room.CheckOutAt = preview.CheckOutAt
-		room.Nights = preview.Nights
-		room.BaseAmount = preview.BaseAmount
-		room.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
-		room.DiscountAmount = preview.DiscountAmount
-		room.ManualDiscountAmount = manualDiscount
-		room.PayAmount = preview.PayAmount
-		room.PolicySnapshotJSON = string(policySnapshot)
-		room.PriceSnapshotJSON = string(priceSnapshot)
+		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
 		if err := tx.Save(room).Error; err != nil {
 			return err
 		}
@@ -1010,7 +1361,7 @@ func (s *BoardingService) ChangeRoomCabinet(shopID, id, roomID, operatorID, cabi
 	if err := s.ensureEditableRoom(order, room); err != nil {
 		return nil, err
 	}
-	preview, cabinet, _, err := s.previewExistingRoom(shopID, order, room, cabinetID, room.CheckOutAt)
+	preview, cabinet, _, err := s.previewExistingRoom(shopID, order, room, cabinetID, room.CheckOutAt, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,14 +1371,7 @@ func (s *BoardingService) ChangeRoomCabinet(shopID, id, roomID, operatorID, cabi
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		room.CabinetID = cabinet.ID
-		room.Nights = preview.Nights
-		room.BaseAmount = preview.BaseAmount
-		room.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
-		room.DiscountAmount = preview.DiscountAmount
-		room.ManualDiscountAmount = manualDiscount
-		room.PayAmount = preview.PayAmount
-		room.PolicySnapshotJSON = string(policySnapshot)
-		room.PriceSnapshotJSON = string(priceSnapshot)
+		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
 		if err := tx.Save(room).Error; err != nil {
 			return err
 		}
@@ -1157,6 +1501,7 @@ func (s *BoardingService) checkInLegacy(shopID uint, order *model.BoardingOrder,
 	if err != nil {
 		return nil, err
 	}
+	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		if order.OrderID != nil && *order.OrderID > 0 {
@@ -1200,6 +1545,56 @@ func (s *BoardingService) checkInLegacy(shopID uint, order *model.BoardingOrder,
 	return s.repo.FindBoardingOrderByID(shopID, order.ID)
 }
 
+func (s *BoardingService) adjustPriceLegacy(shopID uint, order *model.BoardingOrder, operatorID uint, input BoardingCheckInInput) (*model.BoardingOrder, error) {
+	if err := s.ensureEditableOrder(order); err != nil {
+		return nil, err
+	}
+
+	selectedPolicies := parsePolicySnapshot(order.PolicySnapshotJSON)
+	preview, cabinet, petIDs, err := s.computePreviewFromExisting(shopID, order, order.CheckOutAt, selectedPolicies)
+	if err != nil {
+		return nil, err
+	}
+	adjustedPreview := applyMemberDiscountToBoardingPreview(order.CustomerID, preview)
+	adjustedPreview, err = applyManualDiscountToBoardingPreview(adjustedPreview, input.DiscountAmount)
+	if err != nil {
+		return nil, err
+	}
+	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
+	manualDiscount := roundMoney(input.DiscountAmount)
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		order.Nights = adjustedPreview.Nights
+		order.BaseAmount = adjustedPreview.BaseAmount
+		order.HolidaySurchargeAmount = adjustedPreview.HolidaySurchargeAmount
+		order.DiscountAmount = adjustedPreview.DiscountAmount
+		order.ManualDiscountAmount = manualDiscount
+		order.PayAmount = adjustedPreview.PayAmount
+		priceSnapshot, _ := json.Marshal(adjustedPreview)
+		order.PriceSnapshotJSON = string(priceSnapshot)
+		if err := tx.Save(order).Error; err != nil {
+			return err
+		}
+		if err := s.syncOrder(tx, order, cabinet, adjustedPreview, petIDs, false); err != nil {
+			return err
+		}
+		content := "调整价格"
+		if manualDiscount > 0 {
+			content = fmt.Sprintf("调整入住优惠为 ¥%.2f", manualDiscount)
+		}
+		return tx.Create(&model.BoardingOrderLog{
+			BoardingOrderID: order.ID,
+			OperatorID:      operatorID,
+			Action:          "adjust_price",
+			Content:         content,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.FindBoardingOrderByID(shopID, order.ID)
+}
+
 func (s *BoardingService) checkOutLegacy(shopID uint, order *model.BoardingOrder, operatorID uint, actualDate string) (*model.BoardingOrder, error) {
 	if order.Status != model.BoardingOrderStatusCheckedIn {
 		return nil, errors.New("当前状态不可办理离店")
@@ -1219,6 +1614,7 @@ func (s *BoardingService) checkOutLegacy(shopID uint, order *model.BoardingOrder
 	if err != nil {
 		return nil, err
 	}
+	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		order.ActualCheckOutAt = actualDate
 		order.CheckOutAt = actualDate
@@ -1263,6 +1659,7 @@ func (s *BoardingService) extendLegacy(shopID uint, order *model.BoardingOrder, 
 	if err != nil {
 		return nil, err
 	}
+	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		order.CheckOutAt = adjustedPreview.CheckOutAt
 		order.Nights = adjustedPreview.Nights
@@ -1313,6 +1710,7 @@ func (s *BoardingService) changeCabinetLegacy(shopID uint, order *model.Boarding
 	if err != nil {
 		return nil, err
 	}
+	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		order.CabinetID = cabinet.ID
 		order.BaseAmount = adjustedPreview.BaseAmount
@@ -1386,7 +1784,67 @@ func (s *BoardingService) computePreviewFromExisting(shopID uint, order *model.B
 	})
 }
 
-func (s *BoardingService) previewExistingRoom(shopID uint, order *model.BoardingOrder, room *model.BoardingOrderRoom, cabinetID uint, targetCheckOutAt string) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
+func previewInputSpecialSelection(room *model.BoardingOrderRoom, input *BoardingCheckInInput) []BoardingSpecialItemSelection {
+	var specialItemID uint
+	if room != nil && room.SpecialItemID != nil {
+		specialItemID = *room.SpecialItemID
+	}
+	specialItemDailyPrice := 0.0
+	if room != nil {
+		specialItemDailyPrice = roundMoney(room.SpecialItemDailyPrice)
+	}
+	specialItemDays := 0
+	if room != nil {
+		specialItemDays = room.SpecialItemDays
+	}
+	if input != nil {
+		if input.SpecialItems != nil {
+			return append([]BoardingSpecialItemSelection(nil), (*input.SpecialItems)...)
+		}
+		if input.SpecialItemID != nil {
+			specialItemID = *input.SpecialItemID
+			if specialItemID == 0 {
+				specialItemDailyPrice = 0
+				specialItemDays = 0
+			}
+		}
+		if input.SpecialItemDailyPrice != nil {
+			specialItemDailyPrice = roundMoney(*input.SpecialItemDailyPrice)
+		}
+		if input.SpecialItemDays != nil {
+			specialItemDays = *input.SpecialItemDays
+		}
+	}
+	if specialItemID == 0 {
+		return nil
+	}
+	return []BoardingSpecialItemSelection{{
+		ID:         specialItemID,
+		DailyPrice: specialItemDailyPrice,
+		Days:       specialItemDays,
+	}}
+}
+
+func applyPreviewToBoardingRoom(room *model.BoardingOrderRoom, preview *BoardingPricePreview, manualDiscount float64, policySnapshot string, priceSnapshot string) {
+	if room == nil || preview == nil {
+		return
+	}
+	room.SpecialItemID = cloneUint(preview.SpecialItemID)
+	room.SpecialItemName = strings.TrimSpace(preview.SpecialItemName)
+	room.SpecialItemDailyPrice = roundMoney(preview.SpecialItemDailyPrice)
+	room.SpecialItemDays = preview.SpecialItemDays
+	room.SpecialItemAmount = roundMoney(preview.SpecialItemAmount)
+	room.Nights = preview.Nights
+	room.BaseAmount = preview.BaseAmount
+	room.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
+	room.DiscountAmount = preview.DiscountAmount
+	room.ManualDiscountAmount = roundMoney(manualDiscount)
+	room.PayAmount = preview.PayAmount
+	room.PolicySnapshotJSON = policySnapshot
+	room.PriceSnapshotJSON = priceSnapshot
+}
+
+func (s *BoardingService) previewExistingRoom(shopID uint, order *model.BoardingOrder, room *model.BoardingOrderRoom, cabinetID uint, targetCheckOutAt string, input *BoardingCheckInInput) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
 	if cabinetID == 0 {
 		cabinetID = room.CabinetID
 	}
@@ -1394,6 +1852,7 @@ func (s *BoardingService) previewExistingRoom(shopID uint, order *model.Boarding
 		targetCheckOutAt = room.CheckOutAt
 	}
 	petIDs := petIDsFromRoom(*room)
+	specialItems := previewInputSpecialSelection(room, input)
 	return s.Preview(shopID, BoardingPreviewInput{
 		CustomerID:     order.CustomerID,
 		PetIDs:         petIDs,
@@ -1401,6 +1860,7 @@ func (s *BoardingService) previewExistingRoom(shopID uint, order *model.Boarding
 		CabinetID:      cabinetID,
 		CheckInAt:      room.CheckInAt,
 		CheckOutAt:     targetCheckOutAt,
+		SpecialItems:   specialItems,
 		PolicyIDs:      policyIDsFromPolicies(parsePolicySnapshot(room.PolicySnapshotJSON)),
 		ExcludeOrderID: order.ID,
 		ExcludeRoomID:  room.ID,
@@ -1424,15 +1884,8 @@ func (s *BoardingService) syncOrder(tx *gorm.DB, boardingOrder *model.BoardingOr
 	if payOrder.PayStatus == 1 && allowPaidCheckOut {
 		return nil
 	}
-	payOrder.TotalAmount = roundMoney(preview.BaseAmount + preview.HolidaySurchargeAmount)
-	payOrder.ServiceTotal = payOrder.TotalAmount
-	payOrder.ProductTotal = 0
-	payOrder.AddonTotal = 0
-	payOrder.ServiceDiscountAmount = preview.DiscountAmount
-	payOrder.ProductDiscountAmount = 0
-	payOrder.DiscountAmount = preview.DiscountAmount
-	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, preview.PayAmount)
-	payOrder.PayAmount = preview.PayAmount
+	preservedProductItems := clonePayOrderProductItems(payOrder.ID, payOrder.Items)
+	syncBoardingPreviewToPayOrder(payOrder, preview, preservedProductItems)
 	if err := tx.Save(&payOrder).Error; err != nil {
 		return err
 	}
@@ -1440,6 +1893,7 @@ func (s *BoardingService) syncOrder(tx *gorm.DB, boardingOrder *model.BoardingOr
 		return err
 	}
 	items := buildBoardingOrderItems(payOrder.ID, cabinet, preview)
+	items = append(items, preservedProductItems...)
 	if len(items) > 0 {
 		if err := tx.Create(&items).Error; err != nil {
 			return err
@@ -1550,7 +2004,107 @@ func (s *BoardingService) resolvePolicies(shopID uint, policyIDs []uint, checkIn
 	return selected, nil
 }
 
-func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCabinet, checkInAt, checkOutAt string, petCount int, policies []model.BoardingDiscountPolicy) (*BoardingPricePreview, error) {
+func cloneUint(value *uint) *uint {
+	if value == nil || *value == 0 {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func (s *BoardingService) resolveSpecialItemSelection(shopID uint, input BoardingPreviewInput) (*resolvedBoardingSpecialItem, error) {
+	selections := append([]BoardingSpecialItemSelection(nil), input.SpecialItems...)
+	if len(selections) == 0 && input.SpecialItemID > 0 {
+		selections = append(selections, BoardingSpecialItemSelection{
+			ID:         input.SpecialItemID,
+			DailyPrice: input.SpecialItemDailyPrice,
+			Days:       input.SpecialItemDays,
+		})
+	}
+
+	if len(selections) == 0 {
+		if input.SpecialItemDailyPrice != 0 || input.SpecialItemDays != 0 {
+			return nil, errors.New("请选择特殊寄养项目")
+		}
+		return nil, nil
+	}
+
+	_, _, nights, err := normalizeStayRange(input.CheckInAt, input.CheckOutAt)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[uint]struct{}{}
+	seenNames := map[string]struct{}{}
+	names := make([]string, 0, len(selections))
+	lines := make([]BoardingPriceLine, 0, len(selections))
+	var firstID *uint
+	totalAmount := 0.0
+	totalDailyPrice := 0.0
+	maxDays := 0
+	for _, selection := range selections {
+		if selection.ID == 0 {
+			continue
+		}
+		if _, ok := seen[selection.ID]; ok {
+			return nil, errors.New("特殊寄养项目不能重复选择")
+		}
+		seen[selection.ID] = struct{}{}
+		item, err := s.repo.FindSpecialItemByID(shopID, selection.ID)
+		if err != nil {
+			return nil, errors.New("特殊寄养项目不存在")
+		}
+		itemName := strings.TrimSpace(item.Name)
+		if itemName != "" {
+			if _, ok := seenNames[itemName]; ok {
+				return nil, errors.New("同名特殊寄养项目不能重复选择")
+			}
+			seenNames[itemName] = struct{}{}
+		}
+		if selection.Days < 1 {
+			return nil, errors.New("请填写特殊寄养天数")
+		}
+		if selection.Days > nights {
+			return nil, errors.New("特殊寄养天数不能超过寄养晚数")
+		}
+		dailyPrice := roundMoney(selection.DailyPrice)
+		if dailyPrice <= 0 {
+			dailyPrice = roundMoney(item.DefaultDailyPrice)
+		}
+		if dailyPrice <= 0 {
+			return nil, errors.New("请填写特殊寄养日价")
+		}
+		itemID := item.ID
+		if firstID == nil {
+			firstID = &itemID
+		}
+		amount := roundMoney(float64(selection.Days) * dailyPrice)
+		names = append(names, itemName)
+		totalAmount = roundMoney(totalAmount + amount)
+		totalDailyPrice = roundMoney(totalDailyPrice + dailyPrice)
+		maxDays = maxInt(maxDays, selection.Days)
+		lines = append(lines, BoardingPriceLine{
+			Type:          "special_item",
+			Label:         itemName,
+			Quantity:      selection.Days,
+			UnitPrice:     dailyPrice,
+			Amount:        amount,
+			SpecialItemID: item.ID,
+		})
+	}
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	return &resolvedBoardingSpecialItem{
+		ID:         firstID,
+		Name:       strings.Join(names, "、"),
+		DailyPrice: totalDailyPrice,
+		Days:       maxDays,
+		Amount:     totalAmount,
+		Lines:      lines,
+	}, nil
+}
+
+func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCabinet, checkInAt, checkOutAt string, petCount int, policies []model.BoardingDiscountPolicy, specialItem *resolvedBoardingSpecialItem) (*BoardingPricePreview, error) {
 	startDate, endDate, nights, err := normalizeStayRange(checkInAt, checkOutAt)
 	if err != nil {
 		return nil, err
@@ -1580,6 +2134,7 @@ func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCab
 	}
 	baseAmount := roundMoney(baseStayAmount + extraPetAmount)
 	var holidaySurchargeAmount float64
+	var specialItemAmount float64
 	var discountAmount float64
 	lines := []BoardingPriceLine{
 		{Type: "base", Label: fmt.Sprintf("%s 寄养住宿", cabinet.CabinetType), Quantity: nights, UnitPrice: cabinet.BasePrice, Amount: baseStayAmount},
@@ -1624,7 +2179,21 @@ func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCab
 			}
 		}
 	}
-	payAmount := roundMoney(baseAmount + holidaySurchargeAmount - discountAmount)
+	if specialItem != nil && specialItem.Amount > 0 {
+		specialItemAmount = roundMoney(specialItem.Amount)
+		if len(specialItem.Lines) > 0 {
+			lines = append(lines, specialItem.Lines...)
+		} else {
+			lines = append(lines, BoardingPriceLine{
+				Type:      "special_item",
+				Label:     specialItem.Name,
+				Quantity:  specialItem.Days,
+				UnitPrice: specialItem.DailyPrice,
+				Amount:    specialItemAmount,
+			})
+		}
+	}
+	payAmount := roundMoney(baseAmount + holidaySurchargeAmount + specialItemAmount - discountAmount)
 	return &BoardingPricePreview{
 		CheckInAt:              startDate,
 		CheckOutAt:             endDate,
@@ -1635,10 +2204,35 @@ func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCab
 		BaseAmount:             baseAmount,
 		ExtraPetAmount:         extraPetAmount,
 		HolidaySurchargeAmount: holidaySurchargeAmount,
-		DiscountAmount:         discountAmount,
-		PayAmount:              payAmount,
-		Policies:               policies,
-		Lines:                  lines,
+		SpecialItemID: cloneUint(func() *uint {
+			if specialItem == nil {
+				return nil
+			}
+			return specialItem.ID
+		}()),
+		SpecialItemName: func() string {
+			if specialItem == nil {
+				return ""
+			}
+			return specialItem.Name
+		}(),
+		SpecialItemDailyPrice: func() float64 {
+			if specialItem == nil {
+				return 0
+			}
+			return specialItem.DailyPrice
+		}(),
+		SpecialItemDays: func() int {
+			if specialItem == nil {
+				return 0
+			}
+			return specialItem.Days
+		}(),
+		SpecialItemAmount: specialItemAmount,
+		DiscountAmount:    discountAmount,
+		PayAmount:         payAmount,
+		Policies:          policies,
+		Lines:             lines,
 	}, nil
 }
 
@@ -1682,6 +2276,29 @@ func validateBoardingPolicy(policy *model.BoardingDiscountPolicy) error {
 	return nil
 }
 
+func validateBoardingSpecialItem(item *model.BoardingSpecialItem) error {
+	item.Name = strings.TrimSpace(item.Name)
+	if item.Name == "" {
+		return errors.New("请填写项目名称")
+	}
+	item.DefaultDailyPrice = roundMoney(item.DefaultDailyPrice)
+	if item.DefaultDailyPrice <= 0 {
+		return errors.New("请填写默认日价")
+	}
+	if item.Status == 0 {
+		item.Status = 1
+	}
+	item.Remark = strings.TrimSpace(item.Remark)
+	return nil
+}
+
+func boardingServiceAmount(preview *BoardingPricePreview) float64 {
+	if preview == nil {
+		return 0
+	}
+	return roundMoney(preview.BaseAmount + preview.HolidaySurchargeAmount)
+}
+
 func policyOverlapsStay(policy model.BoardingDiscountPolicy, checkInAt, checkOutAt string) bool {
 	if policy.ValidFrom == "" && policy.ValidTo == "" {
 		return true
@@ -1721,18 +2338,24 @@ func buildBoardingOrderItems(orderID uint, cabinet *model.BoardingCabinet, previ
 	for _, line := range preview.Lines {
 		itemType := 4
 		switch line.Type {
+		case "special_item":
+			itemType = 3
 		case "holiday_surcharge":
 			itemType = 5
-		case "discount", "member_discount", "manual_discount":
+		case "discount", "member_discount", "manual_discount", "boarding_deposit":
 			itemType = 6
 		}
 		if line.Amount == 0 {
 			continue
 		}
+		itemID := cabinet.ID
+		if line.Type == "special_item" && line.SpecialItemID > 0 {
+			itemID = line.SpecialItemID
+		}
 		items = append(items, model.OrderItem{
 			OrderID:   orderID,
 			ItemType:  itemType,
-			ItemID:    cabinet.ID,
+			ItemID:    itemID,
 			Name:      line.Label,
 			Quantity:  maxInt(line.Quantity, 1),
 			UnitPrice: line.UnitPrice,
@@ -1805,7 +2428,7 @@ func addDays(dateText string, offset int) string {
 }
 
 func roundMoney(v float64) float64 {
-	return float64(int(v*100+0.5)) / 100
+	return roundOrderAmount(v)
 }
 
 func minInt(a, b int) int {
@@ -1841,4 +2464,21 @@ func uintPtr(v uint) *uint {
 		return nil
 	}
 	return &v
+}
+
+func boardingDewormingEqual(left, right *bool) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func boardingDewormingLabel(value *bool) string {
+	if value == nil {
+		return "未填写"
+	}
+	if *value {
+		return "已驱虫"
+	}
+	return "未驱虫"
 }

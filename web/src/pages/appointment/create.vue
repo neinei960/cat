@@ -100,12 +100,24 @@
               @click="togglePetSelection(p.ID)"
             >
               <text class="option-icon">{{ isPetSelected(p.ID) ? '🐱' : '🐾' }}</text>
-              <text>{{ p.name }} ({{ p.species }} {{ p.breed }})</text>
+              <view class="pet-option-body">
+                <text class="pet-option-title">{{ p.name }} ({{ p.species }} {{ p.breed }})</text>
+                <view v-if="getRegularPetNotes(p).length > 0" class="pet-profile-notes">
+                  <view v-for="note in getRegularPetNotes(p)" :key="`${p.ID}-${note.label}`" class="pet-profile-note">
+                    <text class="pet-profile-label">{{ note.label }}</text>
+                    <text class="pet-profile-value">{{ note.value }}</text>
+                  </view>
+                </view>
+              </view>
             </view>
           </view>
         </view>
 
-        <button class="btn-primary" @click="nextStep" :disabled="!form.customer_id || form.pets.length === 0">
+        <view v-if="isEditMode" class="btn-row edit-nav">
+          <button class="btn-primary" @click="nextStep" :disabled="!form.customer_id || form.pets.length === 0">下一步</button>
+          <button class="btn-submit" @click="onSubmit" :loading="submitting">确认</button>
+        </view>
+        <button v-else class="btn-primary" @click="nextStep" :disabled="!form.customer_id || form.pets.length === 0">
           下一步 →
         </button>
       </view>
@@ -255,7 +267,11 @@
           </view>
         </view>
 
-        <button class="btn-primary" @click="handleNewCustomerStep" :loading="newSubmitting">
+        <view v-if="isEditMode" class="btn-row edit-nav">
+          <button class="btn-primary" @click="handleNewCustomerStep" :loading="newSubmitting">下一步</button>
+          <button class="btn-submit" @click="onSubmit" :loading="submitting">确认</button>
+        </view>
+        <button v-else class="btn-primary" @click="handleNewCustomerStep" :loading="newSubmitting">
           下一步 →
         </button>
       </view>
@@ -337,8 +353,9 @@
       </view>
 
       <view class="btn-row">
-        <button class="btn-ghost" @click="step = 1">← 上一步</button>
-        <button class="btn-primary" @click="nextStep" :disabled="!canProceedServices">下一步 →</button>
+        <button class="btn-ghost" @click="step = 1">上一步</button>
+        <button class="btn-primary" @click="nextStep" :disabled="!canProceedServices">下一步</button>
+        <button v-if="isEditMode" class="btn-submit" @click="onSubmit" :loading="submitting">确认</button>
       </view>
     </view>
 
@@ -442,8 +459,9 @@
       </view>
 
       <view class="btn-row">
-        <button class="btn-ghost" @click="step = 2">← 上一步</button>
-        <button class="btn-primary" @click="nextStep" :disabled="!form.date || !hasSelectedSlot">下一步 →</button>
+        <button class="btn-ghost" @click="step = 2">上一步</button>
+        <button class="btn-primary" @click="nextStep" :disabled="!form.date || !hasSelectedSlot">下一步</button>
+        <button v-if="isEditMode" class="btn-submit" @click="onSubmit" :loading="submitting">确认</button>
       </view>
     </view>
 
@@ -486,6 +504,24 @@
           <text class="label">💰 金额</text>
           <text class="amount">¥{{ totalAmount }}</text>
         </view>
+        <view class="confirm-row confirm-row-deposit">
+          <text class="label">💵 预约金</text>
+          <view class="confirm-deposit-box">
+            <input
+              v-if="!isMemberCustomer"
+              :value="depositInput"
+              type="digit"
+              placeholder="0.00"
+              class="deposit-input"
+              @input="onDepositInput"
+              @blur="onDepositBlur"
+            />
+            <text v-else class="deposit-static">会员预约无需预约金</text>
+          </view>
+        </view>
+        <text class="deposit-tip">
+          {{ isMemberCustomer ? '会员预约不收预约金。' : '默认 0，转订单时会自动抵扣，最高不超过服务总金额。' }}
+        </text>
       </view>
 
       <!-- Pet & service cards -->
@@ -575,7 +611,7 @@
       </view>
 
       <view class="btn-row">
-        <button class="btn-ghost" @click="step = 3">← 上一步</button>
+        <button class="btn-ghost" @click="step = 3">上一步</button>
         <button class="btn-submit" @click="onSubmit" :loading="submitting">{{ isEditMode ? '💾 保存修改' : '🎉 确认预约' }}</button>
       </view>
     </view>
@@ -584,7 +620,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getCustomerList, getCustomerPets, createCustomer, updateCustomer } from '@/api/customer'
@@ -593,6 +629,7 @@ import { getServiceList } from '@/api/service'
 import { getServiceRanking } from '@/api/dashboard'
 import { getCategoryTree } from '@/api/service-category'
 import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
+import { getCustomerCard } from '@/api/member-card'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
 import {
   createEmptyParsedPet,
@@ -658,17 +695,22 @@ interface AppointmentPetFormItem {
   service_ids: number[]
 }
 
+const APPOINTMENT_CUSTOMER_TYPE_NEW = 1
+const APPOINTMENT_CUSTOMER_TYPE_REGULAR = 2
+
 const step = ref(1)
 const submitting = ref(false)
 const slotsLoading = ref(false)
 const customerMode = ref<'regular' | 'new'>('regular')
 const editAppointmentId = ref(0)
 const editingAppointment = ref<any>(null)
+const customerCard = ref<MemberCard | null>(null)
 
 const form = ref({
   customer_id: 0, staff_id: 0,
-  date: '', start_time: '', end_time: '', pets: [] as AppointmentPetFormItem[], notes: '',
+  date: '', start_time: '', end_time: '', pets: [] as AppointmentPetFormItem[], notes: '', deposit: 0,
 })
+const depositInput = ref('0')
 
 const customerKeyword = ref('')
 const customerList = ref<Customer[]>([])
@@ -716,6 +758,8 @@ const newSubmitting = ref(false)
 const isEditMode = computed(() => editAppointmentId.value > 0)
 const isEditNewCustomer = computed(() => {
   if (!isEditMode.value || !editingAppointment.value) return false
+  const customerType = Number(editingAppointment.value.customer_type || 0)
+  if (customerType > 0) return customerType === APPOINTMENT_CUSTOMER_TYPE_NEW
   const customer = editingAppointment.value.customer || {}
   const name = String(customer.nickname || '')
   return name.startsWith('散客') || !customer.phone
@@ -724,6 +768,7 @@ const showNewCustomerEditor = computed(() => customerMode.value === 'new' || isE
 const showRegularCustomerPicker = computed(() => !showNewCustomerEditor.value)
 
 const selectedCustomer = computed(() => customerList.value.find(c => c.ID === form.value.customer_id))
+const isMemberCustomer = computed(() => !!customerCard.value?.ID && Number(customerCard.value?.status || 0) === 1)
 const showCustomerSuggestions = computed(() =>
   customerSuggestionOpen.value &&
   customerMode.value === 'regular' &&
@@ -785,6 +830,13 @@ function getPetById(petId: number): Pet | undefined {
   return petList.value.find((item) => item.ID === petId) || findEditingAppointmentPet(petId)
 }
 
+function getRegularPetNotes(pet: Pet) {
+  return [
+    { label: '禁区', value: pet.forbidden_zones },
+    { label: '洗浴注意事项', value: pet.care_notes },
+  ].filter((item) => String(item.value || '').trim())
+}
+
 function mergePetsIntoPetList(pets: Array<Pet | undefined | null>) {
   const existingIds = new Set(petList.value.map((item) => item.ID))
   const extras = pets.filter((pet): pet is Pet => !!pet?.ID && !existingIds.has(pet.ID))
@@ -838,6 +890,55 @@ const totalDuration = computed(() =>
     }, 0)
   ), 0)
 )
+
+function formatDepositInputValue(value: number) {
+  const normalized = Number(value || 0)
+  if (!normalized) return '0'
+  return normalized.toFixed(2).replace(/\.?0+$/, '')
+}
+
+function parseDepositValue(raw: string) {
+  const cleaned = String(raw || '').replace(/[^\d.]/g, '')
+  const parsed = Number.parseFloat(cleaned)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function clampAppointmentDeposit(value: number) {
+  let next = Number.isFinite(value) ? value : 0
+  if (isMemberCustomer.value) next = 0
+  if (next < 0) next = 0
+  const total = Number(totalAmount.value || 0)
+  if (total > 0 && next > total) next = total
+  return Number(next.toFixed(2))
+}
+
+function syncDepositInput() {
+  depositInput.value = formatDepositInputValue(form.value.deposit || 0)
+}
+
+function setAppointmentDeposit(value: number) {
+  form.value.deposit = clampAppointmentDeposit(value)
+  syncDepositInput()
+}
+
+function onDepositInput(e: any) {
+  depositInput.value = String(e?.detail?.value || '')
+  form.value.deposit = clampAppointmentDeposit(parseDepositValue(depositInput.value))
+}
+
+function onDepositBlur() {
+  syncDepositInput()
+}
+
+function getAppointmentCustomerType() {
+  if (isEditMode.value) {
+    const existingType = Number(editingAppointment.value?.customer_type || 0)
+    if (existingType > 0) return existingType
+  }
+  return customerMode.value === 'new'
+    ? APPOINTMENT_CUSTOMER_TYPE_NEW
+    : APPOINTMENT_CUSTOMER_TYPE_REGULAR
+}
 const selectedServiceIds = computed(() => {
   const ids = new Set<number>()
   form.value.pets.forEach((petItem) => {
@@ -880,7 +981,16 @@ const occupiedDuration = computed(() => {
   return Math.max(parseTime(form.value.end_time) - parseTime(form.value.start_time), 0)
 })
 
+watch(totalAmount, () => {
+  setAppointmentDeposit(form.value.deposit || 0)
+})
+
+watch(isMemberCustomer, () => {
+  setAppointmentDeposit(form.value.deposit || 0)
+})
+
 onLoad(async (query) => {
+  syncDepositInput()
   if (query?.id) {
     editAppointmentId.value = parseInt(query.id)
     customerMode.value = 'regular'
@@ -1093,7 +1203,9 @@ async function loadAppointmentForEdit(id: number) {
     end_time: appointment.end_time || '',
     pets: normalizeAppointmentPets(appointment),
     notes: appointment.notes || '',
+    deposit: Number(appointment.deposit || 0),
   }
+  setAppointmentDeposit(Number(appointment.deposit || 0))
   customerKeyword.value = appointment.customer?.nickname || appointment.customer?.phone || ''
 
   if (isEditNewCustomer.value) {
@@ -1127,8 +1239,13 @@ function onCustomerKeywordInput() {
 async function selectCustomer(c: Customer, preferredPetId = 0) {
   form.value.customer_id = c.ID
   form.value.pets = []
-  const res = await getCustomerPets(c.ID)
+  const [res, cardRes] = await Promise.all([
+    getCustomerPets(c.ID),
+    getCustomerCard(c.ID).catch(() => ({ data: null as MemberCard | null })),
+  ])
   petList.value = res.data || []
+  customerCard.value = cardRes.data || null
+  setAppointmentDeposit(form.value.deposit || 0)
   if (preferredPetId) {
     ensurePetSelected(preferredPetId)
   }
@@ -1532,6 +1649,33 @@ function handleNewCustomerStep() {
   submitNewCustomer()
 }
 
+async function validateAppointmentBeforeSubmit() {
+  if (!form.value.customer_id || form.value.pets.length === 0) {
+    step.value = 1
+    uni.showToast({ title: '请先选择客户和至少一只宠物', icon: 'none' })
+    return false
+  }
+  if (!canProceedServices.value) {
+    step.value = 2
+    uni.showToast({ title: '每只宠物都需要选择至少一个服务', icon: 'none' })
+    return false
+  }
+  if (!form.value.date || !hasSelectedSlot.value) {
+    step.value = 3
+    uni.showToast({ title: '请先选择完整预约时段', icon: 'none' })
+    return false
+  }
+  if (!isCurrentSlotAvailable() || !isCurrentEndTimeValid()) {
+    await loadSlots()
+    if (!isCurrentSlotAvailable() || !isCurrentEndTimeValid()) {
+      step.value = 3
+      uni.showToast({ title: '可用时段已变更，请重新选择', icon: 'none' })
+      return false
+    }
+  }
+  return true
+}
+
 function ageToBirthDate(age: string): string | undefined {
   if (!age) return undefined
   const now = new Date()
@@ -1606,6 +1750,8 @@ async function submitNewCustomer() {
     }
 
     form.value.customer_id = customerId
+    customerCard.value = null
+    setAppointmentDeposit(form.value.deposit || 0)
 
     const createdPets: Pet[] = []
     const appointmentPets: AppointmentPetFormItem[] = []
@@ -1665,6 +1811,11 @@ async function submitNewCustomer() {
 async function onSubmit() {
   submitting.value = true
   try {
+    if (isEditNewCustomer.value) {
+      applyDraftsToEditNewCustomerState()
+    }
+    if (!(await validateAppointmentBeforeSubmit())) return
+
     // 提交前校验：重新获取服务列表，确保选中的服务仍然有效（防止服务被删除/下架后仍提交旧ID）
     const sRes = await getServiceList({ page: 1, page_size: 100, order_by: 'monthly_usage' })
     const freshServices = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
@@ -1696,11 +1847,12 @@ async function onSubmit() {
       start_time: form.value.start_time,
       end_time: form.value.end_time,
       source: 2,
+      customer_type: getAppointmentCustomerType(),
       notes: form.value.notes,
+      deposit: form.value.deposit,
     }
 
     if (isEditMode.value) {
-      applyDraftsToEditNewCustomerState()
       await persistEditNewCustomerEntities()
       await updateAppointment(editAppointmentId.value, payload)
       uni.showToast({ title: '修改成功', icon: 'success' })
@@ -2184,6 +2336,53 @@ async function onSubmit() {
 }
 .option-icon {
   font-size: 28rpx;
+  align-self: flex-start;
+  margin-top: 2rpx;
+  flex-shrink: 0;
+}
+.pet-option-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.pet-option-title {
+  font-size: 28rpx;
+  color: inherit;
+  line-height: 1.45;
+}
+.pet-profile-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.pet-profile-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10rpx;
+}
+.pet-profile-label {
+  flex-shrink: 0;
+  min-width: 120rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #6B7280;
+  font-weight: 600;
+}
+.pet-profile-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #4B5563;
+  word-break: break-all;
+}
+.option.selected .pet-profile-label {
+  color: #4338CA;
+}
+.option.selected .pet-profile-value {
+  color: #3730A3;
 }
 
 /* ========== Service Options ========== */
@@ -2519,6 +2718,40 @@ async function onSubmit() {
   border-top: 2rpx dashed #E5E7EB;
   border-bottom: none;
 }
+.confirm-row-deposit {
+  padding-top: 12rpx;
+  border-bottom: none;
+}
+.confirm-deposit-box {
+  min-width: 260rpx;
+  display: flex;
+  justify-content: flex-end;
+}
+.deposit-input {
+  width: 220rpx;
+  height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+  box-sizing: border-box;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111827;
+  text-align: right;
+}
+.deposit-static {
+  font-size: 24rpx;
+  color: #4F46E5;
+  font-weight: 600;
+}
+.deposit-tip {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #6B7280;
+}
 .amount {
   font-size: 40rpx;
   color: #DC2626;
@@ -2758,9 +2991,30 @@ async function onSubmit() {
 /* ========== Buttons ========== */
 .btn-row {
   display: flex;
-  gap: 20rpx;
-  margin-top: 36rpx;
-  padding-bottom: 20rpx;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 24rpx;
+  padding: 18rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1rpx solid rgba(229, 231, 235, 0.9);
+  box-shadow: 0 18rpx 44rpx rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12rpx);
+}
+.btn-row button {
+  margin: 0;
+  height: 88rpx;
+  min-height: 88rpx;
+  padding: 0 20rpx;
+  border-radius: 22rpx;
+  line-height: 88rpx;
+  white-space: nowrap;
+  text-align: center;
+  box-sizing: border-box;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+.btn-row button::after {
+  border: none;
 }
 
 .btn-primary {
@@ -2768,18 +3022,18 @@ async function onSubmit() {
   background: linear-gradient(135deg, #4F46E5, #6366F1);
   color: #fff;
   border: none;
-  border-radius: 20rpx;
-  font-size: 29rpx;
+  border-radius: 22rpx;
+  font-size: 28rpx;
   font-weight: 700;
-  min-height: 94rpx;
-  padding: 0 28rpx;
-  letter-spacing: 2rpx;
-  box-shadow: 0 14rpx 28rpx rgba(79, 70, 229, 0.24);
+  min-height: 88rpx;
+  padding: 0 24rpx;
+  letter-spacing: 1rpx;
+  box-shadow: 0 12rpx 24rpx rgba(79, 70, 229, 0.26);
   margin-top: 28rpx;
 }
 .btn-primary:active {
-  transform: scale(0.98);
-  box-shadow: 0 2rpx 10rpx rgba(79, 70, 229, 0.3);
+  transform: translateY(2rpx);
+  box-shadow: 0 8rpx 18rpx rgba(79, 70, 229, 0.22);
 }
 .btn-primary[disabled] {
   opacity: 0.45;
@@ -2803,18 +3057,20 @@ async function onSubmit() {
 }
 
 .btn-ghost {
-  flex: 0.6;
-  background: #fff;
-  color: #6B7280;
-  border: 2rpx solid #E5E7EB;
-  border-radius: 20rpx;
-  font-size: 27rpx;
-  font-weight: 600;
-  min-height: 94rpx;
-  padding: 0 24rpx;
+  flex: 0 0 160rpx;
+  background: #F8FAFC;
+  color: #475569;
+  border: 1rpx solid #E2E8F0;
+  border-radius: 22rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  min-height: 88rpx;
+  padding: 0 18rpx;
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
 }
 .btn-ghost:active {
-  background: #F9FAFB;
+  background: #EEF2F7;
+  transform: translateY(2rpx);
 }
 
 .btn-submit {
@@ -2822,16 +3078,17 @@ async function onSubmit() {
   background: linear-gradient(135deg, #059669, #10B981);
   color: #fff;
   border: none;
-  border-radius: 20rpx;
-  font-size: 30rpx;
+  border-radius: 22rpx;
+  font-size: 28rpx;
   font-weight: 700;
-  min-height: 94rpx;
-  padding: 0 24rpx;
-  letter-spacing: 3rpx;
-  box-shadow: 0 14rpx 28rpx rgba(5, 150, 105, 0.24);
+  min-height: 88rpx;
+  padding: 0 22rpx;
+  letter-spacing: 1rpx;
+  box-shadow: 0 12rpx 24rpx rgba(5, 150, 105, 0.26);
 }
 .btn-submit:active {
-  transform: scale(0.98);
+  transform: translateY(2rpx);
+  box-shadow: 0 8rpx 18rpx rgba(5, 150, 105, 0.22);
 }
 .btn-row .btn-primary,
 .btn-row .btn-ghost,

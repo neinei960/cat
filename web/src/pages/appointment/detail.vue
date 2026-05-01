@@ -13,6 +13,7 @@
       <view class="row"><text class="label">洗护师</text><text>{{ appt.staff?.name || '待分配' }}</text></view>
       <view class="row"><text class="label">来源</text><text>{{ sourceMap[appt.source] }}</text></view>
       <view class="row"><text class="label">金额</text><text class="amount">¥{{ appt.total_amount }}</text></view>
+      <view class="row" v-if="Number(appt.deposit || 0) > 0"><text class="label">预约金</text><text class="amount deposit">¥{{ Number(appt.deposit || 0).toFixed(2) }}</text></view>
     </view>
 
     <view class="card" v-if="appointmentPets.length">
@@ -374,6 +375,7 @@ function formatLogTime(value?: string) {
 .row:last-child { border-bottom: none; }
 .label { color: #6B7280; }
 .amount { color: #4F46E5; font-weight: bold; }
+.amount.deposit { color: #0F766E; }
 .pet-block { padding: 20rpx 0; border-bottom: 1rpx solid #F3F4F6; }
 .pet-block:first-of-type { padding-top: 0; }
 .pet-block:last-of-type { border-bottom: none; padding-bottom: 0; }

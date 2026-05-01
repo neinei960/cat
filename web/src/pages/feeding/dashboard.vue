@@ -142,7 +142,7 @@ import { onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getFeedingPlans } from '@/api/feeding'
 import { getBoardingHolidays } from '@/api/boarding'
-import { feedingStatusLabel, formatFeedingDateRange, parseFeedingAddress, parseFeedingSelectedDates } from '@/utils/feeding'
+import { feedingStatusLabel, formatFeedingDateRange, isFeedingPlanHistoryByDate, parseFeedingAddress, parseFeedingSelectedDates } from '@/utils/feeding'
 
 const loading = ref(false)
 const plans = ref<FeedingPlan[]>([])
@@ -250,6 +250,7 @@ interface TableRow {
   address: string
   contactPhone: string
   status: string
+  endDate: string
   dateRange: string
 }
 
@@ -298,13 +299,14 @@ const rows = computed<TableRow[]>(() => {
       address: addr.address || '',
       contactPhone: plan.contact_phone || '',
       status: plan.status || 'draft',
+      endDate: plan.end_date,
       dateRange: formatFeedingDateRange(plan.start_date, plan.end_date),
     }
   })
 })
 
-const activeRows = computed(() => rows.value.filter(row => row.status === 'active'))
-const historyRows = computed(() => rows.value.filter(row => row.status !== 'active'))
+const activeRows = computed(() => rows.value.filter(row => row.status === 'active' && !isFeedingPlanHistoryByDate({ end_date: row.endDate }, today)))
+const historyRows = computed(() => rows.value.filter(row => isFeedingPlanHistoryByDate({ end_date: row.endDate }, today)))
 
 
 function formatLocalDate(value: Date) {

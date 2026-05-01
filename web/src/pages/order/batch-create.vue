@@ -10,7 +10,22 @@
         <text class="summary-line">客户：{{ appt.customer?.nickname || appt.customer?.phone || '-' }}</text>
         <text class="summary-line">洗护师：{{ appt.staff?.name || '待分配' }}</text>
         <text class="summary-line">宠物：{{ petSummary }}</text>
-        <text class="summary-amount">{{ isEditing ? '修改后应付' : '预计生成 1 单' }} · ¥{{ totalAmount.toFixed(2) }}</text>
+        <view v-if="appt" class="arrival-block">
+          <text class="summary-line">到店状态</text>
+          <view :class="['arrival-toggle', !canEditAppointmentLate ? 'disabled' : '']">
+            <view
+              :class="['arrival-chip', !appointmentIsLate ? 'active' : '']"
+              @click="setAppointmentLate(false)"
+            >正常</view>
+            <view
+              :class="['arrival-chip', appointmentIsLate ? 'active warn' : 'warn']"
+              @click="setAppointmentLate(true)"
+            >迟到</view>
+          </view>
+          <text v-if="appointmentIsLate" class="summary-line accent">迟到扣除预约金30%</text>
+        </view>
+        <text v-if="appointmentDepositDeduction > 0" class="summary-line accent">已含{{ appointmentDepositLabel }} -¥{{ appointmentDepositDeduction.toFixed(2) }}</text>
+        <text class="summary-amount">{{ isEditing ? '修改后应付' : '预计应付' }} · ¥{{ payAmount.toFixed(2) }}</text>
       </view>
 
       <view class="draft-list">
@@ -89,7 +104,7 @@
         />
       </view>
 
-      <view class="submit-bar">
+      <view v-if="!productOrServiceModalOpen" class="submit-bar">
         <button class="submit-btn" :loading="submitting" @click="submitBatch">{{ isEditing ? '保存修改' : '确认生成订单' }}</button>
       </view>
       <!-- 添加服务弹窗（按分类） -->
@@ -163,13 +178,13 @@
             <view class="cat-tabs-inner">
               <view
                 :class="['cat-tab', activeProductCat === 0 ? 'cat-tab-active' : '']"
-                @click="setProductCategory(0)"
+                @click.stop="setProductCategory(0)"
               >全部</view>
               <view
                 v-for="cat in productCategories"
                 :key="cat.ID"
                 :class="['cat-tab', activeProductCat === cat.ID ? 'cat-tab-active' : '']"
-                @click="setProductCategory(cat.ID)"
+                @click.stop="setProductCategory(cat.ID)"
               >{{ cat.name }}</view>
             </view>
           </scroll-view>
@@ -179,13 +194,13 @@
             <view v-for="prod in filteredProducts" :key="prod.ID" class="service-pick-group">
               <view class="service-pick-item" @click="toggleProductExpand(prod)">
                 <text class="service-pick-name">{{ prod.name }}</text>
-                <text class="service-pick-arrow" v-if="(prod.skus || prod.SKUs || []).filter(s => s.sellable !== false).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
+                <text class="service-pick-arrow" v-if="getSellableProductSkus(prod).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
                 <text class="service-pick-price" v-else @click.stop="toggleProductExpand(prod)">¥{{ (prod.skus || prod.SKUs || [])[0]?.price ?? '-' }}</text>
               </view>
               <view v-if="expandedProductId === prod.ID" class="price-rules">
                 <view
                   class="price-rule-item"
-                  v-for="sku in (prod.skus || prod.SKUs || []).filter(s => s.sellable !== false)"
+                  v-for="sku in getSellableProductSkus(prod)"
                   :key="sku.ID"
                   @click="addProductSKU(prod, sku)"
                 >
@@ -207,6 +222,7 @@ import SideLayout from '@/components/SideLayout.vue'
 import { computed, ref, reactive } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getAppointment, updateAppointmentNotes } from '@/api/appointment'
+import { getCustomerCard } from '@/api/member-card'
 import { createBatchOrdersFromAppointment, getOrder, updateOrder } from '@/api/order'
 import { getServiceList } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
@@ -219,6 +235,8 @@ const existingOrder = ref<any>(null)
 const appt = ref<any>(null)
 const loading = ref(true)
 const submitting = ref(false)
+const customerCard = ref<MemberCard | null>(null)
+const appointmentIsLate = ref(false)
 const allServices = ref<any[]>([])
 const categoryTree = ref<any[]>([]) // 树形：顶级分类，子分类在 children 里
 const activeCat1 = ref(0)
@@ -316,9 +334,41 @@ function recalcAmount(draft: Draft) {
   draft.amount = svcTotal + prodTotal
 }
 
-const totalAmount = computed(() => drafts.reduce((sum, d) => sum + d.amount, 0))
+function roundCurrency(value: number) {
+  return Math.round(Number(value || 0) * 100) / 100
+}
+
+const serviceSubtotal = computed(() => roundCurrency(drafts.reduce((sum, draft) => sum + draft.services.reduce((svcSum, svc) => svcSum + svc.price, 0), 0)))
+const productSubtotal = computed(() => roundCurrency(drafts.reduce((sum, draft) => sum + draft.products.reduce((prodSum, prod) => prodSum + prod.price * prod.quantity, 0), 0)))
+const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value))
+const serviceDiscountRate = computed(() => {
+  const customerRate = Number(appt.value?.customer?.discount_rate || 1)
+  if (customerRate > 0 && customerRate < 1) return customerRate
+  const cardRate = Number(customerCard.value?.discount_rate || 1)
+  return cardRate > 0 && cardRate < 1 ? cardRate : 1
+})
+const productDiscountRate = computed(() => {
+  const cardRate = Number(customerCard.value?.product_discount_rate || 1)
+  return cardRate > 0 && cardRate < 1 ? cardRate : 1
+})
+const payAmountBeforeDeposit = computed(() => roundCurrency(serviceSubtotal.value * serviceDiscountRate.value + productSubtotal.value * productDiscountRate.value))
+const appointmentDepositLabel = computed(() => appointmentIsLate.value ? '⚠️ 预约金抵扣' : '预约金抵扣')
+const appointmentDepositDeduction = computed(() => {
+  if (customerCard.value?.ID) return 0
+  const raw = Number(appt.value?.deposit || 0)
+  if (raw <= 0) return 0
+  const allowed = appointmentIsLate.value ? raw * 0.7 : raw
+  return roundCurrency(Math.min(allowed, payAmountBeforeDeposit.value))
+})
+const payAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
 const petSummary = computed(() => drafts.map((draft) => draft.petName).filter(Boolean).join(' / ') || '-')
 const isEditing = computed(() => editingOrderId.value > 0)
+const canEditAppointmentLate = computed(() => !isEditing.value || Number(existingOrder.value?.pay_status || 0) !== 1)
+
+function setAppointmentLate(value: boolean) {
+  if (!canEditAppointmentLate.value) return
+  appointmentIsLate.value = value
+}
 
 // === 修改价格 ===
 const editingPrice = ref<{ di: number; si: number } | null>(null)
@@ -413,6 +463,7 @@ function addService(svc: any) {
 
 // === 添加商品 ===
 const showAddProduct = ref(false)
+const productOrServiceModalOpen = computed(() => showAddService.value || showAddProduct.value)
 const addingProductDraftIndex = ref(0)
 const productCategories = ref<any[]>([])
 const activeProductCat = ref(0)
@@ -464,8 +515,12 @@ function openAddProduct(di: number) {
   loadProductOptions()
 }
 
+function getSellableProductSkus(prod: any) {
+  return (prod.skus || prod.SKUs || []).filter((sku: any) => sku.sellable !== false)
+}
+
 function toggleProductExpand(prod: any) {
-  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  const skus = getSellableProductSkus(prod)
   if (skus.length > 1) {
     expandedProductId.value = expandedProductId.value === prod.ID ? 0 : prod.ID
   } else if (skus.length === 1) {
@@ -476,7 +531,7 @@ function toggleProductExpand(prod: any) {
 }
 
 function addProductDirect(prod: any) {
-  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  const skus = getSellableProductSkus(prod)
   const sku = skus[0]
   const price = sku?.price ?? prod.base_price ?? 0
   drafts[addingProductDraftIndex.value].products.push({
@@ -534,7 +589,18 @@ async function loadData() {
       editingOrderId.value ? getOrder(editingOrderId.value) : Promise.resolve(null as any),
     ])
     appt.value = apptRes.data
+    if (Number(appt.value?.customer_id || 0) > 0) {
+      try {
+        const cardRes = await getCustomerCard(appt.value.customer_id)
+        customerCard.value = cardRes.data || null
+      } catch {
+        customerCard.value = null
+      }
+    } else {
+      customerCard.value = null
+    }
     existingOrder.value = orderRes?.data || null
+    appointmentIsLate.value = !!existingOrder.value?.appointment_is_late
     noteDraft.value = appt.value?.notes || ''
 
     // 加载服务列表、分类、商品（用于添加服务/商品）
@@ -620,6 +686,7 @@ async function loadData() {
 }
 
 async function submitBatch() {
+  if (productOrServiceModalOpen.value) return
   if (!appointmentId.value) return
   submitting.value = true
   try {
@@ -646,11 +713,13 @@ async function submitBatch() {
       res = await updateOrder(editingOrderId.value, {
         customer_id: existingOrder.value?.customer_id || appt.value?.customer_id,
         staff_id: existingOrder.value?.staff_id || appt.value?.staff_id,
+        appointment_is_late: appointmentIsLate.value,
         remark: existingOrder.value?.remark || appt.value?.notes || '',
         items,
       } as any)
     } else {
       res = await createBatchOrdersFromAppointment(appointmentId.value, {
+        appointment_is_late: appointmentIsLate.value,
         overrides: drafts.map(d => ({
           pet_id: d.petId,
           services: d.services.map(s => ({
@@ -706,6 +775,14 @@ onLoad((query) => {
 .summary-card, .draft-card, .notes-card { background: #fff; border-radius: 18rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 4rpx 18rpx rgba(15, 23, 42, 0.06); }
 .summary-title { font-size: 32rpx; font-weight: 700; color: #111827; display: block; margin-bottom: 12rpx; }
 .summary-line { font-size: 24rpx; color: #6B7280; display: block; margin-top: 6rpx; }
+.summary-line.accent { color: #0F766E; font-weight: 600; }
+.arrival-block { margin-top: 12rpx; }
+.arrival-toggle { display: inline-flex; gap: 12rpx; margin-top: 10rpx; }
+.arrival-toggle.disabled { opacity: 0.5; }
+.arrival-chip { min-width: 110rpx; padding: 12rpx 22rpx; border-radius: 999rpx; background: #F3F4F6; color: #4B5563; font-size: 24rpx; font-weight: 600; text-align: center; }
+.arrival-chip.active { background: #111827; color: #fff; }
+.arrival-chip.warn { background: #FFF7ED; color: #C2410C; }
+.arrival-chip.active.warn { background: #C2410C; color: #fff; }
 .summary-amount { font-size: 28rpx; color: #4F46E5; font-weight: 700; display: block; margin-top: 16rpx; }
 .draft-list { display: flex; flex-direction: column; gap: 16rpx; }
 .draft-head { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; }

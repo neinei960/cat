@@ -112,7 +112,7 @@
         <view class="section-head">
           <view>
             <text class="section-title">商品开单</text>
-            <text class="section-desc">可直接零售，也可和服务一起结算。</text>
+            <text class="section-desc">{{ isBoardingProductEdit ? '寄养期间的商品消费会和寄养费用一起收款。' : '可直接零售，也可和服务一起结算。' }}</text>
           </view>
         </view>
 
@@ -204,7 +204,7 @@
         </view>
       </view>
 
-      <view class="section service-fold-section">
+      <view v-if="!isBoardingProductEdit" class="section service-fold-section">
         <view class="service-fold-trigger" @click="servicePanelExpanded = !servicePanelExpanded">
           <view class="service-fold-copy">
             <text class="section-title no-margin">服务项目</text>
@@ -336,6 +336,24 @@
           <text>订单总价</text>
           <text>¥{{ totalAmount.toFixed(2) }}</text>
         </view>
+        <view v-if="hasAppointmentContext" class="appointment-late-block">
+          <text class="summary-inline-label">到店状态</text>
+          <view :class="['arrival-toggle', !canEditAppointmentLate ? 'disabled' : '']">
+            <view
+              :class="['arrival-chip', !appointmentIsLate ? 'active' : '']"
+              @click="setAppointmentLate(false)"
+            >正常</view>
+            <view
+              :class="['arrival-chip', appointmentIsLate ? 'active warn' : 'warn']"
+              @click="setAppointmentLate(true)"
+            >迟到</view>
+          </view>
+          <text v-if="appointmentIsLate" class="appointment-late-tip">迟到扣除预约金30%</text>
+        </view>
+        <view class="summary-row" v-if="appointmentDepositDeduction > 0">
+          <text>{{ appointmentDepositLabel }}</text>
+          <text class="discount">-¥{{ appointmentDepositDeduction.toFixed(2) }}</text>
+        </view>
         <view class="summary-row total">
           <text>应付</text>
           <text class="pay-amount">¥{{ payAmount.toFixed(2) }}</text>
@@ -428,8 +446,12 @@ const remark = ref('')
 const submitting = ref(false)
 const memberBalance = ref(0)
 const customerCard = ref<MemberCard | null>(null)
+const linkedAppointment = ref<any>(null)
+const appointmentIsLate = ref(false)
 const prefillAppointmentId = ref(0)
 const editingOrderId = ref(0)
+const editingOrderPayStatus = ref(0)
+const editingOrderKind = ref('')
 const prefillCustomerId = ref(0)
 const refreshMemberCardHint = ref(false)
 const ORDER_CREATE_REFRESH_KEY = 'order_create_refresh_member_card'
@@ -442,6 +464,7 @@ let productRequestSeq = 0
 
 const authStore = useAuthStore()
 const isEditing = computed(() => editingOrderId.value > 0)
+const isBoardingProductEdit = computed(() => isEditing.value && editingOrderKind.value === 'boarding')
 const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
 const staffNames = computed(() => ['未选择', ...staffList.value.map((staff: any) => staff.name)])
@@ -499,7 +522,22 @@ const productDiscountRate = computed(() => {
 })
 const serviceDiscountAmount = computed(() => roundCurrency(serviceSubtotal.value - roundCurrency(serviceSubtotal.value * serviceDiscountRate.value)))
 const productDiscountAmount = computed(() => roundCurrency(productSubtotal.value - roundCurrency(productSubtotal.value * productDiscountRate.value)))
-const payAmount = computed(() => roundCurrency(totalAmount.value - serviceDiscountAmount.value - productDiscountAmount.value))
+const payAmountBeforeDeposit = computed(() => roundCurrency(totalAmount.value - serviceDiscountAmount.value - productDiscountAmount.value))
+const hasAppointmentContext = computed(() => !!linkedAppointment.value)
+const canEditAppointmentLate = computed(() => !isEditing.value || editingOrderPayStatus.value !== 1)
+const appointmentDepositLabel = computed(() => appointmentIsLate.value ? '⚠️ 预约金抵扣' : '预约金抵扣')
+const appointmentDepositDeduction = computed(() => {
+  const appointment = linkedAppointment.value
+  const customerID = Number(selectedCustomer.value?.ID || 0)
+  const appointmentCustomerID = Number(appointment?.customer_id || appointment?.customer?.ID || 0)
+  if (!appointment || !customerID || customerID !== appointmentCustomerID) return 0
+  if (customerCard.value?.ID) return 0
+  const raw = Number(appointment?.deposit || 0)
+  if (raw <= 0) return 0
+  const allowed = appointmentIsLate.value ? raw * 0.7 : raw
+  return roundCurrency(Math.min(allowed, payAmountBeforeDeposit.value))
+})
+const payAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
 const hasServiceItem = computed(() => selectedServiceId.value > 0)
 const hasChargeItems = computed(() => hasServiceItem.value || cartItems.value.length > 0)
 const chargeBucketCount = computed(() => {
@@ -561,6 +599,11 @@ onMounted(async () => {
 onShow(async () => {
   await refreshSelectedCustomerContext()
 })
+
+function setAppointmentLate(value: boolean) {
+  if (!canEditAppointmentLate.value) return
+  appointmentIsLate.value = value
+}
 
 async function loadServiceData() {
   try {
@@ -945,6 +988,8 @@ async function prefillFromAppointment(appointmentId: number) {
   try {
     const res = await getAppointment(appointmentId)
     const appt = res.data
+    linkedAppointment.value = appt || null
+    appointmentIsLate.value = false
     const firstPetGroup = Array.isArray(appt?.pets) && appt.pets.length > 0 ? appt.pets[0] : null
     const pet = firstPetGroup?.pet || appt?.pet
     if (pet) {
@@ -982,12 +1027,16 @@ async function prefillFromOrder(orderId: number) {
   try {
     const res = await getOrder(orderId)
     const order = res.data
+    editingOrderKind.value = String(order?.order_kind || '')
+    linkedAppointment.value = order?.appointment || null
+    appointmentIsLate.value = !!order?.appointment_is_late
     if (!order) {
       uni.showToast({ title: '订单不存在', icon: 'none' })
       return
     }
     const status = Number(order.status || 0)
     const payStatus = Number(order.pay_status || 0)
+    editingOrderPayStatus.value = payStatus
     if ([2, 3].includes(status)) {
       uni.showToast({ title: '当前订单不可修改', icon: 'none' })
       return
@@ -1077,6 +1126,10 @@ function splitDisplayName(name: string) {
 }
 
 async function onSubmit() {
+  if (isBoardingProductEdit.value && hasServiceItem.value) {
+    uni.showToast({ title: '寄养关联订单仅支持添加商品', icon: 'none' })
+    return
+  }
   if (hasServiceItem.value && !selectedPet.value) {
     uni.showToast({ title: '请选择猫咪后再添加服务', icon: 'none' })
     return
@@ -1093,7 +1146,7 @@ async function onSubmit() {
   submitting.value = true
   try {
     const items: any[] = []
-    if (hasServiceItem.value) {
+    if (!isBoardingProductEdit.value && hasServiceItem.value) {
       items.push({
         item_type: 1,
         item_id: selectedServiceId.value,
@@ -1116,6 +1169,7 @@ async function onSubmit() {
       pet_id: selectedPet.value?.ID || undefined,
       customer_id: selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined,
       staff_id: selectedStaff.value?.ID || undefined,
+      appointment_is_late: hasAppointmentContext.value ? appointmentIsLate.value : undefined,
       remark: remark.value,
       items,
     } as any
@@ -1932,6 +1986,52 @@ function roundCurrency(value: number) {
   padding-top: 16rpx;
   border-top: 1rpx solid #E5E7EB;
   font-weight: 700;
+}
+.appointment-late-block {
+  padding: 12rpx 0 8rpx;
+  border-top: 1rpx solid #F3F4F6;
+  margin-top: 6rpx;
+}
+.summary-inline-label {
+  display: block;
+  font-size: 24rpx;
+  color: #6B7280;
+}
+.appointment-late-tip {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #C2410C;
+}
+.arrival-toggle {
+  display: inline-flex;
+  gap: 12rpx;
+  margin-top: 10rpx;
+}
+.arrival-toggle.disabled {
+  opacity: 0.5;
+}
+.arrival-chip {
+  min-width: 110rpx;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  color: #4B5563;
+  font-size: 24rpx;
+  font-weight: 600;
+  text-align: center;
+}
+.arrival-chip.active {
+  background: #111827;
+  color: #fff;
+}
+.arrival-chip.warn {
+  background: #FFF7ED;
+  color: #C2410C;
+}
+.arrival-chip.active.warn {
+  background: #C2410C;
+  color: #fff;
 }
 .discount { color: #059669; }
 .pay-amount {

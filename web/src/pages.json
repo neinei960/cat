@@ -200,6 +200,12 @@
 			}
 		},
 		{
+			"path": "pages/boarding/special-items",
+			"style": {
+				"navigationBarTitleText": "特殊寄养项目"
+			}
+		},
+		{
 			"path": "pages/boarding/holidays",
 			"style": {
 				"navigationBarTitleText": "寄养节假日"

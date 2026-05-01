@@ -1,0 +1,93 @@
+- generic [ref=e263]:
+  - generic [ref=e264]:
+    - generic [ref=e266]: 猫咪洗护
+    - generic [ref=e267]:
+      - generic [ref=e268] [cursor=pointer]:
+        - generic [ref=e270]: 🏠
+        - generic [ref=e271]: 工作台
+      - generic [ref=e272] [cursor=pointer]:
+        - generic [ref=e274]: 🧾
+        - generic [ref=e275]: 开单
+      - generic [ref=e276] [cursor=pointer]:
+        - generic [ref=e278]: 📅
+        - generic [ref=e279]: 预约日历
+      - generic [ref=e280] [cursor=pointer]:
+        - generic [ref=e282]: 📋
+        - generic [ref=e283]: 预约列表
+      - generic [ref=e284] [cursor=pointer]:
+        - img [ref=e288]
+        - generic [ref=e289]: 猫咪管理
+      - generic [ref=e290] [cursor=pointer]:
+        - generic [ref=e292]: 👥
+        - generic [ref=e293]: 客户管理
+      - generic [ref=e294] [cursor=pointer]:
+        - generic [ref=e296]: 📋
+        - generic [ref=e297]: 订单管理
+      - generic [ref=e298] [cursor=pointer]:
+        - generic [ref=e300]: ✂️
+        - generic [ref=e301]: 服务管理
+      - generic [ref=e302] [cursor=pointer]:
+        - generic [ref=e304]: 📦
+        - generic [ref=e305]: 商品管理
+      - generic [ref=e306] [cursor=pointer]:
+        - generic [ref=e308]: 🛵
+        - generic [ref=e309]: 上门喂养
+      - generic [ref=e310] [cursor=pointer]:
+        - generic [ref=e312]: 🏨
+        - generic [ref=e313]: 寄养看板
+      - generic [ref=e314] [cursor=pointer]:
+        - generic [ref=e316]: 🧑‍💼
+        - generic [ref=e317]: 员工管理
+      - generic [ref=e318] [cursor=pointer]:
+        - generic [ref=e320]: 📊
+        - generic [ref=e321]: 数据看板
+      - generic [ref=e322] [cursor=pointer]:
+        - generic [ref=e324]: 💳
+        - generic [ref=e325]: 会员卡
+      - generic [ref=e326] [cursor=pointer]:
+        - generic [ref=e328]: ⚙️
+        - generic [ref=e329]: 店铺设置
+    - generic [ref=e330]:
+      - generic [ref=e331]: 测试
+      - generic [ref=e333] [cursor=pointer]: 退出登录
+  - generic [ref=e335]:
+    - generic [ref=e336]:
+      - generic [ref=e337]: 🐱 新建预约
+      - generic [ref=e338]: 为毛孩子安排一次舒适的洗护体验
+    - generic [ref=e340]:
+      - generic [ref=e341]:
+        - generic [ref=e343]: 👤
+        - generic [ref=e344]: 客户
+      - generic [ref=e346]:
+        - generic [ref=e348]: ✂️
+        - generic [ref=e349]: 服务
+      - generic [ref=e351]:
+        - generic [ref=e353]: 📅
+        - generic [ref=e354]: 时间
+      - generic [ref=e356]:
+        - generic [ref=e358]: ✅
+        - generic [ref=e359]: 确认
+    - generic [ref=e360]:
+      - generic [ref=e361]:
+        - generic [ref=e362]:
+          - generic [ref=e363]: 💛
+          - generic [ref=e364]: 熟客
+        - generic [ref=e365]:
+          - generic [ref=e366]: 🌟
+          - generic [ref=e367]: 新客
+      - generic [ref=e368]:
+        - generic [ref=e369]:
+          - generic [ref=e370]:
+            - generic [ref=e371]: 👤
+            - generic [ref=e372]: 选择客户
+          - generic [ref=e374]:
+            - generic [ref=e375]: 🔍
+            - textbox [ref=e378]: happy
+        - generic [ref=e513]:
+          - generic [ref=e514]:
+            - generic [ref=e515]: 🐾
+            - generic [ref=e516]: 选择宠物（可多选）
+          - generic [ref=e518]:
+            - generic [ref=e519]: 🐾
+            - generic [ref=e520]: 收养小猫 (猫 英短金渐层高地)
+        - generic [ref=e380]: 下一步 →

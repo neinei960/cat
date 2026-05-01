@@ -1,0 +1,14 @@
+{
+  "local": [
+    "__DC_STAT_UUID",
+    "token",
+    "staffInfo"
+  ],
+  "session": [],
+  "localDump": {
+    "__DC_STAT_UUID": "17765242021426535298",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdGFmZl9pZCI6OCwic2hvcF9pZCI6MSwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc2NzgzMzMxLCJpYXQiOjE3NzY1MjQxMzF9._k58XwSnmkaZK5kgSZ7v9UivkLbNSMFlWkpo_n_QdvE",
+    "staffInfo": "{\"ID\":8,\"CreatedAt\":\"2026-03-24T22:09:02+08:00\",\"UpdatedAt\":\"2026-04-12T15:55:34.022+08:00\",\"DeletedAt\":null,\"shop_id\":1,\"phone\":\"15989005706\",\"name\":\"测试\",\"avatar\":\"\",\"role\":\"admin\",\"sort_order\":4,\"status\":1,\"commission_rate\":0,\"product_commission_rate\":0,\"feeding_commission_rate\":0,\"last_login_at\":null}"
+  },
+  "sessionDump": {}
+}

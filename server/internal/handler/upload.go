@@ -66,8 +66,10 @@ func Upload(c *gin.Context) {
 		return
 	}
 
+	preserveOriginal := c.PostForm("preserve_original") == "1"
+
 	// 对 jpg/jpeg/png 做压缩，gif/webp 直接保存
-	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
+	if !preserveOriginal && (ext == ".jpg" || ext == ".jpeg" || ext == ".png") {
 		compressed, compErr := compressImage(data, ext)
 		if compErr == nil {
 			data = compressed

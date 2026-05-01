@@ -129,7 +129,7 @@ import { assignFeedingVisit, cancelFeedingPlan, generateFeedingOrder, getFeeding
 import { getStaffList } from '@/api/staff'
 import { useAuthStore } from '@/store/auth'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
-import { feedingStatusLabel, feedingWindowLabel, feedingWeekdays, formatFeedingDateRange, getFeedingDateOptions, parseFeedingAddress, parseFeedingSelectedDates, parseFeedingSelectedItems } from '@/utils/feeding'
+import { feedingStatusLabel, feedingWindowLabel, feedingWeekdays, formatFeedingDateRange, getFeedingDateOptions, isFeedingPlanHistoryByDate, parseFeedingAddress, parseFeedingSelectedDates, parseFeedingSelectedItems } from '@/utils/feeding'
 
 const authStore = useAuthStore()
 const canOperate = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'staff'))
@@ -260,7 +260,7 @@ async function loadHistoryPlans() {
       customer_id: plan.value.customer_id,
     })
     const list = res.data?.list || []
-    historyPlans.value = list.filter((item: FeedingPlan) => Number(item.ID) !== Number(plan.value?.ID))
+    historyPlans.value = list.filter((item: FeedingPlan) => Number(item.ID) !== Number(plan.value?.ID) && isFeedingPlanHistoryByDate(item))
   } catch {
     historyPlans.value = []
   }

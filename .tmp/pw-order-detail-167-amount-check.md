@@ -1,0 +1,129 @@
+- generic [ref=e7]:
+  - generic [ref=e8]:
+    - generic [ref=e10]: 猫咪洗护
+    - generic [ref=e11]:
+      - generic [ref=e12] [cursor=pointer]:
+        - generic [ref=e14]: 🏠
+        - generic [ref=e15]: 工作台
+      - generic [ref=e16] [cursor=pointer]:
+        - generic [ref=e18]: 🧾
+        - generic [ref=e19]: 开单
+      - generic [ref=e20] [cursor=pointer]:
+        - generic [ref=e22]: 📅
+        - generic [ref=e23]: 预约日历
+      - generic [ref=e24] [cursor=pointer]:
+        - generic [ref=e26]: 📋
+        - generic [ref=e27]: 预约列表
+      - generic [ref=e28] [cursor=pointer]:
+        - img [ref=e78]
+        - generic [ref=e32]: 猫咪管理
+      - generic [ref=e33] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - generic [ref=e36]: 客户管理
+      - generic [ref=e37] [cursor=pointer]:
+        - generic [ref=e39]: 📋
+        - generic [ref=e40]: 订单管理
+      - generic [ref=e41] [cursor=pointer]:
+        - generic [ref=e43]: ✂️
+        - generic [ref=e44]: 服务管理
+      - generic [ref=e45] [cursor=pointer]:
+        - generic [ref=e47]: 📦
+        - generic [ref=e48]: 商品管理
+      - generic [ref=e49] [cursor=pointer]:
+        - generic [ref=e51]: 🛵
+        - generic [ref=e52]: 上门喂养
+      - generic [ref=e53] [cursor=pointer]:
+        - generic [ref=e55]: 🏨
+        - generic [ref=e56]: 寄养看板
+      - generic [ref=e57] [cursor=pointer]:
+        - generic [ref=e59]: 🧑‍💼
+        - generic [ref=e60]: 员工管理
+      - generic [ref=e61] [cursor=pointer]:
+        - generic [ref=e63]: 📊
+        - generic [ref=e64]: 数据看板
+      - generic [ref=e65] [cursor=pointer]:
+        - generic [ref=e67]: 💳
+        - generic [ref=e68]: 会员卡
+      - generic [ref=e69] [cursor=pointer]:
+        - generic [ref=e71]: ⚙️
+        - generic [ref=e72]: 店铺设置
+    - generic [ref=e73]:
+      - generic [ref=e74]: 测试
+      - generic [ref=e76] [cursor=pointer]: 退出登录
+  - generic [ref=e79]:
+    - generic [ref=e81]: 已支付
+    - generic [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]: 订单号
+        - generic [ref=e85]: "20260417235339826794"
+      - generic [ref=e86]:
+        - generic [ref=e87]: 客户
+        - generic [ref=e88] [cursor=pointer]: 樱桃子ᴺⁱᶜᵒ
+      - generic [ref=e89]:
+        - generic [ref=e90]: 猫咪
+        - generic [ref=e92] [cursor=pointer]: 四月
+      - generic [ref=e93]:
+        - generic [ref=e94]: 订单类型
+        - generic [ref=e95]: 服务 + 商品
+      - generic [ref=e96]:
+        - generic [ref=e97]: 经手员工
+        - generic [ref=e98]: 乐乐
+      - generic [ref=e99]:
+        - generic [ref=e100]: 支付方式
+        - generic [ref=e101]: 会员余额
+      - generic [ref=e102]:
+        - generic [ref=e103]: 支付时间
+        - generic [ref=e104]: 2026年04月17日 23:53:47
+    - generic [ref=e105]:
+      - generic [ref=e106]: 明细
+      - generic [ref=e107]:
+        - generic [ref=e108]:
+          - generic [ref=e109] [cursor=pointer]: 🐱 四月
+          - generic [ref=e110]: 2项
+        - generic [ref=e111]:
+          - generic [ref=e112]: 日常皮毛护理
+          - generic [ref=e113]: x1
+          - generic [ref=e114]: ¥88
+        - generic [ref=e115]:
+          - generic [ref=e116]: 日常皮毛护理(超重)
+          - generic [ref=e117]: x1
+          - generic [ref=e118]: ¥10
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - generic [ref=e121]: 📦 零售商品
+          - generic [ref=e122]: 1项
+        - generic [ref=e123]:
+          - generic [ref=e124]: 尾巴生活喜欢泥·主食餐包
+          - generic [ref=e125]: x1
+          - generic [ref=e126]: ¥9.9
+      - generic [ref=e127]:
+        - generic [ref=e128]:
+          - generic [ref=e129]: 服务小计
+          - generic [ref=e130]: ¥98.00
+        - generic [ref=e131]:
+          - generic [ref=e132]: 服务优惠
+          - generic [ref=e133]: "-¥9.80"
+        - generic [ref=e134]:
+          - generic [ref=e135]: 商品小计
+          - generic [ref=e136]: ¥9.90
+        - generic [ref=e137]:
+          - generic [ref=e138]: 商品优惠
+          - generic [ref=e139]: "-¥0.20"
+        - generic [ref=e140]:
+          - generic [ref=e141]: 优惠
+          - generic [ref=e142]: "-¥10"
+        - generic [ref=e143]:
+          - generic [ref=e144]: 应付
+          - generic [ref=e145]: ¥97.9
+        - generic [ref=e146]:
+          - generic [ref=e147]:
+            - generic [ref=e148]: 备注
+            - generic [ref=e150]: 保存
+          - generic [ref=e152]:
+            - generic [ref=e153]: 备注收款说明、客户要求或补充信息
+            - textbox [ref=e154]
+    - generic [ref=e155]:
+      - generic [ref=e156] [cursor=pointer]: 修改订单
+      - generic [ref=e157] [cursor=pointer]: 退款
+      - generic [ref=e158] [cursor=pointer]: 删除订单
+      - generic [ref=e159] [cursor=pointer]: 生成小票

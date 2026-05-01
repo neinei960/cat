@@ -45,19 +45,26 @@ func (r *StatsRepository) GetRevenueTrendRealtime(shopID uint, startDate, endDat
 }
 
 type OverviewStats struct {
-	TodayRevenue            float64 `json:"today_revenue"`
-	TodayOrderCount         int     `json:"today_order_count"`
-	TodayAppointmentCount   int     `json:"today_appointment_count"`
-	TodayServiceCompleted   int     `json:"today_service_completed_count"`
-	TodayPendingSettlement  int     `json:"today_pending_settlement_count"`
-	TodayRefundedOrderCount int     `json:"today_refunded_order_count"`
-	TodayNewCustomers       int     `json:"today_new_customers"`
-	PendingAppointments     int64   `json:"pending_appointments"`
-	TotalCustomers          int64   `json:"total_customers"`
-	AvgOrderValue           float64 `json:"avg_order_value"`
-	NoShowRate              float64 `json:"no_show_rate"`
-	NoShowCount             int64   `json:"no_show_count"`
-	TotalAppointments       int64   `json:"total_appointments"`
+	TodayRevenue            float64                `json:"today_revenue"`
+	TodayOrderCount         int                    `json:"today_order_count"`
+	TodayAppointmentCount   int                    `json:"today_appointment_count"`
+	TodayServiceCompleted   int                    `json:"today_service_completed_count"`
+	TodayPendingSettlement  int                    `json:"today_pending_settlement_count"`
+	TodayRefundedOrderCount int                    `json:"today_refunded_order_count"`
+	TodayNewCustomers       int                    `json:"today_new_customers"`
+	PendingAppointments     int64                  `json:"pending_appointments"`
+	TotalCustomers          int64                  `json:"total_customers"`
+	AvgOrderValue           float64                `json:"avg_order_value"`
+	NoShowRate              float64                `json:"no_show_rate"`
+	NoShowCount             int64                  `json:"no_show_count"`
+	TotalAppointments       int64                  `json:"total_appointments"`
+	PaymentBreakdown        []PaymentBreakdownItem `json:"payment_breakdown"`
+}
+
+type PaymentBreakdownItem struct {
+	Key    string  `json:"key"`
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
 }
 
 type MemberTemplateStat struct {
@@ -150,6 +157,8 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 		stats.NoShowRate = float64(stats.NoShowCount) / float64(stats.TotalAppointments)
 	}
 
+	stats.PaymentBreakdown = r.getPaymentBreakdown(shopID, today, today)
+
 	return &stats, nil
 }
 
@@ -223,7 +232,61 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		stats.NoShowRate = float64(stats.NoShowCount) / float64(stats.TotalAppointments)
 	}
 
+	stats.PaymentBreakdown = r.getPaymentBreakdown(shopID, startDate, endDate)
+
 	return &stats, nil
+}
+
+func (r *StatsRepository) getPaymentBreakdown(shopID uint, startDate, endDate string) []PaymentBreakdownItem {
+	type paymentBreakdownRow struct {
+		PayGroup string  `gorm:"column:pay_group" json:"pay_group"`
+		Amount   float64 `json:"amount"`
+	}
+
+	var rows []paymentBreakdownRow
+	payMethodGroupExpr := `
+		CASE
+			WHEN orders.pay_method = 'wechat' THEN 'wechat'
+			WHEN orders.pay_method = 'meituan' THEN 'meituan'
+			WHEN orders.pay_method IN ('balance', 'card') THEN 'balance'
+			ELSE 'other'
+		END
+	`
+	if err := database.DB.Model(&model.Order{}).
+		Select(payMethodGroupExpr+" as pay_group, COALESCE(SUM(orders.pay_amount), 0) as amount").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
+		Group(payMethodGroupExpr).
+		Order("amount DESC").
+		Find(&rows).Error; err != nil {
+		return nil
+	}
+
+	items := make([]PaymentBreakdownItem, 0, len(rows))
+	for _, row := range rows {
+		if row.Amount <= 0 {
+			continue
+		}
+		items = append(items, PaymentBreakdownItem{
+			Key:    row.PayGroup,
+			Label:  paymentBreakdownLabel(row.PayGroup),
+			Amount: row.Amount,
+		})
+	}
+	return items
+}
+
+func paymentBreakdownLabel(key string) string {
+	switch key {
+	case "wechat":
+		return "微信"
+	case "meituan":
+		return "美团"
+	case "balance":
+		return "会员卡/余额"
+	default:
+		return "其他"
+	}
 }
 
 func (r *StatsRepository) GetMemberStats(shopID uint, startDate, endDate string) (*MemberStats, error) {

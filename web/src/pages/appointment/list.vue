@@ -67,6 +67,7 @@
           <text class="services">{{ getServiceSummary(item) }}</text>
           <text class="amount">¥{{ item.total_amount }}</text>
         </view>
+        <text v-if="Number(item.deposit || 0) > 0" class="deposit-note">预约金 ¥{{ Number(item.deposit || 0).toFixed(2) }}</text>
       </view>
     </view>
   </view>
@@ -244,4 +245,5 @@ onShow(loadData)
 .card-footer { display: flex; justify-content: space-between; gap: 16rpx; padding-top: 12rpx; border-top: 1rpx solid #F3F4F6; align-items: flex-start; }
 .services { font-size: 24rpx; color: #6B7280; flex: 1; line-height: 1.5; }
 .amount { font-size: 28rpx; font-weight: bold; color: #4F46E5; }
+.deposit-note { display: block; margin-top: 10rpx; font-size: 22rpx; color: #0F766E; }
 </style>

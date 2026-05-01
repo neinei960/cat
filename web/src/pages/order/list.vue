@@ -32,8 +32,6 @@
       <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已支付</view>
       <view :class="['tab', filter.status === 3 ? 'active' : '']" @click="filter.status = 3; loadData()">已退款</view>
       <view class="tab-sep"></view>
-      <view :class="['tab tab-feeding', filter.orderKind === 'feeding' ? 'active' : '']" @click="setOrderKind('feeding')">喂养</view>
-      <view :class="['tab tab-boarding', filter.orderKind === 'boarding' ? 'active' : '']" @click="setOrderKind('boarding')">寄养</view>
       <view :class="['tab tab-meituan', filter.payMethod === 'meituan' ? 'active' : '']" @click="toggleMeituan">美团</view>
     </view>
 
@@ -44,6 +42,7 @@
       <text v-if="filter.staffId > 0" class="filter-tag">{{ getStaffName(filter.staffId) }} <text @click="filter.staffId = 0; loadData()">✕</text></text>
       <text v-if="filter.payMethod" class="filter-tag">{{ payMethodMap[filter.payMethod] || filter.payMethod }} <text @click="filter.payMethod = ''; loadData()">✕</text></text>
       <text v-if="filter.orderKind" class="filter-tag">{{ getOrderKindLabel(filter.orderKind) }} <text @click="filter.orderKind = ''; loadData()">✕</text></text>
+      <text v-if="filter.categoryId > 0" class="filter-tag">{{ getCategoryName(filter.categoryId) }} <text @click="filter.categoryId = 0; loadData()">✕</text></text>
       <text v-if="filter.productKeyword.trim()" class="filter-tag">商品: {{ filter.productKeyword }} <text @click="filter.productKeyword = ''; loadData()">✕</text></text>
     </view>
 
@@ -124,6 +123,9 @@
           </view>
         </view>
       </view>
+      <view v-if="loadingMore" class="load-more">加载中...</view>
+      <view v-else-if="hasMore" class="load-more" @click="loadMore">上滑加载更多</view>
+      <view v-else class="load-more load-more-done">已加载全部 {{ total }} 条订单</view>
     </view>
   </view>
   </SideLayout>
@@ -133,7 +135,7 @@
 import SideLayout from '@/components/SideLayout.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onReachBottom } from '@dcloudio/uni-app'
 import { deleteOrder, getOrderList } from '@/api/order'
 import { getStaffList } from '@/api/staff'
 import { getCategoryTree } from '@/api/service-category'
@@ -141,8 +143,13 @@ import { useDesktopInteraction } from '@/utils/interaction'
 import { useAuthStore } from '@/store/auth'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
+const PAGE_SIZE = 20
 const list = ref<any[]>([])
+const total = ref(0)
+const currentPage = ref(1)
 const loading = ref(true)
+const loadingMore = ref(false)
+const hasMore = ref(true)
 const keyword = ref('')
 const showFilter = ref(false)
 const staffList = ref<any[]>([])
@@ -151,6 +158,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 let suppressCardClickUntil = 0
 let cardLongPressTimer: ReturnType<typeof setTimeout> | null = null
 let cardLongPressTriggered = false
+let latestLoadRequestId = 0
 const { isDesktopInteraction } = useDesktopInteraction()
 const authStore = useAuthStore()
 const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
@@ -190,6 +198,7 @@ const orderKindOptions = [
   { value: 'feeding', label: '上门喂养' },
   { value: 'boarding', label: '寄养' },
 ]
+const hiddenServiceCategoryNames = new Set(['寄养托管', '上门喂养'])
 
 const filter = reactive({
   dateFrom: '',
@@ -217,9 +226,8 @@ function getStaffName(id: number) {
   return staffList.value.find((s: any) => s.ID === id)?.name || '未知'
 }
 
-function setOrderKind(kind: string) {
-  filter.orderKind = filter.orderKind === kind ? '' : kind
-  loadData()
+function getCategoryName(id: number) {
+  return categories.value.find((c: any) => c.ID === id)?.name || '服务分类'
 }
 
 function toggleMeituan() {
@@ -264,21 +272,60 @@ function onFilterConfirm(f: any) {
   loadData()
 }
 
+function buildListParams(page: number) {
+  const params: any = { page, page_size: PAGE_SIZE }
+  if (filter.status >= 0) params.status = filter.status
+  if (keyword.value.trim()) params.keyword = keyword.value.trim()
+  if (filter.dateFrom) params.date_from = filter.dateFrom
+  if (filter.dateTo) params.date_to = filter.dateTo
+  if (filter.staffId > 0) params.staff_id = filter.staffId
+  if (filter.payMethod) params.pay_method = filter.payMethod
+  if (filter.categoryId > 0) params.category_id = filter.categoryId
+  if (filter.productKeyword.trim()) params.product_keyword = filter.productKeyword.trim()
+  if (filter.orderKind) params.order_kind = filter.orderKind
+  return params
+}
+
+function applyPageResult(items: any[], nextTotal: number) {
+  total.value = nextTotal || list.value.length
+  hasMore.value = list.value.length < total.value && items.length > 0
+}
+
 async function loadData() {
+  const requestId = ++latestLoadRequestId
   loading.value = true
+  loadingMore.value = false
+  currentPage.value = 1
   try {
-    const params: any = { page: 1, page_size: 50 }
-    if (filter.status >= 0) params.status = filter.status
-    if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    if (filter.dateFrom) params.date_from = filter.dateFrom
-    if (filter.dateTo) params.date_to = filter.dateTo
-    if (filter.staffId > 0) params.staff_id = filter.staffId
-    if (filter.payMethod) params.pay_method = filter.payMethod
-    if (filter.productKeyword.trim()) params.product_keyword = filter.productKeyword.trim()
-    if (filter.orderKind) params.order_kind = filter.orderKind
-    const res = await getOrderList(params)
-    list.value = res.data.list || []
-  } finally { loading.value = false }
+    const res = await getOrderList(buildListParams(1))
+    if (requestId !== latestLoadRequestId) return
+    const items = res.data.list || []
+    list.value = items
+    applyPageResult(items, res.data.total || 0)
+  } finally {
+    if (requestId === latestLoadRequestId) {
+      loading.value = false
+    }
+  }
+}
+
+async function loadMore() {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  const requestId = latestLoadRequestId
+  const nextPage = currentPage.value + 1
+  loadingMore.value = true
+  try {
+    const res = await getOrderList(buildListParams(nextPage))
+    if (requestId !== latestLoadRequestId) return
+    const items = res.data.list || []
+    currentPage.value = nextPage
+    list.value = [...list.value, ...items]
+    applyPageResult(items, res.data.total || 0)
+  } finally {
+    if (requestId === latestLoadRequestId) {
+      loadingMore.value = false
+    }
+  }
 }
 
 function onSearch() { loadData() }
@@ -378,7 +425,10 @@ async function loadFilterOptions() {
       getCategoryTree(),
     ])
     staffList.value = (stRes.data?.list || []).filter((s: any) => s.status === 1)
-    categories.value = (catRes.data || []).filter((c: any) => !c.parent_id && c.status === 1)
+    categories.value = (catRes.data || []).filter((c: any) => !c.parent_id && c.status === 1 && !hiddenServiceCategoryNames.has(String(c.name || '').trim()))
+    if (filter.categoryId > 0 && !categories.value.some((c: any) => c.ID === filter.categoryId)) {
+      filter.categoryId = 0
+    }
   } catch {}
 }
 
@@ -390,8 +440,9 @@ onLoad((query) => {
   }
 })
 
-onMounted(() => { loadData(); loadFilterOptions() })
+onMounted(() => { loadFilterOptions() })
 onShow(loadData)
+onReachBottom(loadMore)
 </script>
 
 <style scoped>
@@ -425,10 +476,6 @@ onShow(loadData)
 .tab { font-size: 24rpx; padding: 10rpx 20rpx; border-radius: 20rpx; background: #F3F4F6; color: #6B7280; }
 .tab.active { background: #4F46E5; color: #fff; }
 .tab-sep { width: 1rpx; height: 28rpx; background: #E5E7EB; }
-.tab-feeding { background: #F0FDF4; color: #15803D; border: 1rpx solid #BBF7D0; }
-.tab-feeding.active { background: #15803D; color: #fff; border-color: #15803D; }
-.tab-boarding { background: #EFF6FF; color: #1D4ED8; border: 1rpx solid #BFDBFE; }
-.tab-boarding.active { background: #1D4ED8; color: #fff; border-color: #1D4ED8; }
 .tab-meituan { background: #FFF7ED; color: #EA580C; border: 1rpx solid #FED7AA; }
 .tab-meituan.active { background: #EA580C; color: #fff; border-color: #EA580C; }
 .loading, .empty { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 16rpx; }
@@ -527,6 +574,8 @@ onShow(loadData)
 .card-edit-btn { font-size: 20rpx; color: #4F46E5; padding: 5rpx 14rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
 .card-edit-btn:active { background: #C7D2FE; }
 .amount { font-size: 32rpx; font-weight: 700; color: #4F46E5; }
+.load-more { text-align: center; padding: 24rpx 0 36rpx; color: #9CA3AF; font-size: 24rpx; }
+.load-more-done { color: #D1D5DB; }
 
 @media (max-width: 768px) {
   .header {

@@ -10,6 +10,7 @@
           <view class="btn btn-primary" @click="go('/pages/boarding/create')">新建寄养</view>
           <view class="btn" @click="go('/pages/boarding/history')">历史记录</view>
           <view class="btn" @click="go('/pages/boarding/cabinets')">房型设置</view>
+          <view class="btn" @click="go('/pages/boarding/special-items')">特殊项目</view>
           <view class="btn" @click="go('/pages/boarding/policies')">优惠</view>
           <view class="btn" @click="go('/pages/boarding/holidays')">节假日</view>
         </view>

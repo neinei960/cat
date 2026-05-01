@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -202,12 +204,64 @@ func parseBirthDate(s string) *time.Time {
 	if s == "" {
 		return nil
 	}
-	for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", time.RFC3339} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return &t
+	normalized := normalizeBirthDateInput(s)
+	for _, candidate := range []string{normalized, s} {
+		if candidate == "" {
+			continue
+		}
+		for _, layout := range []string{"2006-01-02", "2006-1-2", "2006-01", "2006-1", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", time.RFC3339} {
+			if t, err := time.Parse(layout, candidate); err == nil {
+				return &t
+			}
 		}
 	}
 	return nil
+}
+
+func normalizeBirthDateInput(s string) string {
+	parts := strings.Split(strings.TrimSpace(s), "-")
+	if len(parts) < 2 || len(parts) > 3 {
+		return strings.TrimSpace(s)
+	}
+	year := strings.TrimSpace(parts[0])
+	month := strings.TrimSpace(parts[1])
+	if year == "" || month == "" {
+		return strings.TrimSpace(s)
+	}
+	if isNumericToken(month) {
+		month = zeroPadDateToken(month)
+	}
+	if len(parts) == 2 {
+		return year + "-" + month
+	}
+	day := strings.TrimSpace(parts[2])
+	if day == "" {
+		return year + "-" + month
+	}
+	if isNumericToken(day) {
+		day = zeroPadDateToken(day)
+	}
+	return year + "-" + month + "-" + day
+}
+
+func isNumericToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func zeroPadDateToken(value string) string {
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return value
+	}
+	return fmt.Sprintf("%02d", number)
 }
 
 func (h *PetHandler) Delete(c *gin.Context) {

@@ -62,7 +62,7 @@
           </view>
         </view>
         <view class="mc-btns">
-          <button class="btn-recharge" @click="showRechargeModal = true">充值</button>
+          <button class="btn-recharge" @click="openRechargeModal">充值</button>
           <button class="btn-adjust" v-if="isAdmin" @click="showAdjustModal = true">调整余额</button>
         </view>
       </view>
@@ -70,7 +70,7 @@
       <!-- 无会员卡 -->
       <view v-else class="no-card">
         <text class="no-card-text">该客户暂未开通会员卡</text>
-        <button class="btn-open-card" @click="showOpenCardModal = true">开通会员卡</button>
+        <button class="btn-open-card" @click="openOpenCardModal">开通会员卡</button>
       </view>
 
       <!-- 流水记录 -->
@@ -190,7 +190,7 @@
     </view>
 
     <!-- 开卡弹窗 -->
-    <view class="modal-mask" v-if="showOpenCardModal" @click="showOpenCardModal = false">
+    <view class="modal-mask" v-if="showOpenCardModal" @click="closeOpenCardModal">
       <view class="modal-body" @click.stop>
         <text class="modal-title">开通会员卡</text>
         <view class="form-item">
@@ -208,17 +208,17 @@
         </view>
         <view class="form-item">
           <text class="label">充值金额 *</text>
-          <input v-model="rechargeAmount" type="digit" :placeholder="'最低' + minRecharge" class="input input-amount" />
+          <input v-model="openCardAmount" type="digit" :placeholder="'最低' + minRecharge" class="input input-amount" />
         </view>
         <view class="modal-btns">
-          <view class="modal-btn cancel" @click="showOpenCardModal = false">取消</view>
+          <view class="modal-btn cancel" @click="closeOpenCardModal">取消</view>
           <view class="modal-btn confirm" @click="doOpenCard">确认开卡</view>
         </view>
       </view>
     </view>
 
     <!-- 充值弹窗 -->
-    <view class="modal-mask" v-if="showRechargeModal" @click="showRechargeModal = false">
+    <view class="modal-mask" v-if="showRechargeModal" @click="closeRechargeModal">
       <view class="modal-body" @click.stop>
         <text class="modal-title">充值</text>
         <view class="form-item">
@@ -226,7 +226,7 @@
           <input v-model="rechargeAmount" type="digit" placeholder="请输入金额" class="input input-amount" />
         </view>
         <view class="modal-btns">
-          <view class="modal-btn cancel" @click="showRechargeModal = false">取消</view>
+          <view class="modal-btn cancel" @click="closeRechargeModal">取消</view>
           <view class="modal-btn confirm" @click="doRecharge">确认充值</view>
         </view>
       </view>
@@ -360,6 +360,7 @@ const showRechargeModal = ref(false)
 const showAdjustModal = ref(false)
 const showTagModal = ref(false)
 const selectedTplId = ref(0)
+const openCardAmount = ref('')
 const rechargeAmount = ref('')
 const adjustMode = ref<'delta' | 'set'>('delta')
 const adjustAmount = ref('')
@@ -382,9 +383,34 @@ const minRecharge = computed(() => {
 
 function selectTpl(tpl: MemberCardTemplate) {
   selectedTplId.value = tpl.ID
-  if (!rechargeAmount.value || parseFloat(rechargeAmount.value) < tpl.min_recharge) {
-    rechargeAmount.value = String(tpl.min_recharge)
+  if (!openCardAmount.value || parseFloat(openCardAmount.value) < tpl.min_recharge) {
+    openCardAmount.value = String(tpl.min_recharge)
   }
+}
+
+function resetOpenCardForm() {
+  selectedTplId.value = 0
+  openCardAmount.value = ''
+}
+
+function openOpenCardModal() {
+  resetOpenCardForm()
+  showOpenCardModal.value = true
+}
+
+function closeOpenCardModal() {
+  showOpenCardModal.value = false
+  resetOpenCardForm()
+}
+
+function openRechargeModal() {
+  rechargeAmount.value = ''
+  showRechargeModal.value = true
+}
+
+function closeRechargeModal() {
+  showRechargeModal.value = false
+  rechargeAmount.value = ''
 }
 
 onLoad(async (query) => {
@@ -429,15 +455,14 @@ async function doOpenCard() {
   if (!selectedTplId.value) {
     uni.showToast({ title: '请选择会员卡', icon: 'none' }); return
   }
-  const amount = parseFloat(rechargeAmount.value)
+  const amount = parseFloat(openCardAmount.value)
   if (!amount || amount < minRecharge.value) {
     uni.showToast({ title: `充值金额不能低于${minRecharge.value}元`, icon: 'none' }); return
   }
   try {
     await openCard(id.value, { template_id: selectedTplId.value, recharge_amount: amount })
     uni.showToast({ title: '开卡成功', icon: 'success' })
-    showOpenCardModal.value = false
-    rechargeAmount.value = ''
+    closeOpenCardModal()
     await loadAll()
   } catch (e: any) {
     uni.showToast({ title: e.message || '开卡失败', icon: 'none' })
@@ -452,8 +477,7 @@ async function doRecharge() {
   try {
     await recharge(id.value, { amount })
     uni.showToast({ title: '充值成功', icon: 'success' })
-    showRechargeModal.value = false
-    rechargeAmount.value = ''
+    closeRechargeModal()
     await loadAll()
   } catch (e: any) {
     uni.showToast({ title: e.message || '充值失败', icon: 'none' })

@@ -36,6 +36,7 @@ func legacyBoardingRoom(order *model.BoardingOrder) model.BoardingOrderRoom {
 	room := model.BoardingOrderRoom{
 		BoardingOrderID:        order.ID,
 		CabinetID:              order.CabinetID,
+		SpecialItemAmount:      order.SpecialItemAmount,
 		RoomIndex:              1,
 		CheckInAt:              order.CheckInAt,
 		CheckOutAt:             order.CheckOutAt,
@@ -114,9 +115,23 @@ func buildFallbackRoomPreview(room model.BoardingOrderRoom) BoardingRoomPreview 
 			Amount:    room.HolidaySurchargeAmount,
 		})
 	}
+	if room.SpecialItemAmount > 0 {
+		label := strings.TrimSpace(room.SpecialItemName)
+		if label == "" {
+			label = "特殊寄养费"
+		}
+		lines = append(lines, BoardingPriceLine{
+			Type:      "special_item",
+			Label:     label,
+			Quantity:  maxInt(room.SpecialItemDays, 1),
+			UnitPrice: room.SpecialItemDailyPrice,
+			Amount:    room.SpecialItemAmount,
+		})
+	}
 	return BoardingRoomPreview{
-		RoomIndex: maxInt(room.RoomIndex, 1),
-		CabinetID: room.CabinetID,
+		RoomIndex:     maxInt(room.RoomIndex, 1),
+		CabinetID:     room.CabinetID,
+		SpecialItemID: cloneUint(room.SpecialItemID),
 		CabinetType: func() string {
 			if room.Cabinet != nil {
 				return room.Cabinet.CabinetType
@@ -124,11 +139,15 @@ func buildFallbackRoomPreview(room model.BoardingOrderRoom) BoardingRoomPreview 
 			return ""
 		}(),
 		PetCount:               petCount,
+		SpecialItemName:        strings.TrimSpace(room.SpecialItemName),
+		SpecialItemDailyPrice:  roundMoney(room.SpecialItemDailyPrice),
+		SpecialItemDays:        room.SpecialItemDays,
 		CheckInAt:              room.CheckInAt,
 		CheckOutAt:             room.CheckOutAt,
 		Nights:                 room.Nights,
 		BaseAmount:             room.BaseAmount,
 		HolidaySurchargeAmount: room.HolidaySurchargeAmount,
+		SpecialItemAmount:      room.SpecialItemAmount,
 		DiscountAmount:         room.DiscountAmount,
 		ManualDiscountAmount:   room.ManualDiscountAmount,
 		PayAmount:              roundMoney(maxBoardingFloat(room.PayAmount-room.ManualDiscountAmount, 0)),
@@ -163,8 +182,9 @@ func buildAggregatePreviewFromRooms(customerID uint, rooms []model.BoardingOrder
 		var roomPreview BoardingRoomPreview
 		if rawPreview != nil {
 			roomPreview = BoardingRoomPreview{
-				RoomIndex: maxInt(room.RoomIndex, 1),
-				CabinetID: room.CabinetID,
+				RoomIndex:     maxInt(room.RoomIndex, 1),
+				CabinetID:     room.CabinetID,
+				SpecialItemID: cloneUint(rawPreview.SpecialItemID),
 				CabinetType: func() string {
 					if room.Cabinet != nil {
 						return room.Cabinet.CabinetType
@@ -173,6 +193,9 @@ func buildAggregatePreviewFromRooms(customerID uint, rooms []model.BoardingOrder
 				}(),
 				PetIDs:                 petIDsFromRoom(room),
 				PetCount:               maxInt(rawPreview.PetCount, len(room.Pets)),
+				SpecialItemName:        strings.TrimSpace(rawPreview.SpecialItemName),
+				SpecialItemDailyPrice:  roundMoney(rawPreview.SpecialItemDailyPrice),
+				SpecialItemDays:        rawPreview.SpecialItemDays,
 				CheckInAt:              room.CheckInAt,
 				CheckOutAt:             room.CheckOutAt,
 				Nights:                 rawPreview.Nights,
@@ -181,6 +204,7 @@ func buildAggregatePreviewFromRooms(customerID uint, rooms []model.BoardingOrder
 				BaseAmount:             rawPreview.BaseAmount,
 				ExtraPetAmount:         rawPreview.ExtraPetAmount,
 				HolidaySurchargeAmount: rawPreview.HolidaySurchargeAmount,
+				SpecialItemAmount:      rawPreview.SpecialItemAmount,
 				DiscountAmount:         rawPreview.DiscountAmount,
 				ManualDiscountAmount:   room.ManualDiscountAmount,
 				PayAmount:              rawPreview.PayAmount,
@@ -222,13 +246,18 @@ func buildAggregatePreviewFromRooms(customerID uint, rooms []model.BoardingOrder
 		aggregate.BaseAmount = roundMoney(aggregate.BaseAmount + roomPreview.BaseAmount)
 		aggregate.ExtraPetAmount = roundMoney(aggregate.ExtraPetAmount + roomPreview.ExtraPetAmount)
 		aggregate.HolidaySurchargeAmount = roundMoney(aggregate.HolidaySurchargeAmount + roomPreview.HolidaySurchargeAmount)
+		aggregate.SpecialItemAmount = roundMoney(aggregate.SpecialItemAmount + roomPreview.SpecialItemAmount)
 		aggregate.DiscountAmount = roundMoney(aggregate.DiscountAmount + roomPreview.DiscountAmount)
 		aggregate.PayAmount = roundMoney(aggregate.PayAmount + roomPreview.PayAmount)
 
 		for _, line := range roomPreview.Lines {
+			label := fmt.Sprintf("%s · %s", roomGroupLabel(roomPreview.RoomIndex), line.Label)
+			if line.Type == "special_item" && line.Quantity > 0 {
+				label = fmt.Sprintf("%s · %s（%d天）", roomGroupLabel(roomPreview.RoomIndex), line.Label, line.Quantity)
+			}
 			aggregate.Lines = append(aggregate.Lines, BoardingPriceLine{
 				Type:      line.Type,
-				Label:     fmt.Sprintf("%s · %s", roomGroupLabel(roomPreview.RoomIndex), line.Label),
+				Label:     label,
 				Quantity:  line.Quantity,
 				UnitPrice: line.UnitPrice,
 				Amount:    line.Amount,
@@ -250,25 +279,34 @@ func buildAggregatePreviewFromRooms(customerID uint, rooms []model.BoardingOrder
 	aggregate = applyMemberDiscountToBoardingPreview(customerID, aggregate)
 	if len(aggregate.Rooms) > 0 {
 		activeIndexes := make([]int, 0, len(aggregate.Rooms))
-		totalRoomPay := 0.0
+		roomDiscountablePays := make([]float64, len(aggregate.Rooms))
+		totalDiscountablePay := 0.0
 		for idx, roomPreview := range aggregate.Rooms {
 			if orderedRooms[idx].Status == model.BoardingOrderStatusCancelled {
 				continue
 			}
+			discountablePay := roundMoney(maxBoardingFloat(roomPreview.PayAmount-roomPreview.SpecialItemAmount, 0))
+			if discountablePay <= 0 {
+				continue
+			}
 			activeIndexes = append(activeIndexes, idx)
-			totalRoomPay = roundMoney(totalRoomPay + roomPreview.PayAmount)
+			roomDiscountablePays[idx] = discountablePay
+			totalDiscountablePay = roundMoney(totalDiscountablePay + discountablePay)
 		}
-		memberDiscountAmount := roundMoney(totalRoomPay - aggregate.PayAmount)
+		memberDiscountAmount := roundMoney(totalDiscountablePay - maxBoardingFloat(aggregate.PayAmount-aggregate.SpecialItemAmount, 0))
 		if memberDiscountAmount > 0 && len(activeIndexes) > 0 {
 			remaining := memberDiscountAmount
 			for pos, idx := range activeIndexes {
 				share := 0.0
 				if pos == len(activeIndexes)-1 {
-					share = remaining
-				} else if totalRoomPay > 0 {
-					share = roundMoney(memberDiscountAmount * aggregate.Rooms[idx].PayAmount / totalRoomPay)
+					share = minFloat(remaining, roomDiscountablePays[idx])
+				} else if totalDiscountablePay > 0 {
+					share = roundMoney(memberDiscountAmount * roomDiscountablePays[idx] / totalDiscountablePay)
 					if share > remaining {
 						share = remaining
+					}
+					if share > roomDiscountablePays[idx] {
+						share = roomDiscountablePays[idx]
 					}
 				}
 				if share <= 0 {
@@ -326,6 +364,7 @@ func summarizeBoardingOrderFromRooms(order *model.BoardingOrder, rooms []model.B
 	order.Nights = preview.Nights
 	order.BaseAmount = preview.BaseAmount
 	order.HolidaySurchargeAmount = preview.HolidaySurchargeAmount
+	order.SpecialItemAmount = preview.SpecialItemAmount
 	order.DiscountAmount = preview.DiscountAmount
 	order.ManualDiscountAmount = 0
 	for _, room := range rooms {
@@ -368,9 +407,11 @@ func buildBoardingOrderItemsFromAggregate(orderID uint, preview *BoardingPricePr
 	for _, line := range preview.Lines {
 		itemType := 4
 		switch line.Type {
+		case "special_item":
+			itemType = 3
 		case "holiday_surcharge":
 			itemType = 5
-		case "discount", "member_discount", "manual_discount":
+		case "discount", "member_discount", "manual_discount", "boarding_deposit":
 			itemType = 6
 		}
 		if line.Amount == 0 {
@@ -401,6 +442,7 @@ func applyAggregatePreviewToBoardingOrder(order *model.BoardingOrder, rooms []mo
 	if preview == nil {
 		return nil, nil
 	}
+	preview, _ = applyBoardingDepositToPreview(preview, boardingDepositAmountForOrder(order))
 	summarizeBoardingOrderFromRooms(order, rooms, preview)
 	snapshot, err := json.Marshal(preview)
 	if err != nil {
@@ -416,7 +458,7 @@ func loadLinkedBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder) (*model
 	}
 
 	var payOrder model.Order
-	if err := tx.First(&payOrder, *order.OrderID).Error; err != nil {
+	if err := tx.Preload("Items").First(&payOrder, *order.OrderID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if err := tx.Model(order).Update("order_id", nil).Error; err != nil {
 				return nil, false, err
@@ -428,6 +470,99 @@ func loadLinkedBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder) (*model
 		return nil, false, err
 	}
 	return &payOrder, true, nil
+}
+
+func clonePayOrderProductItems(orderID uint, items []model.OrderItem) []model.OrderItem {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]model.OrderItem, 0, len(items))
+	for _, item := range items {
+		if item.ItemType != 2 {
+			continue
+		}
+		next := item
+		next.ID = 0
+		next.OrderID = orderID
+		cloned = append(cloned, next)
+	}
+	return cloned
+}
+
+func productItemsTotal(items []model.OrderItem) float64 {
+	total := 0.0
+	for _, item := range items {
+		if item.ItemType != 2 {
+			continue
+		}
+		total += item.Amount
+	}
+	return roundMoney(total)
+}
+
+func syncBoardingPreviewToPayOrder(payOrder *model.Order, preview *BoardingPricePreview, preservedProductItems []model.OrderItem) {
+	productTotal := productItemsTotal(preservedProductItems)
+	if productTotal <= 0 {
+		productTotal = roundMoney(payOrder.ProductTotal)
+	}
+	payOrder.ProductTotal = productTotal
+	productDiscountAmount := roundMoney(payOrder.ProductDiscountAmount)
+	productPayAmount := roundMoney(maxBoardingFloat(productTotal-productDiscountAmount, 0))
+
+	payOrder.ServiceTotal = boardingServiceAmount(preview)
+	payOrder.AddonTotal = roundMoney(preview.SpecialItemAmount)
+	payOrder.TotalAmount = roundMoney(payOrder.ServiceTotal + payOrder.AddonTotal + productTotal)
+	payOrder.ServiceDiscountAmount = roundMoney(preview.DiscountAmount)
+	payOrder.DiscountAmount = roundMoney(payOrder.ServiceDiscountAmount + productDiscountAmount)
+	payOrder.PayAmount = roundMoney(preview.PayAmount + productPayAmount)
+	applyBoardingDepositFields(payOrder, payOrder.AppointmentDepositAmount, boardingDepositDeductionFromPreview(preview))
+	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, payOrder.PayAmount)
+}
+
+func resetCancelledBoardingFromPayOrder(payOrder *model.Order, preservedProductItems []model.OrderItem) {
+	productTotal := productItemsTotal(preservedProductItems)
+	if productTotal <= 0 {
+		productTotal = roundMoney(payOrder.ProductTotal)
+	}
+	payOrder.ProductTotal = productTotal
+	hasProducts := len(preservedProductItems) > 0 || productTotal > 0
+	if !hasProducts {
+		payOrder.TotalAmount = 0
+		payOrder.ServiceTotal = 0
+		payOrder.ProductTotal = 0
+		payOrder.AddonTotal = 0
+		payOrder.DiscountAmount = 0
+		payOrder.ServiceDiscountAmount = 0
+		payOrder.ProductDiscountAmount = 0
+		payOrder.DiscountRate = 1
+		payOrder.AppointmentDepositAmount = 0
+		payOrder.AppointmentDepositDeductionAmount = 0
+		payOrder.PayAmount = 0
+		payOrder.Status = 2
+		payOrder.PayStatus = 0
+		payOrder.PayMethod = ""
+		payOrder.PayTime = nil
+		payOrder.TransactionID = ""
+		return
+	}
+
+	productDiscountAmount := roundMoney(payOrder.ProductDiscountAmount)
+	productPayAmount := roundMoney(maxBoardingFloat(productTotal-productDiscountAmount, 0))
+
+	payOrder.ServiceTotal = 0
+	payOrder.AddonTotal = 0
+	payOrder.TotalAmount = productTotal
+	payOrder.ServiceDiscountAmount = 0
+	payOrder.DiscountAmount = productDiscountAmount
+	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, productPayAmount)
+	payOrder.AppointmentDepositAmount = 0
+	payOrder.AppointmentDepositDeductionAmount = 0
+	payOrder.PayAmount = productPayAmount
+	payOrder.Status = 0
+	payOrder.PayStatus = 0
+	payOrder.PayMethod = ""
+	payOrder.PayTime = nil
+	payOrder.TransactionID = ""
 }
 
 func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *BoardingPricePreview, allowPaidCheckOut bool) error {
@@ -447,32 +582,21 @@ func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *Boar
 	if payOrder.PayStatus == 1 && allowPaidCheckOut {
 		return nil
 	}
+	preservedProductItems := clonePayOrderProductItems(payOrder.ID, payOrder.Items)
 	if order.Status == model.BoardingOrderStatusCancelled {
-		payOrder.TotalAmount = 0
-		payOrder.ServiceTotal = 0
-		payOrder.ProductTotal = 0
-		payOrder.AddonTotal = 0
-		payOrder.DiscountAmount = 0
-		payOrder.ServiceDiscountAmount = 0
-		payOrder.ProductDiscountAmount = 0
-		payOrder.DiscountRate = 1
-		payOrder.PayAmount = 0
-		payOrder.Status = 2
-		payOrder.PayStatus = 0
+		resetCancelledBoardingFromPayOrder(payOrder, preservedProductItems)
 		if err := tx.Save(&payOrder).Error; err != nil {
 			return err
 		}
-		return tx.Where("order_id = ?", payOrder.ID).Delete(&model.OrderItem{}).Error
+		if err := tx.Where("order_id = ?", payOrder.ID).Delete(&model.OrderItem{}).Error; err != nil {
+			return err
+		}
+		if len(preservedProductItems) == 0 {
+			return nil
+		}
+		return tx.Create(&preservedProductItems).Error
 	}
-	payOrder.TotalAmount = roundMoney(preview.BaseAmount + preview.HolidaySurchargeAmount)
-	payOrder.ServiceTotal = payOrder.TotalAmount
-	payOrder.ProductTotal = 0
-	payOrder.AddonTotal = 0
-	payOrder.ServiceDiscountAmount = preview.DiscountAmount
-	payOrder.ProductDiscountAmount = 0
-	payOrder.DiscountAmount = preview.DiscountAmount
-	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, preview.PayAmount)
-	payOrder.PayAmount = preview.PayAmount
+	syncBoardingPreviewToPayOrder(payOrder, preview, preservedProductItems)
 	if err := tx.Save(&payOrder).Error; err != nil {
 		return err
 	}
@@ -480,6 +604,7 @@ func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *Boar
 		return err
 	}
 	items := buildBoardingOrderItemsFromAggregate(payOrder.ID, preview)
+	items = append(items, preservedProductItems...)
 	if len(items) == 0 {
 		return nil
 	}

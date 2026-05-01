@@ -1,0 +1,383 @@
+<h2>小票紧凑版方向</h2>
+<p class="subtitle">目标是同一屏里看到更多明细，不改信息结构，只压缩纵向节奏。</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>均衡压缩</h3>
+      <p>所有区域都缩一点，保留当前层级和舒适感。我推荐这个。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>明细优先</h3>
+      <p>头部和汇总收得更狠，把可视高度尽量让给商品项。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>极限压缩</h3>
+      <p>字号、行高、卡片留白都明显缩小，信息最多，但会偏挤。</p>
+    </div>
+  </div>
+</div>
+
+<style>
+  .receipt-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 24px;
+  }
+  .receipt-demo {
+    background: linear-gradient(180deg, #fffdf8, #fff8eb);
+    border: 1px solid #ead9b2;
+    border-radius: 24px;
+    padding: 14px 14px 16px;
+    box-shadow: 0 8px 24px rgba(117, 89, 42, 0.08);
+  }
+  .receipt-demo.tight {
+    padding: 12px 12px 14px;
+  }
+  .receipt-demo.very-tight {
+    padding: 10px 10px 12px;
+  }
+  .demo-label {
+    font-size: 12px;
+    color: #8b6b2c;
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .brand {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    border: 1px solid #efdfb8;
+    border-radius: 18px;
+    padding: 10px 10px 9px;
+    background: rgba(255,255,255,0.6);
+  }
+  .brand.tight { padding: 8px 9px 8px; gap: 9px; }
+  .brand.very-tight { padding: 7px 8px 7px; gap: 8px; }
+  .avatar {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border-radius: 999px;
+    background: radial-gradient(circle at 30% 30%, #fff6c3, #efc869 72%);
+    border: 1px solid #e1c277;
+  }
+  .avatar.tight { width: 38px; height: 38px; min-width: 38px; }
+  .avatar.very-tight { width: 34px; height: 34px; min-width: 34px; }
+  .brand-main { flex: 1; min-width: 0; }
+  .shop {
+    font-size: 16px;
+    line-height: 1.08;
+    font-weight: 800;
+    color: #2f2a26;
+    margin: 0;
+  }
+  .shop.tight { font-size: 15px; }
+  .shop.very-tight { font-size: 14px; }
+  .sub {
+    margin-top: 2px;
+    color: #8f7950;
+    font-size: 11px;
+    line-height: 1.22;
+  }
+  .sub.tight { font-size: 10px; line-height: 1.18; margin-top: 1px; }
+  .sub.very-tight { font-size: 9px; line-height: 1.14; margin-top: 1px; }
+  .tag {
+    border: 1px solid #e8d7ab;
+    border-radius: 999px;
+    color: #8b6b2c;
+    font-size: 11px;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .tag.tight { font-size: 10px; padding: 3px 7px; }
+  .tag.very-tight { font-size: 9px; padding: 2px 6px; }
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    margin-top: 8px;
+    color: #6d614d;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+  .meta.tight { gap: 4px 8px; font-size: 10px; margin-top: 7px; }
+  .meta.very-tight { gap: 3px 8px; font-size: 9px; margin-top: 6px; }
+  .group {
+    border: 1px solid #efdfb8;
+    border-radius: 16px;
+    padding: 10px 10px 8px;
+    margin-top: 10px;
+    background: rgba(255,255,255,0.6);
+  }
+  .group.tight { padding: 8px 9px 7px; margin-top: 8px; }
+  .group.very-tight { padding: 7px 8px 6px; margin-top: 7px; }
+  .group-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #4a3920;
+    margin-bottom: 7px;
+  }
+  .group-title.tight { font-size: 12px; margin-bottom: 5px; }
+  .group-title.very-tight { font-size: 11px; margin-bottom: 4px; }
+  .item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px dashed rgba(232, 209, 156, 0.8);
+  }
+  .item:last-child { border-bottom: none; padding-bottom: 0; }
+  .item.tight { padding: 4px 0; }
+  .item.very-tight { padding: 3px 0; }
+  .item-name {
+    font-size: 12px;
+    line-height: 1.22;
+    color: #2f2a26;
+    font-weight: 600;
+  }
+  .item-name.tight { font-size: 11px; }
+  .item-name.very-tight { font-size: 10px; }
+  .item-meta {
+    margin-top: 2px;
+    color: #917955;
+    font-size: 10px;
+    line-height: 1.15;
+  }
+  .item-meta.tight { font-size: 9px; }
+  .item-meta.very-tight { font-size: 8px; }
+  .price {
+    font-size: 14px;
+    font-weight: 800;
+    color: #332a20;
+    align-self: center;
+  }
+  .price.tight { font-size: 13px; }
+  .price.very-tight { font-size: 12px; }
+  .summary {
+    border: 1px solid #efdfb8;
+    border-radius: 16px;
+    padding: 10px 10px 8px;
+    margin-top: 10px;
+    background: rgba(255,255,255,0.6);
+  }
+  .summary.tight { padding: 8px 9px 7px; margin-top: 8px; }
+  .summary.very-tight { padding: 7px 8px 6px; margin-top: 7px; }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #5a4a35;
+    padding: 4px 0;
+  }
+  .summary-row.tight { font-size: 10px; padding: 3px 0; }
+  .summary-row.very-tight { font-size: 9px; padding: 2px 0; }
+  .total {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    padding-top: 8px;
+    margin-top: 8px;
+    border-top: 1px solid #ead9b2;
+  }
+  .total.tight { padding-top: 6px; margin-top: 6px; }
+  .total.very-tight { padding-top: 5px; margin-top: 5px; }
+  .total-copy {
+    font-size: 10px;
+    color: #9b7c3b;
+    line-height: 1.15;
+  }
+  .total-copy strong {
+    display: block;
+    color: #6a5636;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  .total-copy.tight { font-size: 9px; }
+  .total-copy.tight strong { font-size: 10px; }
+  .total-copy.very-tight { font-size: 8px; }
+  .total-copy.very-tight strong { font-size: 9px; }
+  .total-price {
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 900;
+    color: #332a20;
+  }
+  .total-price.tight { font-size: 20px; }
+  .total-price.very-tight { font-size: 18px; }
+  .notes {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #625646;
+    line-height: 1.55;
+  }
+  .notes strong { color: #2f2a26; }
+  @media (max-width: 1100px) {
+    .receipt-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="receipt-grid">
+  <div class="section">
+    <div class="demo-label">A / 推荐</div>
+    <div class="receipt-demo">
+      <div class="brand">
+        <div class="avatar"></div>
+        <div class="brand-main">
+          <div class="shop">树街の猫</div>
+          <div class="sub">成立于2020年•专注猫咪<br>创造科学与健康的可持续人宠美好生活</div>
+        </div>
+        <div class="tag">已支付</div>
+      </div>
+      <div class="meta">
+        <div>消费时间</div><div>2026.04.18 11:14</div>
+        <div>手机号码</div><div>137****4826</div>
+      </div>
+      <div class="group">
+        <div class="group-title">零售商品</div>
+        <div class="item">
+          <div>
+            <div class="item-name">猫博士混合猫砂</div>
+            <div class="item-meta">原价 ¥32.00 · 无折扣 · ×1</div>
+          </div>
+          <div class="price">¥32.00</div>
+        </div>
+        <div class="item">
+          <div>
+            <div class="item-name">冻干小零食</div>
+            <div class="item-meta">原价 ¥18.00 · 9.5折 · ×1</div>
+          </div>
+          <div class="price">¥17.10</div>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="summary-row"><span>商品小计</span><span>¥50.00</span></div>
+        <div class="summary-row"><span>优惠</span><span>-¥0.90</span></div>
+        <div class="total">
+          <div class="total-copy"><strong>实付总计</strong>本次已节省 ¥0.90</div>
+          <div class="total-price">¥49.10</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes"><strong>特点：</strong>压缩卡片内边距、行距、区块间距和汇总区高度，首屏多出约 1 到 2 行明细，但整体仍然像一张“精致小票”。</div>
+  </div>
+
+  <div class="section">
+    <div class="demo-label">B</div>
+    <div class="receipt-demo tight">
+      <div class="brand tight">
+        <div class="avatar tight"></div>
+        <div class="brand-main">
+          <div class="shop tight">树街の猫</div>
+          <div class="sub tight">成立于2020年•专注猫咪<br>创造科学与健康的可持续人宠美好生活</div>
+        </div>
+        <div class="tag tight">已支付</div>
+      </div>
+      <div class="meta tight">
+        <div>时间</div><div>2026.04.18 11:14</div>
+        <div>手机</div><div>137****4826</div>
+      </div>
+      <div class="group tight">
+        <div class="group-title tight">零售商品</div>
+        <div class="item tight">
+          <div>
+            <div class="item-name tight">猫博士混合猫砂</div>
+            <div class="item-meta tight">原价 ¥32.00 · 无折扣 · ×1</div>
+          </div>
+          <div class="price tight">¥32.00</div>
+        </div>
+        <div class="item tight">
+          <div>
+            <div class="item-name tight">冻干小零食</div>
+            <div class="item-meta tight">原价 ¥18.00 · 9.5折 · ×1</div>
+          </div>
+          <div class="price tight">¥17.10</div>
+        </div>
+        <div class="item tight">
+          <div>
+            <div class="item-name tight">营养罐头</div>
+            <div class="item-meta tight">原价 ¥12.00 · 无折扣 · ×2</div>
+          </div>
+          <div class="price tight">¥24.00</div>
+        </div>
+      </div>
+      <div class="summary tight">
+        <div class="summary-row tight"><span>商品小计</span><span>¥74.00</span></div>
+        <div class="summary-row tight"><span>优惠</span><span>-¥0.90</span></div>
+        <div class="total tight">
+          <div class="total-copy tight"><strong>实付总计</strong>本次已节省 ¥0.90</div>
+          <div class="total-price tight">¥73.10</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes"><strong>特点：</strong>把头部信息栏和汇总区再压一档，让明细首屏占比更高，适合你更在意用户第一眼看到商品内容。</div>
+  </div>
+
+  <div class="section">
+    <div class="demo-label">C</div>
+    <div class="receipt-demo very-tight">
+      <div class="brand very-tight">
+        <div class="avatar very-tight"></div>
+        <div class="brand-main">
+          <div class="shop very-tight">树街の猫</div>
+          <div class="sub very-tight">成立于2020年•专注猫咪<br>创造科学与健康的可持续人宠美好生活</div>
+        </div>
+        <div class="tag very-tight">已支付</div>
+      </div>
+      <div class="meta very-tight">
+        <div>时间</div><div>2026.04.18 11:14</div>
+        <div>手机</div><div>137****4826</div>
+      </div>
+      <div class="group very-tight">
+        <div class="group-title very-tight">零售商品</div>
+        <div class="item very-tight">
+          <div>
+            <div class="item-name very-tight">猫博士混合猫砂</div>
+            <div class="item-meta very-tight">原价 ¥32.00 · 无折扣 · ×1</div>
+          </div>
+          <div class="price very-tight">¥32.00</div>
+        </div>
+        <div class="item very-tight">
+          <div>
+            <div class="item-name very-tight">冻干小零食</div>
+            <div class="item-meta very-tight">原价 ¥18.00 · 9.5折 · ×1</div>
+          </div>
+          <div class="price very-tight">¥17.10</div>
+        </div>
+        <div class="item very-tight">
+          <div>
+            <div class="item-name very-tight">营养罐头</div>
+            <div class="item-meta very-tight">原价 ¥12.00 · 无折扣 · ×2</div>
+          </div>
+          <div class="price very-tight">¥24.00</div>
+        </div>
+        <div class="item very-tight">
+          <div>
+            <div class="item-name very-tight">磨牙棒</div>
+            <div class="item-meta very-tight">原价 ¥9.00 · 无折扣 · ×1</div>
+          </div>
+          <div class="price very-tight">¥9.00</div>
+        </div>
+      </div>
+      <div class="summary very-tight">
+        <div class="summary-row very-tight"><span>小计</span><span>¥83.00</span></div>
+        <div class="summary-row very-tight"><span>优惠</span><span>-¥0.90</span></div>
+        <div class="total very-tight">
+          <div class="total-copy very-tight"><strong>实付总计</strong>已省 ¥0.90</div>
+          <div class="total-price very-tight">¥82.10</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes"><strong>特点：</strong>能在同一高度内塞进最多信息，但会明显偏密，礼品卡或洗护大单上会更像系统清单，不像品牌小票。</div>
+  </div>
+</div>

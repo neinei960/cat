@@ -20,6 +20,7 @@ interface CreateApptReq {
   end_time?: string
   service_ids?: number[]
   source?: number
+  customer_type?: number
   notes?: string
 }
 
@@ -36,6 +37,13 @@ export function getAvailableSlots(date: string, options: { service_ids: number[]
 
 export function getAppointmentCalendar(startDate: string, endDate: string) {
   return request<any[]>({ url: `/b/appointments/calendar?start_date=${startDate}&end_date=${endDate}` })
+}
+
+export function getAppointmentCalendarResources(date: string) {
+  return request<{ staffs: Staff[]; schedules: StaffSchedule[] }>({
+    url: '/b/staffs/calendar-resources',
+    data: { date },
+  })
 }
 
 export function getAppointmentCalendarSummary(startDate: string, endDate: string) {

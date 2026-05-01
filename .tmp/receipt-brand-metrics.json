@@ -1,0 +1,15 @@
+{
+  "logo": {
+    "width": 48,
+    "height": 48,
+    "borderRadius": "499.5px",
+    "bottom": 178.25
+  },
+  "imageBorderRadius": "499.5px",
+  "shopBottom": 149.96875,
+  "firstLineTop": 151.96875,
+  "lastLineBottom": 181.4375,
+  "alignmentDelta": -3.19,
+  "titleGap": 2,
+  "subtitleLineCount": 2
+}

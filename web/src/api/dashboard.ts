@@ -1,21 +1,34 @@
 import { request } from './request'
 
+export interface DashboardPaymentBreakdownItem {
+  key: string
+  label: string
+  amount: number
+}
+
+export interface DashboardOverview {
+  today_revenue: number
+  today_order_count: number
+  today_appointment_count: number
+  today_service_completed_count: number
+  today_pending_settlement_count: number
+  today_refunded_order_count: number
+  today_new_customers: number
+  pending_appointments: number
+  total_customers: number
+  avg_order_value: number
+  no_show_rate: number
+  no_show_count: number
+  total_appointments: number
+  payment_breakdown: DashboardPaymentBreakdownItem[]
+}
+
 export function getDashboardOverview(startDate?: string, endDate?: string) {
   let url = '/b/dashboard/overview'
   if (startDate && endDate) {
     url += `?start_date=${startDate}&end_date=${endDate}`
   }
-  return request<{
-    today_revenue: number
-    today_order_count: number
-    today_appointment_count: number
-    today_service_completed_count: number
-    today_pending_settlement_count: number
-    today_refunded_order_count: number
-    today_new_customers: number
-    pending_appointments: number
-    total_customers: number
-  }>({ url })
+  return request<DashboardOverview>({ url })
 }
 
 export function getRevenueChart(startDate: string, endDate: string) {

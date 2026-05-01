@@ -7,10 +7,41 @@
           <text class="hero-title">{{ greetingText }}，{{ staffName }}</text>
           <text class="hero-subtitle">今天先盯紧到店节奏、营收转化和待处理预约，把门店最重要的动作放在第一屏。</text>
         </view>
-        <view class="hero-main-card" @click="go('/pages/dashboard/index')">
-          <text class="hero-main-label">今日营收</text>
-          <text class="hero-main-value">¥{{ overview.today_revenue.toFixed(0) }}</text>
-          <text class="hero-main-foot">点击查看完整经营看板</text>
+        <view class="hero-metrics">
+          <view class="hero-main-card" @click="go('/pages/dashboard/index')">
+            <text class="hero-main-label">今日营收</text>
+            <text class="hero-main-value">¥{{ formatRevenueAmount(overview.today_revenue) }}</text>
+            <view v-if="todayRevenueBreakdown.length" class="hero-breakdown">
+              <view v-for="item in todayRevenueBreakdown" :key="`today-${item.key}`" class="hero-breakdown-chip hero-breakdown-chip-light">
+                <text class="hero-breakdown-key">{{ item.label }}</text>
+                <text class="hero-breakdown-amount">¥{{ formatRevenueAmount(item.amount) }}</text>
+              </view>
+            </view>
+            <text class="hero-main-foot">点击查看完整经营看板</text>
+          </view>
+          <picker
+            class="hero-date-picker"
+            mode="date"
+            :value="recentRevenueDate"
+            :start="recentRevenueMinDate"
+            :end="recentRevenueMaxDate"
+            @change="handleRecentRevenueDateChange"
+          >
+            <view class="hero-recent-card">
+              <view class="hero-recent-head">
+                <text class="hero-recent-label">近日营收</text>
+                <text class="hero-recent-date">{{ recentRevenueDateLabel }}</text>
+              </view>
+              <text class="hero-recent-value">{{ recentRevenueValueText }}</text>
+              <view v-if="recentRevenueBreakdown.length" class="hero-breakdown">
+                <view v-for="item in recentRevenueBreakdown" :key="`recent-${item.key}`" class="hero-breakdown-chip">
+                  <text class="hero-breakdown-key">{{ item.label }}</text>
+                  <text class="hero-breakdown-amount">¥{{ formatRevenueAmount(item.amount) }}</text>
+                </view>
+              </view>
+              <text class="hero-recent-foot">点击切换日期</text>
+            </view>
+          </picker>
         </view>
       </view>
 
@@ -164,6 +195,7 @@ import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useAuthStore } from '@/store/auth'
 import SideLayout from '@/components/SideLayout.vue'
+import type { DashboardOverview, DashboardPaymentBreakdownItem } from '@/api/dashboard'
 import { getDashboardOverview } from '@/api/dashboard'
 import { getAppointmentCalendar } from '@/api/appointment'
 import catSticker from '@/assets/cat-sticker.jpg'
@@ -186,19 +218,59 @@ const statusText: Record<number, string> = {
   0: '待确认', 1: '已确认', 2: '服务中', 3: '待结算', 4: '已取消', 5: '未到店', 7: '已开单',
 }
 
-const overview = ref({
+const emptyOverview = (): DashboardOverview => ({
   today_revenue: 0, today_order_count: 0, today_appointment_count: 0,
   today_service_completed_count: 0, today_pending_settlement_count: 0, today_refunded_order_count: 0,
   today_new_customers: 0, pending_appointments: 0, total_customers: 0,
+  avg_order_value: 0, no_show_rate: 0, no_show_count: 0, total_appointments: 0,
+  payment_breakdown: [],
 })
+
+const overview = ref<DashboardOverview>(emptyOverview())
 const todayAppts = ref<any[]>([])
+const recentOverview = ref<DashboardOverview | null>(null)
+const recentRevenueLoading = ref(false)
+
+const today = new Date()
+const recentRevenueMaxDate = localDateStr(today)
+const recentRevenueMinDate = localDateStr(addDays(today, -15))
+const recentRevenueDate = ref(localDateStr(addDays(today, -1)))
+
+const recentRevenueDateLabel = computed(() => formatShortDate(recentRevenueDate.value))
+const todayRevenueBreakdown = computed(() => normalizeBreakdown(overview.value.payment_breakdown))
+const recentRevenueBreakdown = computed(() => normalizeBreakdown(recentOverview.value?.payment_breakdown || []))
+const recentRevenueValueText = computed(() => {
+  if (recentRevenueLoading.value) return '...'
+  if (!recentOverview.value) return '--'
+  return `¥${formatRevenueAmount(recentOverview.value.today_revenue)}`
+})
 
 function go(url: string) {
   uni.navigateTo({ url })
 }
 
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
 function localDateStr(d: Date = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatShortDate(dateStr: string) {
+  const [year, month, day] = dateStr.split('-').map((item) => Number(item))
+  if (!year || !month || !day) return dateStr
+  return `${month}月${day}日`
+}
+
+function normalizeBreakdown(items: DashboardPaymentBreakdownItem[]) {
+  return (items || []).filter((item) => Number(item?.amount || 0) > 0)
+}
+
+function formatRevenueAmount(amount: number) {
+  return Number(amount || 0).toFixed(2)
 }
 
 function getPetName(appt: any) {
@@ -210,17 +282,46 @@ function getCustomerName(appt: any) {
   return appt.customer?.nickname || appt.customer?.phone || '-'
 }
 
-async function loadData() {
+async function loadRecentRevenue(date = recentRevenueDate.value, showError = false) {
+  recentRevenueLoading.value = true
   try {
-    const [ovRes, apptRes] = await Promise.all([
-      getDashboardOverview(),
-      getAppointmentCalendar(localDateStr(), localDateStr()),
-    ])
-    overview.value = ovRes.data
-    todayAppts.value = (apptRes.data || [])
+    const res = await getDashboardOverview(date, date)
+    recentOverview.value = res.data || emptyOverview()
+    recentRevenueDate.value = date
+  } catch {
+    recentOverview.value = null
+    if (showError) {
+      uni.showToast({ title: '近日营收加载失败', icon: 'none' })
+    }
+  } finally {
+    recentRevenueLoading.value = false
+  }
+}
+
+function handleRecentRevenueDateChange(event: any) {
+  const nextDate = String(event?.detail?.value || '').trim()
+  if (!nextDate || nextDate === recentRevenueDate.value) return
+  loadRecentRevenue(nextDate, true)
+}
+
+async function loadData() {
+  const [ovRes, apptRes] = await Promise.allSettled([
+    getDashboardOverview(),
+    getAppointmentCalendar(localDateStr(), localDateStr()),
+    loadRecentRevenue(recentRevenueDate.value),
+  ])
+
+  if (ovRes.status === 'fulfilled') {
+    overview.value = ovRes.value.data
+  }
+
+  if (apptRes.status === 'fulfilled') {
+    todayAppts.value = (apptRes.value.data || [])
       .filter((a: any) => a.status !== 4)
       .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time))
-  } catch {}
+  } else {
+    todayAppts.value = []
+  }
 }
 
 onShow(loadData)
@@ -243,10 +344,17 @@ onShow(loadData)
 }
 
 .hero-copy,
-.hero-main-card {
+.hero-main-card,
+.hero-recent-card {
   border-radius: 28rpx;
   padding: 32rpx 30rpx;
   box-sizing: border-box;
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
 }
 
 .hero-copy {
@@ -283,13 +391,47 @@ onShow(loadData)
   color: #FFFFFF;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   box-shadow: 0 14rpx 34rpx rgba(234, 88, 12, 0.2);
+}
+
+.hero-date-picker {
+  display: block;
+}
+
+.hero-recent-card {
+  min-height: 100%;
+  background: linear-gradient(160deg, #FFF6D8, #F5E4AA);
+  color: #2F2A26;
+  display: flex;
+  flex-direction: column;
+  border: 1rpx solid rgba(201, 165, 63, 0.22);
+  box-shadow: 0 14rpx 30rpx rgba(168, 126, 32, 0.12);
 }
 
 .hero-main-label {
   font-size: 24rpx;
   opacity: 0.9;
+}
+
+.hero-recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10rpx;
+}
+
+.hero-recent-label {
+  font-size: 24rpx;
+  color: rgba(47, 42, 38, 0.86);
+}
+
+.hero-recent-date {
+  flex-shrink: 0;
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: #7C5F22;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .hero-main-value {
@@ -299,11 +441,65 @@ onShow(loadData)
   font-weight: 800;
 }
 
+.hero-recent-value {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 48rpx;
+  font-weight: 800;
+  color: #2F2A26;
+}
+
 .hero-main-foot {
   display: block;
-  margin-top: 18rpx;
+  margin-top: auto;
   font-size: 22rpx;
   opacity: 0.86;
+}
+
+.hero-recent-foot {
+  display: block;
+  margin-top: auto;
+  font-size: 22rpx;
+  color: #7C6F5C;
+}
+
+.hero-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 16rpx;
+  margin-bottom: 18rpx;
+}
+
+.hero-breakdown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.48);
+  color: #5C4A1F;
+}
+
+.hero-breakdown-chip-light {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.hero-breakdown-key,
+.hero-breakdown-amount {
+  font-size: 20rpx;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.hero-breakdown-key {
+  opacity: 0.82;
+}
+
+.hero-breakdown-amount {
+  font-weight: 700;
 }
 
 .ops-grid {
@@ -614,8 +810,13 @@ onShow(loadData)
 
   .hero-copy,
   .hero-main-card,
+  .hero-recent-card,
   .section {
     padding: 24rpx;
+  }
+
+  .hero-metrics {
+    gap: 14rpx;
   }
 
   .hero-subtitle {
@@ -629,7 +830,17 @@ onShow(loadData)
     font-size: 52rpx;
   }
 
+  .hero-recent-value {
+    margin-top: 10rpx;
+    font-size: 42rpx;
+  }
+
   .hero-main-foot {
+    margin-top: 12rpx;
+    font-size: 20rpx;
+  }
+
+  .hero-recent-foot {
     margin-top: 12rpx;
     font-size: 20rpx;
   }
@@ -690,6 +901,29 @@ onShow(loadData)
 
   .hero-title {
     font-size: 42rpx;
+  }
+
+  .hero-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12rpx;
+  }
+
+  .hero-recent-label,
+  .hero-main-label {
+    font-size: 22rpx;
+  }
+
+  .hero-recent-date {
+    padding: 4rpx 10rpx;
+    font-size: 18rpx;
+  }
+
+  .hero-main-value {
+    font-size: 46rpx;
+  }
+
+  .hero-recent-value {
+    font-size: 38rpx;
   }
 
   .ops-card {

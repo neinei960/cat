@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"syscall"
 	"time"
@@ -61,6 +60,7 @@ func main() {
 		&model.BoardingCabinet{},
 		&model.BoardingHoliday{},
 		&model.BoardingDiscountPolicy{},
+		&model.BoardingSpecialItem{},
 		&model.BoardingOrder{},
 		&model.BoardingOrderRoom{},
 		&model.BoardingOrderPet{},
@@ -129,7 +129,7 @@ func main() {
 
 	r := router.Setup(config.AppConfig.Server.Mode)
 
-	addr := fmt.Sprintf(":%d", config.AppConfig.Server.Port)
+	addr := config.AppConfig.Server.Address()
 	log.Printf("Server starting on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

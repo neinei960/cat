@@ -115,8 +115,8 @@
         </view>
         <view v-if="playEnabled" class="service-detail">
           <view class="play-mode-switch">
-            <view :class="['date-mode-chip', playMode === 'daily' ? 'active' : '']" @click="playMode = 'daily'">每天</view>
-            <view :class="['date-mode-chip', playMode === 'count' ? 'active' : '']" @click="playMode = 'count'">选择次数</view>
+            <view :class="['date-mode-chip', playMode === 'daily' ? 'active' : '']" @click="setPlayMode('daily')">每天</view>
+            <view :class="['date-mode-chip', playMode === 'count' ? 'active' : '']" @click="setPlayMode('count')">选择次数</view>
           </view>
           <view v-if="playMode === 'count'" class="play-count-row">
             <text class="play-count-label">次数</text>
@@ -127,12 +127,21 @@
             </view>
             <text class="play-count-total">= ¥{{ playCount * 20 }}</text>
           </view>
-          <text v-else class="helper-text">每天 {{ form.selected_dates.length }} 次 = ¥{{ form.selected_dates.length * 20 }}</text>
+          <text v-else class="helper-text">已默认勾选全部上门日期，共 {{ form.selected_dates.length }} 次 = ¥{{ form.selected_dates.length * 20 }}</text>
         </view>
         <view v-if="otherEnabled" class="other-price-row" style="margin-top: 10rpx;">
           <text class="other-price-label">其他金额 ¥</text>
           <input class="other-price-input" type="digit" v-model="otherPrice" placeholder="0" />
         </view>
+      </view>
+
+      <view v-if="hasHolidaySelected" class="section-card">
+        <text class="section-title">节假日定金</text>
+        <view class="deposit-row">
+          <text class="deposit-prefix">¥</text>
+          <input class="deposit-input" type="digit" v-model="depositInput" placeholder="200" @input="depositTouched = true" />
+        </view>
+        <text class="helper-text">所选上门日期包含节假日，默认收取 ¥200 定金，可按实际情况修改。</text>
       </view>
 
       <view class="section-card">
@@ -145,6 +154,7 @@
         <text class="summary-text">已选 {{ form.selected_dates.length }} 天 · 预估总价 ¥{{ estimatedAmount.toFixed(2) }}</text>
         <text class="summary-sub">日常 {{ pricingPreview.regularDays }} 天{{ pricingPreview.regularDays >= settings.pricing.discount_start_day ? '(优惠)' : '' }}，节假日 {{ pricingPreview.holidayDays }} 天{{ pricingPreview.holidayDays >= settings.pricing.discount_start_day ? '(优惠)' : '' }}</text>
         <text class="summary-sub">基础金额 ¥{{ pricingPreview.baseAmount.toFixed(2) }}，附加服务 ¥{{ pricingPreview.extraAmount.toFixed(2) }}</text>
+        <text v-if="hasHolidaySelected" class="summary-sub">定金 ¥{{ depositAmount.toFixed(2) }}，尾款 ¥{{ estimatedUnpaidAmount.toFixed(2) }}</text>
       </view>
 
       <view class="footer-bar">
@@ -178,6 +188,8 @@ const playMode = ref<'daily' | 'count'>('daily')
 const playCount = ref(1)
 const otherEnabled = ref(false)
 const otherPrice = ref('')
+const depositInput = ref('')
+const depositTouched = ref(false)
 const holidayMap = ref<Record<string, boolean>>({})
 const form = ref({
   customer_id: 0,
@@ -242,6 +254,13 @@ const estimatedAmount = computed(() => {
   return pricingPreview.value.baseAmount + pricingPreview.value.extraAmount
 })
 
+const hasHolidaySelected = computed(() => pricingPreview.value.holidayDays > 0)
+const depositAmount = computed(() => {
+  if (!hasHolidaySelected.value) return 0
+  return Math.max(Number(depositInput.value) || 0, 0)
+})
+const estimatedUnpaidAmount = computed(() => Math.max(estimatedAmount.value - depositAmount.value, 0))
+
 const customItems = computed(() => settings.value.items.filter(item => item.code !== 'play' && item.code !== 'other'))
 
 function toggleItem(code: string) {
@@ -258,6 +277,23 @@ function syncItemCodes() {
   if (playEnabled.value) codes.push('play')
   if (otherEnabled.value) codes.push('other')
   form.value.item_codes = codes
+}
+
+function setPlayMode(mode: 'daily' | 'count') {
+  playMode.value = mode
+  if (mode === 'daily' && dateMode.value === 'daily') {
+    selectAllDates()
+  }
+}
+
+function syncHolidayDepositDefault() {
+  if (!hasHolidaySelected.value) {
+    if (!depositTouched.value) depositInput.value = ''
+    return
+  }
+  if (!depositTouched.value && !depositInput.value) {
+    depositInput.value = '200'
+  }
 }
 
 async function searchCustomers() {
@@ -382,6 +418,8 @@ async function loadPlan(planId: number) {
   if (plan.play_mode) playMode.value = plan.play_mode as 'daily' | 'count'
   if (plan.play_count) playCount.value = plan.play_count
   if (plan.other_price) otherPrice.value = String(plan.other_price)
+  depositInput.value = plan.deposit ? String(plan.deposit) : ''
+  depositTouched.value = plan.deposit > 0
   selectedPetIds.value = (plan.pets || []).map(item => item.pet_id)
   syncDateModeFromSelection()
   if (plan.customer) {
@@ -417,6 +455,7 @@ async function submit() {
       play_mode: playEnabled.value ? playMode.value : '',
       play_count: playEnabled.value && playMode.value === 'count' ? Number(playCount.value) || 0 : 0,
       other_price: otherEnabled.value ? Number(otherPrice.value) || 0 : 0,
+      deposit: depositAmount.value,
     }
     const res = isEdit.value
       ? await updateFeedingPlan(id.value, payload)
@@ -443,7 +482,13 @@ watch(
   async () => {
     updateSelectedDatesForMode()
     await loadHolidayData()
+    syncHolidayDepositDefault()
   }
+)
+
+watch(
+  () => [pricingPreview.value.holidayDays, form.value.selected_dates.join(','), Object.keys(holidayMap.value).join(',')],
+  () => syncHolidayDepositDefault()
 )
 </script>
 
@@ -498,6 +543,9 @@ watch(
 .other-price-row { display: flex; align-items: center; gap: 4rpx; }
 .other-price-label { font-size: 26rpx; color: #374151; }
 .other-price-input { width: 120rpx; height: 56rpx; padding: 0 12rpx; background: #F8FAFC; border-radius: 12rpx; font-size: 26rpx; text-align: center; }
+.deposit-row { display: flex; align-items: center; gap: 8rpx; width: 240rpx; height: 72rpx; padding: 0 20rpx; background: #F8FAFC; border-radius: 16rpx; box-sizing: border-box; }
+.deposit-prefix { font-size: 28rpx; color: #374151; font-weight: 600; }
+.deposit-input { flex: 1; min-width: 0; height: 72rpx; font-size: 30rpx; color: #111827; }
 .date-picker-block { margin-top: 18rpx; }
 .date-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-picker-head.secondary { margin-top: 14rpx; }

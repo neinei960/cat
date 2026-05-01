@@ -1,0 +1,219 @@
+- generic [ref=e268]:
+  - generic [ref=e269]:
+    - generic [ref=e271]: 猫咪洗护
+    - generic [ref=e272]:
+      - generic [ref=e273] [cursor=pointer]:
+        - generic [ref=e275]: 🏠
+        - generic [ref=e276]: 工作台
+      - generic [ref=e277] [cursor=pointer]:
+        - generic [ref=e279]: 🧾
+        - generic [ref=e280]: 开单
+      - generic [ref=e281] [cursor=pointer]:
+        - generic [ref=e283]: 📅
+        - generic [ref=e284]: 预约日历
+      - generic [ref=e285] [cursor=pointer]:
+        - generic [ref=e287]: 📋
+        - generic [ref=e288]: 预约列表
+      - generic [ref=e289] [cursor=pointer]:
+        - img [ref=e293]
+        - generic [ref=e294]: 猫咪管理
+      - generic [ref=e295] [cursor=pointer]:
+        - generic [ref=e297]: 👥
+        - generic [ref=e298]: 客户管理
+      - generic [ref=e299] [cursor=pointer]:
+        - generic [ref=e301]: 📋
+        - generic [ref=e302]: 订单管理
+      - generic [ref=e303] [cursor=pointer]:
+        - generic [ref=e305]: ✂️
+        - generic [ref=e306]: 服务管理
+      - generic [ref=e307] [cursor=pointer]:
+        - generic [ref=e309]: 📦
+        - generic [ref=e310]: 商品管理
+      - generic [ref=e311] [cursor=pointer]:
+        - generic [ref=e313]: 🛵
+        - generic [ref=e314]: 上门喂养
+      - generic [ref=e315] [cursor=pointer]:
+        - generic [ref=e317]: 🏨
+        - generic [ref=e318]: 寄养看板
+      - generic [ref=e319] [cursor=pointer]:
+        - generic [ref=e321]: 🧑‍💼
+        - generic [ref=e322]: 员工管理
+      - generic [ref=e323] [cursor=pointer]:
+        - generic [ref=e325]: 📊
+        - generic [ref=e326]: 数据看板
+      - generic [ref=e327] [cursor=pointer]:
+        - generic [ref=e329]: 💳
+        - generic [ref=e330]: 会员卡
+      - generic [ref=e331] [cursor=pointer]:
+        - generic [ref=e333]: ⚙️
+        - generic [ref=e334]: 店铺设置
+    - generic [ref=e335]:
+      - generic [ref=e336]: 测试
+      - generic [ref=e338] [cursor=pointer]: 退出登录
+  - generic [ref=e340]:
+    - generic [ref=e342]: 已支付
+    - generic [ref=e343]:
+      - generic [ref=e344]:
+        - generic [ref=e345]: 订单号
+        - generic [ref=e346]: "20260417235339826794"
+      - generic [ref=e347]:
+        - generic [ref=e348]: 客户
+        - generic [ref=e349] [cursor=pointer]: 樱桃子ᴺⁱᶜᵒ
+      - generic [ref=e350]:
+        - generic [ref=e351]: 猫咪
+        - generic [ref=e353] [cursor=pointer]: 四月
+      - generic [ref=e354]:
+        - generic [ref=e355]: 订单类型
+        - generic [ref=e356]: 服务 + 商品
+      - generic [ref=e357]:
+        - generic [ref=e358]: 经手员工
+        - generic [ref=e359]: 乐乐
+      - generic [ref=e360]:
+        - generic [ref=e361]: 支付方式
+        - generic [ref=e362]: 会员余额
+      - generic [ref=e363]:
+        - generic [ref=e364]: 支付时间
+        - generic [ref=e365]: 2026年04月17日 23:53:47
+    - generic [ref=e366]:
+      - generic [ref=e367]: 明细
+      - generic [ref=e368]:
+        - generic [ref=e369]:
+          - generic [ref=e370] [cursor=pointer]: 🐱 四月
+          - generic [ref=e371]: 2项
+        - generic [ref=e372]:
+          - generic [ref=e373]: 日常皮毛护理
+          - generic [ref=e374]: x1
+          - generic [ref=e375]: ¥88
+        - generic [ref=e376]:
+          - generic [ref=e377]: 日常皮毛护理(超重)
+          - generic [ref=e378]: x1
+          - generic [ref=e379]: ¥10
+      - generic [ref=e380]:
+        - generic [ref=e381]:
+          - generic [ref=e382]: 📦 零售商品
+          - generic [ref=e383]: 1项
+        - generic [ref=e384]:
+          - generic [ref=e385]: 尾巴生活喜欢泥·主食餐包
+          - generic [ref=e386]: x1
+          - generic [ref=e387]: ¥9.9
+      - generic [ref=e388]:
+        - generic [ref=e389]:
+          - generic [ref=e390]: 服务小计
+          - generic [ref=e391]: ¥98.00
+        - generic [ref=e392]:
+          - generic [ref=e393]: 服务优惠
+          - generic [ref=e394]: "-¥9.80"
+        - generic [ref=e395]:
+          - generic [ref=e396]: 商品小计
+          - generic [ref=e397]: ¥9.90
+        - generic [ref=e398]:
+          - generic [ref=e399]: 商品优惠
+          - generic [ref=e400]: "-¥0.20"
+        - generic [ref=e401]:
+          - generic [ref=e402]: 优惠
+          - generic [ref=e403]: "-¥10"
+        - generic [ref=e404]:
+          - generic [ref=e405]: 应付
+          - generic [ref=e406]: ¥97.9
+        - generic [ref=e407]:
+          - generic [ref=e408]:
+            - generic [ref=e409]: 备注
+            - generic [ref=e411]: 保存
+          - generic [ref=e413]:
+            - generic [ref=e414]: 备注收款说明、客户要求或补充信息
+            - textbox [ref=e415]
+    - generic [ref=e416]:
+      - generic [ref=e417] [cursor=pointer]: 修改订单
+      - generic [ref=e418] [cursor=pointer]: 退款
+      - generic [ref=e419] [cursor=pointer]: 删除订单
+      - generic [ref=e420] [cursor=pointer]: 生成小票
+    - generic [ref=e422]:
+      - generic [ref=e424]:
+        - generic [ref=e425]:
+          - generic [ref=e426]:
+            - img [ref=e430]
+            - generic [ref=e431]:
+              - generic [ref=e432]: 树街の猫
+              - generic [ref=e433]:
+                - generic [ref=e434]: 成立于2020年•专注猫咪
+                - generic [ref=e435]: 创造科学与健康的可持续人宠美好生活
+          - generic [ref=e436]:
+            - generic [ref=e437]:
+              - generic [ref=e438]: 消费时间
+              - generic [ref=e439]: 2026.04.17 23:53
+            - generic [ref=e440]:
+              - generic [ref=e441]: 手机号码
+              - generic [ref=e442]: 156****0668
+            - generic [ref=e443]:
+              - generic [ref=e444]: 会员余额
+              - generic [ref=e445]:
+                - generic [ref=e446]: VIP I
+                - generic [ref=e447]: ¥792.08
+        - generic [ref=e448]:
+          - generic [ref=e449]: 四月
+          - generic [ref=e450]:
+            - generic [ref=e451]:
+              - generic [ref=e452]: 日常皮毛护理
+              - generic [ref=e453]:
+                - generic [ref=e454]: 原价 ¥88.00
+                - generic [ref=e455]: ·
+                - generic [ref=e456]: 9.0折
+                - generic [ref=e457]: ·
+                - generic [ref=e458]: ×1
+            - generic [ref=e459]: ¥79.20
+          - generic [ref=e460]:
+            - generic [ref=e461]:
+              - generic [ref=e462]: 日常皮毛护理(超重)
+              - generic [ref=e463]:
+                - generic [ref=e464]: 原价 ¥10.00
+                - generic [ref=e465]: ·
+                - generic [ref=e466]: 9.0折
+                - generic [ref=e467]: ·
+                - generic [ref=e468]: ×1
+            - generic [ref=e469]: ¥9.00
+        - generic [ref=e470]:
+          - generic [ref=e471]: 零售商品
+          - generic [ref=e472]:
+            - generic [ref=e473]:
+              - generic [ref=e474]: 尾巴生活喜欢泥·主食餐包
+              - generic [ref=e475]:
+                - generic [ref=e476]: 原价 ¥9.90
+                - generic [ref=e477]: ·
+                - generic [ref=e478]: 9.8折
+                - generic [ref=e479]: ·
+                - generic [ref=e480]: ×1
+            - generic [ref=e481]: ¥9.70
+        - generic [ref=e482]:
+          - generic [ref=e483]:
+            - generic [ref=e484]: 服务小计
+            - generic [ref=e485]: ¥98.00
+          - generic [ref=e486]:
+            - generic [ref=e487]: 商品小计
+            - generic [ref=e488]: ¥9.90
+          - generic [ref=e489]:
+            - generic [ref=e490]: 商品优惠
+            - generic [ref=e491]: "-¥0.20"
+          - generic [ref=e492]:
+            - generic [ref=e493]: 总优惠
+            - generic [ref=e494]: "-¥10.00"
+          - generic [ref=e496]:
+            - generic [ref=e497]:
+              - generic [ref=e498]: 实付总计
+              - generic [ref=e499]: 本次已节省 ¥10.00
+            - generic [ref=e500]: ¥97.90
+          - generic [ref=e501]:
+            - generic [ref=e502]: 消费后余额
+            - generic [ref=e503]: ¥694.18
+        - generic [ref=e504]:
+          - generic [ref=e505]:
+            - generic [ref=e506]: 经手员工
+            - generic [ref=e507]: 乐乐
+          - generic [ref=e508]:
+            - generic [ref=e509]: 支付方式
+            - generic [ref=e510]: 会员余额
+        - generic [ref=e511]:
+          - generic [ref=e512]: 赞美生命 创造健康美好的人宠生活
+          - generic [ref=e513]: Praise life, Create a healthy and beautiful pet life.
+      - generic [ref=e514]:
+        - generic [ref=e515]: 生成图片
+        - generic [ref=e516]: 关闭

@@ -56,13 +56,15 @@ type createApptReq struct {
 		PetID      uint   `json:"pet_id"`
 		ServiceIDs []uint `json:"service_ids"`
 	} `json:"pets"`
-	StaffID    *uint  `json:"staff_id"`
-	Date       string `json:"date" binding:"required"`
-	StartTime  string `json:"start_time" binding:"required"`
-	EndTime    string `json:"end_time"`
-	ServiceIDs []uint `json:"service_ids"`
-	Source     int    `json:"source"`
-	Notes      string `json:"notes"`
+	StaffID      *uint   `json:"staff_id"`
+	Date         string  `json:"date" binding:"required"`
+	StartTime    string  `json:"start_time" binding:"required"`
+	EndTime      string  `json:"end_time"`
+	ServiceIDs   []uint  `json:"service_ids"`
+	Source       int     `json:"source"`
+	CustomerType int     `json:"customer_type"`
+	Notes        string  `json:"notes"`
+	Deposit      float64 `json:"deposit"`
 }
 
 func buildPetSelections(req createApptReq) ([]service.AppointmentPetSelection, error) {
@@ -99,16 +101,18 @@ func (h *AppointmentHandler) Create(c *gin.Context) {
 	}
 
 	appt := &model.Appointment{
-		ShopID:     c.GetUint("shop_id"),
-		CustomerID: req.CustomerID,
-		PetID:      petSelections[0].PetID,
-		StaffID:    req.StaffID,
-		Date:       req.Date,
-		StartTime:  req.StartTime,
-		EndTime:    req.EndTime,
-		Status:     1,
-		Source:     req.Source,
-		Notes:      req.Notes,
+		ShopID:       c.GetUint("shop_id"),
+		CustomerID:   req.CustomerID,
+		PetID:        petSelections[0].PetID,
+		StaffID:      req.StaffID,
+		Date:         req.Date,
+		StartTime:    req.StartTime,
+		EndTime:      req.EndTime,
+		Status:       1,
+		Source:       req.Source,
+		CustomerType: req.CustomerType,
+		Notes:        req.Notes,
+		Deposit:      req.Deposit,
 	}
 	if appt.Source == 0 {
 		appt.Source = 2 // merchant created
@@ -140,14 +144,16 @@ func (h *AppointmentHandler) Update(c *gin.Context) {
 	}
 
 	appt := &model.Appointment{
-		ShopID:     c.GetUint("shop_id"),
-		CustomerID: req.CustomerID,
-		StaffID:    req.StaffID,
-		Date:       req.Date,
-		StartTime:  req.StartTime,
-		EndTime:    req.EndTime,
-		Source:     req.Source,
-		Notes:      req.Notes,
+		ShopID:       c.GetUint("shop_id"),
+		CustomerID:   req.CustomerID,
+		StaffID:      req.StaffID,
+		Date:         req.Date,
+		StartTime:    req.StartTime,
+		EndTime:      req.EndTime,
+		Source:       req.Source,
+		CustomerType: req.CustomerType,
+		Notes:        req.Notes,
+		Deposit:      req.Deposit,
 	}
 	if appt.Source == 0 {
 		appt.Source = 2

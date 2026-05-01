@@ -91,3 +91,15 @@ export function formatFeedingDateRange(startDate?: string, endDate?: string) {
   if (!startDate || !endDate) return '-'
   return `${startDate} 至 ${endDate}`
 }
+
+export function isFeedingPlanHistoryByDate(plan: { end_date?: string; status?: string }, today = currentLocalDate()) {
+  return !!plan.end_date && plan.end_date < today
+}
+
+function currentLocalDate() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = `${now.getMonth() + 1}`.padStart(2, '0')
+  const day = `${now.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}

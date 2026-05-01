@@ -1,0 +1,25 @@
+Total messages: 14 (Errors: 12, Warnings: 0)
+Returning 12 messages for level "error"
+
+[ERROR] TypeError: e.preventDefault is not a function
+    at prevent (http://36.151.144.227/assets/index-CqZV1PEK.js:20:40320)
+    at n.<computed>.n.<computed> (http://36.151.144.227/assets/index-CqZV1PEK.js:20:40755)
+    at Wn (http://36.151.144.227/assets/index-CqZV1PEK.js:18:10580)
+    at Yn (http://36.151.144.227/assets/index-CqZV1PEK.js:18:10650)
+    at fo (http://36.151.144.227/assets/index-CqZV1PEK.js:18:12552)
+    at http://36.151.144.227/assets/index-CqZV1PEK.js:25:45965
+    at Object.submit (http://36.151.144.227/assets/index-CqZV1PEK.js:25:47384)
+    at http://36.151.144.227/assets/index-CqZV1PEK.js:25:48872
+    at t (http://36.151.144.227/assets/index-CqZV1PEK.js:20:40097)
+    at Wn (http://36.151.144.227/assets/index-CqZV1PEK.js:18:10580) @ http://36.151.144.227/assets/index-CqZV1PEK.js:17
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/pages-order-list.x6coz_Y3.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/FilterPanel.pUzD7Ha4.js:0
+[ERROR] TypeError: Failed to fetch dynamically imported module: http://36.151.144.227/assets/pages-order-list.x6coz_Y3.js @ http://36.151.144.227/assets/index-CqZV1PEK.js:17
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/order.COunHMRl.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/service-category.BGhSWs5l.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/interaction.CN0DqC4k.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/staff.wZ8eXWlw.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/pages-order-detail.B4PAl80z.js:0
+[ERROR] TypeError: Failed to fetch dynamically imported module: http://36.151.144.227/assets/pages-order-detail.B4PAl80z.js @ http://36.151.144.227/assets/index-CqZV1PEK.js:17
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/pet.C3akC7ib.js:0
+[ERROR] Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec. @ http://36.151.144.227/assets/member-card.k91AFUTG.js:0

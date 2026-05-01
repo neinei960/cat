@@ -288,6 +288,7 @@ func (s *AppointmentService) Create(appt *model.Appointment, serviceIDs []uint) 
 
 // CreateMulti creates a multi-pet appointment while preserving legacy flat service snapshots.
 func (s *AppointmentService) CreateMulti(appt *model.Appointment, petSelections []AppointmentPetSelection) error {
+	normalizeAppointmentCustomerType(appt)
 	payload, err := s.buildMultiPayload(appt, petSelections, 0)
 	if err != nil {
 		return err
@@ -410,6 +411,7 @@ func (s *AppointmentService) buildMultiPayload(appt *model.Appointment, petSelec
 	}
 	appt.EndTime = minutesToTime(endMin)
 	appt.TotalAmount = totalAmount
+	appt.Deposit = normalizeAppointmentDeposit(&appt.CustomerID, appt.Deposit, appt.TotalAmount)
 	appt.PetID = petSelections[0].PetID
 
 	if appt.StaffID != nil && *appt.StaffID > 0 {
@@ -469,9 +471,14 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	appt.StartTime = updates.StartTime
 	appt.EndTime = updates.EndTime
 	appt.Notes = updates.Notes
+	appt.Deposit = updates.Deposit
 	if updates.Source > 0 {
 		appt.Source = updates.Source
 	}
+	if updates.CustomerType > 0 {
+		appt.CustomerType = updates.CustomerType
+	}
+	normalizeAppointmentCustomerType(appt)
 
 	payload, err := s.buildMultiPayload(appt, petSelections, appt.ID)
 	if err != nil {
@@ -480,15 +487,17 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 
 	tx := database.DB.Begin()
 	if err := tx.Model(&model.Appointment{}).Where("id = ?", appt.ID).Updates(map[string]interface{}{
-		"customer_id":  appt.CustomerID,
-		"pet_id":       appt.PetID,
-		"staff_id":     appt.StaffID,
-		"date":         appt.Date,
-		"start_time":   appt.StartTime,
-		"end_time":     appt.EndTime,
-		"source":       appt.Source,
-		"notes":        appt.Notes,
-		"total_amount": appt.TotalAmount,
+		"customer_id":   appt.CustomerID,
+		"pet_id":        appt.PetID,
+		"staff_id":      appt.StaffID,
+		"date":          appt.Date,
+		"start_time":    appt.StartTime,
+		"end_time":      appt.EndTime,
+		"source":        appt.Source,
+		"customer_type": appt.CustomerType,
+		"notes":         appt.Notes,
+		"total_amount":  appt.TotalAmount,
+		"deposit":       appt.Deposit,
 	}).Error; err != nil {
 		tx.Rollback()
 		return err
@@ -513,6 +522,17 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	}
 
 	return tx.Commit().Error
+}
+
+func normalizeAppointmentCustomerType(appt *model.Appointment) {
+	if appt == nil {
+		return
+	}
+	switch appt.CustomerType {
+	case model.AppointmentCustomerTypeNew, model.AppointmentCustomerTypeRegular:
+	default:
+		appt.CustomerType = model.AppointmentCustomerTypeRegular
+	}
 }
 
 func (s *AppointmentService) Delete(apptID, shopID uint) error {

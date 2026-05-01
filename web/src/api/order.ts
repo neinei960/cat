@@ -18,6 +18,7 @@ interface CreateOrderReq {
   customer_id?: number
   staff_id?: number
   service_id?: number
+  appointment_is_late?: boolean
   discount_amount?: number
   remark?: string
   items?: OrderItem[]
@@ -32,15 +33,15 @@ export function updateOrder(id: number, data: CreateOrderReq) {
   return request<any>({ url: `/b/orders/${id}`, method: 'PUT', data })
 }
 
-export function createOrderFromAppointment(appointmentId: number) {
-  return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId } })
+export function createOrderFromAppointment(appointmentId: number, appointmentIsLate = false) {
+  return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId, appointment_is_late: appointmentIsLate } })
 }
 
 export function createBatchOrdersFromAppointment(appointmentId: number, extra?: any) {
   return request<Order>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
 }
 
-export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string; customer_id?: number; order_kind?: string }) {
+export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string; customer_id?: number; order_kind?: string; category_id?: number }) {
   return request<PageResult<any>>({ url: '/b/orders', data: params })
 }
 

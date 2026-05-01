@@ -66,7 +66,10 @@ type FeedingPlanInput struct {
 	PlayMode        string                 `json:"play_mode"`
 	PlayCount       int                    `json:"play_count"`
 	OtherPrice      float64                `json:"other_price"`
+	Deposit         *float64               `json:"deposit"`
 }
+
+const defaultFeedingHolidayDeposit = 200
 
 type FeedingUpdatePlayDatesInput struct {
 	PlayDates []string `json:"play_dates"`
@@ -193,6 +196,12 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
 	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
+	playDatesJSON, _ := json.Marshal(resolveDefaultPlayDates(normalized))
+	deposit := resolveFeedingDeposit(normalized.Deposit, selectedDatesContainHoliday(normalized.SelectedDates, pricingSnapshot.HolidayDates), 0)
+	unpaidAmount := roundMoney(pricingSnapshot.TotalAmount - deposit)
+	if unpaidAmount < 0 {
+		unpaidAmount = 0
+	}
 
 	plan := &model.FeedingPlan{
 		ShopID:              shopID,
@@ -208,11 +217,13 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 		PricingSnapshotJSON: string(pricingJSON),
 		SelectedItemsJSON:   string(selectedItemsJSON),
 		SelectedDatesJSON:   string(selectedDatesJSON),
+		PlayDatesJSON:       string(playDatesJSON),
 		PlayMode:            normalized.PlayMode,
 		PlayCount:           normalized.PlayCount,
 		OtherPrice:          normalized.OtherPrice,
+		Deposit:             deposit,
 		TotalAmount:         pricingSnapshot.TotalAmount,
-		UnpaidAmount:        pricingSnapshot.TotalAmount,
+		UnpaidAmount:        unpaidAmount,
 	}
 
 	tx := database.DB.Begin()
@@ -304,6 +315,12 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
 	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
+	playDatesJSON, _ := json.Marshal(resolveDefaultPlayDates(normalized))
+	deposit := resolveFeedingDeposit(normalized.Deposit, selectedDatesContainHoliday(normalized.SelectedDates, pricingSnapshot.HolidayDates), plan.Deposit)
+	unpaidAmount := roundMoney(pricingSnapshot.TotalAmount - deposit)
+	if unpaidAmount < 0 {
+		unpaidAmount = 0
+	}
 
 	tx := database.DB.Begin()
 	plan.CustomerID = normalized.CustomerID
@@ -317,11 +334,13 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	plan.PricingSnapshotJSON = string(pricingJSON)
 	plan.SelectedItemsJSON = string(selectedItemsJSON)
 	plan.SelectedDatesJSON = string(selectedDatesJSON)
+	plan.PlayDatesJSON = string(playDatesJSON)
 	plan.PlayMode = normalized.PlayMode
 	plan.PlayCount = normalized.PlayCount
 	plan.OtherPrice = normalized.OtherPrice
+	plan.Deposit = deposit
 	plan.TotalAmount = pricingSnapshot.TotalAmount
-	plan.UnpaidAmount = pricingSnapshot.TotalAmount
+	plan.UnpaidAmount = unpaidAmount
 	if err := tx.Save(plan).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1159,9 +1178,6 @@ func (s *FeedingService) normalizePlanInput(shopID uint, input FeedingPlanInput)
 		seenCode[code] = struct{}{}
 		validCodes = append(validCodes, code)
 	}
-	if len(validCodes) == 0 {
-		return input, nil, errors.New("请至少选择 1 项服务内容")
-	}
 	input.ItemCodes = validCodes
 	return input, settings, nil
 }
@@ -1663,6 +1679,42 @@ func listHolidayDates(shopID uint, startDate, endDate string) ([]string, error) 
 		dates = append(dates, holiday.HolidayDate)
 	}
 	return dates, nil
+}
+
+func resolveFeedingDeposit(input *float64, hasSelectedHoliday bool, current float64) float64 {
+	if input != nil {
+		return maxFloat(roundMoney(*input), 0)
+	}
+	if current > 0 {
+		return roundMoney(current)
+	}
+	if hasSelectedHoliday {
+		return defaultFeedingHolidayDeposit
+	}
+	return 0
+}
+
+func selectedDatesContainHoliday(selectedDates []string, holidayDates []string) bool {
+	if len(selectedDates) == 0 || len(holidayDates) == 0 {
+		return false
+	}
+	holidaySet := make(map[string]struct{}, len(holidayDates))
+	for _, date := range holidayDates {
+		holidaySet[date] = struct{}{}
+	}
+	for _, date := range selectedDates {
+		if _, ok := holidaySet[date]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveDefaultPlayDates(input FeedingPlanInput) []string {
+	if input.PlayMode != "daily" {
+		return []string{}
+	}
+	return append([]string{}, input.SelectedDates...)
 }
 
 func formatMonthDay(dateText string) string {

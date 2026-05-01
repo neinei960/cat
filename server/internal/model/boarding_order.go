@@ -23,6 +23,7 @@ type BoardingOrder struct {
 	Nights                 int     `json:"nights" gorm:"default:0"`
 	BaseAmount             float64 `json:"base_amount" gorm:"type:decimal(10,2);default:0"`
 	HolidaySurchargeAmount float64 `json:"holiday_surcharge_amount" gorm:"type:decimal(10,2);default:0"`
+	SpecialItemAmount      float64 `json:"special_item_amount" gorm:"type:decimal(10,2);default:0"`
 	DiscountAmount         float64 `json:"discount_amount" gorm:"type:decimal(10,2);default:0"`
 	ManualDiscountAmount   float64 `json:"manual_discount_amount" gorm:"type:decimal(10,2);default:0"`
 	PayAmount              float64 `json:"pay_amount" gorm:"type:decimal(10,2);default:0"`
@@ -47,6 +48,11 @@ type BoardingOrderRoom struct {
 	gorm.Model
 	BoardingOrderID        uint    `json:"boarding_order_id" gorm:"not null;index"`
 	CabinetID              uint    `json:"cabinet_id" gorm:"not null;index"`
+	SpecialItemID          *uint   `json:"special_item_id" gorm:"index"`
+	SpecialItemName        string  `json:"special_item_name" gorm:"size:100"`
+	SpecialItemDailyPrice  float64 `json:"special_item_daily_price" gorm:"type:decimal(10,2);default:0"`
+	SpecialItemDays        int     `json:"special_item_days" gorm:"default:0"`
+	SpecialItemAmount      float64 `json:"special_item_amount" gorm:"type:decimal(10,2);default:0"`
 	RoomIndex              int     `json:"room_index" gorm:"default:1"`
 	CheckInAt              string  `json:"check_in_at" gorm:"size:10;not null;index"`
 	CheckOutAt             string  `json:"check_out_at" gorm:"size:10;not null;index"`

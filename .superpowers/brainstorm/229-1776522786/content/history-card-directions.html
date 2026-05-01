@@ -1,0 +1,134 @@
+<h2>历史寄养卡片改版方向</h2>
+<p class="subtitle">只比较 4 件事：字体层级、日期排版、账单金额替代“查看详情”、描边支付胶囊。未关联订单 / 已取消 / 已退款时，金额胶囊会隐藏。</p>
+
+<div class="cards">
+  <div class="card" data-choice="A" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+        <div>
+          <div style="font-size:23px;font-weight:800;color:#1f2937;line-height:1.2;">月光</div>
+          <div style="margin-top:4px;font-size:14px;color:#64748b;">SmC_527</div>
+        </div>
+        <div style="padding:5px 10px;border:1px solid #d1d5db;border-radius:999px;font-size:12px;color:#6b7280;">已离店</div>
+      </div>
+
+      <div class="mockup" style="margin:0;border-radius:18px;border:1px solid #ece7df;background:#fffdf8;">
+        <div class="mockup-body" style="padding:14px 14px 12px;">
+          <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;">
+            <div style="min-width:0;">
+              <div style="font-size:12px;color:#9ca3af;letter-spacing:.08em;">寄养日期</div>
+              <div style="margin-top:4px;font-size:15px;font-weight:700;color:#1f2937;">2026-04-09 → 2026-04-17</div>
+              <div style="margin-top:10px;font-size:12px;color:#9ca3af;letter-spacing:.08em;">房型</div>
+              <div style="margin-top:4px;font-size:15px;font-weight:700;color:#1f2937;">康娜温柔乡</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap;">
+              <div style="font-size:12px;color:#9ca3af;letter-spacing:.08em;">账单金额</div>
+              <div style="margin-top:4px;font-size:22px;font-weight:800;color:#312e81;">¥455</div>
+              <div style="margin-top:8px;padding:4px 10px;border:1px solid #16a34a;border-radius:999px;font-size:12px;color:#16a34a;display:inline-block;">已支付</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pros-cons" style="margin-top:14px;">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>层级最清楚，金额和支付状态一眼能看到</li>
+            <li>去掉重复日期后卡片最干净</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>比现在更像“账单卡”而不是普通列表卡</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="B" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <div style="font-size:21px;font-weight:800;color:#1f2937;line-height:1.2;">收养小猫</div>
+          <div style="margin-top:4px;font-size:14px;color:#64748b;">happy</div>
+        </div>
+        <div style="padding:5px 10px;border:1px solid #d1d5db;border-radius:999px;font-size:12px;color:#6b7280;">已离店</div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <div style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:999px;font-size:13px;color:#4b5563;">2026-04-09 → 2026-04-17</div>
+        <div style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:999px;font-size:13px;color:#4b5563;">康娜温柔乡</div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:10px;border-top:1px solid #f1ede5;">
+        <div>
+          <div style="font-size:12px;color:#9ca3af;">账单金额</div>
+          <div style="margin-top:4px;font-size:20px;font-weight:800;color:#312e81;">¥455</div>
+        </div>
+        <div style="padding:4px 10px;border:1px solid #dc2626;border-radius:999px;font-size:12px;color:#dc2626;">未付款</div>
+      </div>
+
+      <div class="pros-cons" style="margin-top:14px;">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>胶囊感更强，商业感更重</li>
+            <li>房型和日期很容易扫读</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>字体层级还是偏平，容易显得像标签堆砌</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="C" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div style="display:flex;justify-content:space-between;gap:12px;">
+        <div>
+          <div style="font-size:24px;font-weight:700;color:#111827;line-height:1.15;">月光</div>
+          <div style="margin-top:2px;font-size:13px;color:#9ca3af;letter-spacing:.04em;">SmC_527</div>
+        </div>
+        <div style="font-size:28px;font-weight:800;color:#111827;line-height:1;">¥455</div>
+      </div>
+
+      <div style="margin-top:14px;display:grid;grid-template-columns:72px 1fr;row-gap:8px;column-gap:10px;">
+        <div style="font-size:12px;color:#9ca3af;">日期</div>
+        <div style="font-size:14px;color:#374151;">2026-04-09 → 2026-04-17</div>
+        <div style="font-size:12px;color:#9ca3af;">房型</div>
+        <div style="font-size:14px;color:#374151;">康娜温柔乡</div>
+        <div style="font-size:12px;color:#9ca3af;">状态</div>
+        <div><span style="padding:4px 10px;border:1px solid #16a34a;border-radius:999px;font-size:12px;color:#16a34a;">已支付</span></div>
+      </div>
+
+      <div class="pros-cons" style="margin-top:14px;">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>极简，金额非常突出</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>太冷，容易丢掉宠物业务该有的亲和感</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <div class="label">我的建议</div>
+  <p style="margin:8px 0 0;color:#374151;line-height:1.6;">
+    推荐 <strong>A</strong> 作为主方向，再吸收一点 <strong>B</strong> 的胶囊语言。A 的字体层级最稳，金额、日期、房型不会打架，也最适合你现在这页的历史列表场景。
+  </p>
+</div>

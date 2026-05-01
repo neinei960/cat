@@ -1,0 +1,114 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isFeedingPlanHistoryByDate = exports.formatFeedingDateRange = exports.getFeedingDateOptions = exports.parseFeedingSelectedDates = exports.parseFeedingSelectedItems = exports.parseFeedingAddress = exports.feedingWindowLabel = exports.feedingStatusLabel = exports.feedingWindows = exports.feedingWeekdays = void 0;
+exports.feedingWeekdays = [
+    { value: 1, label: '周一' },
+    { value: 2, label: '周二' },
+    { value: 3, label: '周三' },
+    { value: 4, label: '周四' },
+    { value: 5, label: '周五' },
+    { value: 6, label: '周六' },
+    { value: 0, label: '周日' },
+];
+exports.feedingWindows = [
+    { value: 'all_day', label: '全天' },
+    { value: 'morning', label: '早间' },
+    { value: 'afternoon', label: '午后' },
+    { value: 'evening', label: '晚间' },
+];
+function feedingStatusLabel(status) {
+    return {
+        draft: '草稿',
+        active: '进行中',
+        paused: '已暂停',
+        completed: '已完成',
+        cancelled: '已取消',
+        pending: '待上门',
+        assigned: '已分配',
+        in_progress: '进行中',
+        done: '已完成',
+        exception: '异常',
+    }[status || ''] || status || '-';
+}
+exports.feedingStatusLabel = feedingStatusLabel;
+function feedingWindowLabel(windowCode) {
+    return exports.feedingWindows.find(item => item.value === windowCode)?.label || windowCode || '-';
+}
+exports.feedingWindowLabel = feedingWindowLabel;
+function parseFeedingAddress(raw) {
+    if (!raw)
+        return { address: '', detail: '', door_code: '' };
+    try {
+        const parsed = JSON.parse(raw);
+        return {
+            address: parsed.address || '',
+            detail: parsed.detail || '',
+            door_code: parsed.door_code || '',
+        };
+    }
+    catch {
+        return { address: raw, detail: '', door_code: '' };
+    }
+}
+exports.parseFeedingAddress = parseFeedingAddress;
+function parseFeedingSelectedItems(raw) {
+    if (!raw)
+        return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    }
+    catch {
+        return [];
+    }
+}
+exports.parseFeedingSelectedItems = parseFeedingSelectedItems;
+function parseFeedingSelectedDates(raw) {
+    if (!raw)
+        return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    }
+    catch {
+        return [];
+    }
+}
+exports.parseFeedingSelectedDates = parseFeedingSelectedDates;
+function getFeedingDateOptions(startDate, endDate) {
+    if (!startDate || !endDate || startDate > endDate)
+        return [];
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+    const start = new Date(startYear, startMonth - 1, startDay);
+    const end = new Date(endYear, endMonth - 1, endDay);
+    const result = [];
+    for (const current = new Date(start); current <= end; current.setDate(current.getDate() + 1)) {
+        const year = current.getFullYear();
+        const month = `${current.getMonth() + 1}`.padStart(2, '0');
+        const day = `${current.getDate()}`.padStart(2, '0');
+        const date = `${year}-${month}-${day}`;
+        const weekday = current.getDay();
+        const weekdayLabel = exports.feedingWeekdays.find((item) => item.value === weekday)?.label || '';
+        result.push({ date, weekday, label: `${month}-${day} ${weekdayLabel}` });
+    }
+    return result;
+}
+exports.getFeedingDateOptions = getFeedingDateOptions;
+function formatFeedingDateRange(startDate, endDate) {
+    if (!startDate || !endDate)
+        return '-';
+    return `${startDate} 至 ${endDate}`;
+}
+exports.formatFeedingDateRange = formatFeedingDateRange;
+function isFeedingPlanHistoryByDate(plan, today = currentLocalDate()) {
+    return !!plan.end_date && plan.end_date < today;
+}
+exports.isFeedingPlanHistoryByDate = isFeedingPlanHistoryByDate;
+function currentLocalDate() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}

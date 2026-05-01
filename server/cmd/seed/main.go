@@ -30,7 +30,7 @@ func main() {
 		&model.Order{}, &model.OrderItem{},
 		&model.FeedingSetting{}, &model.FeedingPlan{}, &model.FeedingPlanPet{}, &model.FeedingPlanRule{},
 		&model.FeedingVisit{}, &model.FeedingVisitItem{}, &model.FeedingVisitLog{}, &model.FeedingVisitMedia{},
-		&model.BoardingCabinet{}, &model.BoardingHoliday{}, &model.BoardingDiscountPolicy{},
+		&model.BoardingCabinet{}, &model.BoardingHoliday{}, &model.BoardingDiscountPolicy{}, &model.BoardingSpecialItem{},
 		&model.BoardingOrder{}, &model.BoardingOrderRoom{}, &model.BoardingOrderPet{}, &model.BoardingOrderLog{},
 		&model.NotificationLog{}, &model.DailyStats{},
 	)

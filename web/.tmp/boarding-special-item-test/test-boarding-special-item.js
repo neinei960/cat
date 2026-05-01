@@ -1,0 +1,26 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const strict_1 = __importDefault(require("node:assert/strict"));
+const node_fs_1 = __importDefault(require("node:fs"));
+const node_path_1 = __importDefault(require("node:path"));
+const createFilePath = node_path_1.default.resolve(__dirname, '../../src/pages/boarding/create.vue');
+const detailFilePath = node_path_1.default.resolve(__dirname, '../../src/pages/boarding/detail.vue');
+const apiFilePath = node_path_1.default.resolve(__dirname, '../../src/api/boarding.ts');
+const typesFilePath = node_path_1.default.resolve(__dirname, '../../src/types/index.d.ts');
+const dashboardFilePath = node_path_1.default.resolve(__dirname, '../../src/pages/boarding/dashboard.vue');
+const createSource = node_fs_1.default.readFileSync(createFilePath, 'utf8');
+const detailSource = node_fs_1.default.readFileSync(detailFilePath, 'utf8');
+const apiSource = node_fs_1.default.readFileSync(apiFilePath, 'utf8');
+const typesSource = node_fs_1.default.readFileSync(typesFilePath, 'utf8');
+const dashboardSource = node_fs_1.default.readFileSync(dashboardFilePath, 'utf8');
+(0, strict_1.default)(createSource.includes('特殊寄养项目'), 'boarding create page should expose a special boarding item section');
+(0, strict_1.default)(createSource.includes('special_item_id') && createSource.includes('special_item_daily_price') && createSource.includes('special_item_days'), 'boarding create page should submit special item fields in room groups payloads');
+(0, strict_1.default)(detailSource.includes('特殊寄养项目') && detailSource.includes('特殊天数'), 'boarding detail sheet should expose special item and special day editing fields');
+(0, strict_1.default)(apiSource.includes('/b/boarding/special-items'), 'boarding API module should expose special item endpoints');
+(0, strict_1.default)(typesSource.includes('interface BoardingSpecialItem'), 'boarding types should include a BoardingSpecialItem interface');
+(0, strict_1.default)(typesSource.includes('special_item_amount') && typesSource.includes('special_item_days'), 'boarding types should include special item pricing fields for orders and previews');
+(0, strict_1.default)(dashboardSource.includes("'/pages/boarding/special-items'"), 'boarding dashboard should include a special item settings entry');
+console.log('boarding special item regression test passed');

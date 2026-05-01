@@ -36,6 +36,10 @@
         <text class="label">订单类型</text>
         <text class="row-value">{{ orderKindLabel }}</text>
       </view>
+      <view class="row" v-if="order.appointment_id">
+        <text class="label">到店状态</text>
+        <text :class="['row-value', appointmentIsLateValue ? 'late-flag' : '']">{{ appointmentIsLateValue ? '迟到' : '正常' }}</text>
+      </view>
       <view class="row"><text class="label">经手员工</text><text>{{ order.staff?.name || '-' }}</text></view>
       <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ payMethodMap[order.pay_method] || order.pay_method }}</text></view>
       <view class="row" v-if="order.pay_time"><text class="label">支付时间</text><text>{{ formatDateTime(order.pay_time) }}</text></view>
@@ -68,6 +72,7 @@
         <view class="total-row" v-if="showDetailBreakdown && productDiscountValue > 0"><text>商品优惠</text><text class="discount-text">-¥{{ productDiscountValue.toFixed(2) }}</text></view>
         <view class="total-row" v-if="showDetailBreakdown && addonTotalValue > 0"><text>附加费</text><text>¥{{ addonTotalValue.toFixed(2) }}</text></view>
         <view class="total-row" v-if="showDetailBreakdown && order.discount_amount"><text>优惠</text><text class="discount-text">-¥{{ order.discount_amount }}</text></view>
+        <view class="total-row" v-if="appointmentDepositDeductionValue > 0"><text>{{ appointmentDepositLabel }}</text><text class="discount-text">-¥{{ appointmentDepositDeductionValue.toFixed(2) }}</text></view>
         <view class="total-row final"><text>应付</text><text class="pay-amount">¥{{ order.pay_amount }}</text></view>
         <view class="remark-block">
           <view class="remark-head">
@@ -90,6 +95,7 @@
       <button v-if="order.status === 0 && isAdmin && !isDeletedView" class="btn cancel" @click="doCancel">取消订单</button>
       <button v-if="order.status === 1 && isAdmin && !isDeletedView" class="btn refund" @click="doRefund">退款</button>
       <button v-if="(order.status === 1 || order.status === 2 || order.status === 3) && isAdmin && !isDeletedView" class="btn delete" @click="doDelete">删除订单</button>
+      <button v-if="canGenerateCareReport" class="btn report" @click="showCareReport = true">生成报告</button>
       <button class="btn receipt" @click="showReceipt = true">生成小票</button>
     </view>
 
@@ -189,6 +195,10 @@
               <text>总优惠</text>
               <text>-¥{{ receiptTotalSaving.toFixed(2) }}</text>
             </view>
+            <view v-if="appointmentDepositDeductionValue > 0" class="receipt-summary-row saving">
+              <text>{{ appointmentDepositLabel }}</text>
+              <text>-¥{{ appointmentDepositDeductionValue.toFixed(2) }}</text>
+            </view>
 
             <view class="receipt-summary-divider"></view>
 
@@ -250,6 +260,13 @@
         </view>
       </view>
     </view>
+
+    <OrderCareReportModal
+      v-if="order"
+      :visible="showCareReport"
+      :order="order"
+      @close="showCareReport = false"
+    />
 
     <!-- Pay modal -->
     <view class="modal-mask" v-if="showPayModal" @click="showPayModal = false">
@@ -316,6 +333,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
+import OrderCareReportModal from '@/components/order/OrderCareReportModal.vue'
 import { getOrder, payOrder, cancelOrder, refundOrder, updateOrderRemark, deleteOrder } from '@/api/order'
 import { getPetList } from '@/api/pet'
 import { getShop } from '@/api/shop'
@@ -324,6 +342,8 @@ import { useAuthStore } from '@/store/auth'
 import html2canvas from 'html2canvas'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 import { getReceiptGroupName, getReceiptItemDisplayName, splitOrderItemName } from '@/utils/order-item-display'
+import { canGenerateOrderCareReport } from '@/utils/order-care-report'
+import { buildReceiptFileName, dataUrlToBlob, isAppleSafariBrowser, saveImageByUrl } from '@/utils/web-image-save'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
@@ -332,6 +352,7 @@ const order = ref<any>(null)
 const isDeletedView = ref(false)
 const showPayModal = ref(false)
 const showReceipt = ref(false)
+const showCareReport = ref(false)
 const remarkDraft = ref('')
 const savingRemark = ref(false)
 const memberBalance = ref(0)
@@ -414,6 +435,12 @@ const addonTotalValue = computed(() => {
   if (stored > 0) return stored
   return getItemSubtotal(3)
 })
+const appointmentIsLateValue = computed(() => !!order.value?.appointment_is_late)
+const appointmentDepositLabel = computed(() => {
+  if (order.value?.order_kind === 'boarding') return '定金抵扣'
+  return appointmentIsLateValue.value ? '⚠️ 预约金抵扣' : '预约金抵扣'
+})
+const appointmentDepositDeductionValue = computed(() => Number(order.value?.appointment_deposit_deduction_amount || 0))
 const chargeBucketCount = computed(() => {
   return [
     serviceTotalValue.value > 0,
@@ -470,6 +497,7 @@ const canEditPrice = computed(() => {
   if (payStatus === 0) return true
   return payStatus === 1 && status === 1 && canManageOpenedOrder.value
 })
+const canGenerateCareReport = computed(() => canGenerateOrderCareReport(order.value))
 
 const orderKindLabel = computed(() => {
   switch (order.value?.order_kind) {
@@ -705,34 +733,19 @@ function getReceiptDiscountText(item: any) {
 const receiptImageUrl = ref('')
 const receiptBlobUrl = ref('')
 const generatingImage = ref(false)
-const isAppleSafariBrowser = computed(() => {
-  if (typeof navigator === 'undefined') return false
-  const userAgent = navigator.userAgent || ''
-  const vendor = navigator.vendor || ''
-  const isAppleMobile = /iP(hone|od|ad)/i.test(userAgent)
-  const isSafari = /Safari/i.test(userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS|Android/i.test(userAgent) && /Apple/i.test(vendor)
-  return isAppleMobile && isSafari
-})
-const showNativeReceiptImage = computed(() => isAppleSafariBrowser.value)
+const receiptRenderToken = ref(0)
+const isAppleSafari = computed(() => isAppleSafariBrowser())
+const showNativeReceiptImage = computed(() => isAppleSafari.value)
 const receiptPreviewSrc = computed(() => {
   if (!receiptImageUrl.value) return ''
-  return isAppleSafariBrowser.value ? receiptImageUrl.value : receiptBlobUrl.value || receiptImageUrl.value
+  return isAppleSafari.value ? receiptImageUrl.value : receiptBlobUrl.value || receiptImageUrl.value
 })
 const receiptImageHint = computed(() => {
-  if (isAppleSafariBrowser.value) {
+  if (isAppleSafari.value) {
     return '长按图片保存到相册；如未出现菜单，点击「保存图片」后在新页面长按'
   }
   return '点击「保存图片」或长按图片保存'
 })
-
-function dataURLtoBlob(dataURL: string): Blob {
-  const parts = dataURL.split(',')
-  const mime = parts[0].match(/:(.*?);/)![1]
-  const raw = atob(parts[1])
-  const arr = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
-  return new Blob([arr], { type: mime })
-}
 
 async function saveReceiptImage() {
   const el = document.getElementById('receiptContent')
@@ -740,6 +753,8 @@ async function saveReceiptImage() {
     uni.showToast({ title: '找不到小票内容', icon: 'none' })
     return
   }
+  const renderToken = receiptRenderToken.value + 1
+  receiptRenderToken.value = renderToken
   generatingImage.value = true
   try {
     const canvas = await html2canvas(el, {
@@ -753,77 +768,43 @@ async function saveReceiptImage() {
       windowWidth: el.scrollWidth,
       windowHeight: el.scrollHeight,
     })
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
     const dataUrl = canvas.toDataURL('image/png')
-    receiptImageUrl.value = dataUrl
     // Keep a blob URL for non-Safari download fallback.
-    const blob = dataURLtoBlob(dataUrl)
+    const blob = dataUrlToBlob(dataUrl)
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
+    receiptImageUrl.value = dataUrl
     if (receiptBlobUrl.value) URL.revokeObjectURL(receiptBlobUrl.value)
     receiptBlobUrl.value = URL.createObjectURL(blob)
   } catch (e) {
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
     console.error('html2canvas error:', e)
     uni.showToast({ title: '生成失败，请截屏保存', icon: 'none' })
   } finally {
-    generatingImage.value = false
+    if (receiptRenderToken.value === renderToken) {
+      generatingImage.value = false
+    }
   }
-}
-
-function openReceiptImagePreview(src: string) {
-  if (!src || typeof window === 'undefined') return false
-  const previewWindow = window.open('', '_blank')
-  if (!previewWindow) return false
-
-  const doc = previewWindow.document
-  doc.open()
-  doc.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>小票图片</title><style>html,body{margin:0;padding:0;background:#111;}body{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:16px;box-sizing:border-box;}img{display:block;max-width:100%;height:auto;border-radius:12px;-webkit-user-select:auto;user-select:auto;-webkit-touch-callout:default;box-shadow:0 6px 24px rgba(0,0,0,.24);}</style></head><body></body></html>`)
-  doc.close()
-
-  const img = doc.createElement('img')
-  img.src = src
-  img.alt = '小票图片'
-  doc.body.appendChild(img)
-  return true
 }
 
 async function downloadReceiptImage() {
-  if (!receiptImageUrl.value || typeof window === 'undefined' || typeof document === 'undefined') return
-  const fileName = `小票_${order.value?.order_no || 'receipt'}.png`
-  const blob = dataURLtoBlob(receiptImageUrl.value)
-
-  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof File === 'function') {
-    const file = new File([blob], fileName, { type: blob.type || 'image/png' })
-    const canShareFiles = typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })
-    if (canShareFiles) {
-      try {
-        await navigator.share({
-          title: fileName,
-          files: [file],
-        })
-        return
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return
-        }
-      }
+  if (!receiptImageUrl.value) return
+  const result = await saveImageByUrl(
+    receiptImageUrl.value,
+    buildReceiptFileName(order.value?.order_no || 'receipt'),
+    {
+      title: '小票图片',
+      blobUrl: receiptBlobUrl.value || undefined,
     }
+  )
+  if (result === 'preview') {
+    uni.showToast({ title: '新页面已打开，请长按图片保存', icon: 'none' })
   }
-
-  if (isAppleSafariBrowser.value) {
-    if (openReceiptImagePreview(receiptImageUrl.value)) {
-      uni.showToast({ title: '新页面已打开，请长按图片保存', icon: 'none' })
-      return
-    }
-  }
-
-  const a = document.createElement('a')
-  a.href = receiptBlobUrl.value || receiptImageUrl.value
-  a.download = fileName
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
 }
 
 function closeReceipt() {
+  receiptRenderToken.value += 1
+  generatingImage.value = false
   if (receiptBlobUrl.value) {
     URL.revokeObjectURL(receiptBlobUrl.value)
     receiptBlobUrl.value = ''
@@ -871,7 +852,7 @@ onLoad(async (query) => {
 })
 
 watch(
-  () => showReceipt.value || showPayModal.value,
+  () => showReceipt.value || showPayModal.value || showCareReport.value,
   (visible) => {
     setPageScrollLock(visible)
   }
@@ -1106,6 +1087,10 @@ async function saveRemark() {
 .row-value {
   max-width: 70%;
   text-align: right;
+}
+.late-flag {
+  color: #C2410C;
+  font-weight: 600;
 }
 .pet-row {
   align-items: flex-start;
@@ -1372,6 +1357,7 @@ async function saveRemark() {
 
 /* Receipt button */
 .btn.receipt { background: #FBF5E6; color: #8A6B2F; border-color: #E8D5A0; }
+.btn.report { background: #EEF9F1; color: #2E7A48; border-color: #CFE7D7; }
 
 /* ===== Receipt Modal ===== */
 .receipt-outer {

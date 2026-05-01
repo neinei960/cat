@@ -169,11 +169,23 @@
           <view class="settings-row">
             <view class="settings-copy">
               <text class="field-label">是否已驱虫</text>
-              <text class="field-tip">入住前确认一次，详情页会保留记录。</text>
+              <text class="field-tip">可选，入住前确认一次；暂时不清楚也可以先跳过。</text>
             </view>
             <view class="option-row compact">
               <view :class="['option-pill compact', form.hasDeworming === true ? 'active' : '']" @click="form.hasDeworming = true">已驱虫</view>
               <view :class="['option-pill compact', form.hasDeworming === false ? 'active negative' : '']" @click="form.hasDeworming = false">未驱虫</view>
+              <view :class="['option-pill compact', form.hasDeworming === null ? 'active' : '']" @click="form.hasDeworming = null">暂不填写</view>
+            </view>
+          </view>
+          <view class="settings-divider"></view>
+          <view class="settings-row">
+            <view class="settings-copy">
+              <text class="field-label">寄养定金</text>
+              <text class="field-tip">选择收取后，本单金额预览和收款单会抵扣 ¥200。</text>
+            </view>
+            <view class="option-row compact">
+              <view :class="['option-pill compact', form.depositEnabled ? 'active' : '']" @click="setDepositEnabled(true)">收取 ¥200</view>
+              <view :class="['option-pill compact', !form.depositEnabled ? 'active' : '']" @click="setDepositEnabled(false)">不收定金</view>
             </view>
           </view>
         </view>
@@ -259,6 +271,55 @@
                 </view>
               </view>
 
+              <view class="field-card special-card">
+                <text class="field-label">特殊寄养项目</text>
+                <text class="field-tip">按房间单独选择，可同时选择多个加收项目。选中后分别填写日价和天数。</text>
+                <view class="special-option-list">
+                  <view
+                    v-for="item in visibleSpecialItems"
+                    :key="item.ID"
+                    :class="['special-option', isSpecialItemSelected(activeRoomGroup, item.ID) ? 'active' : '']"
+                    @click="toggleSpecialItem(activeRoomGroup.id, item)"
+                  >
+                    <view>
+                      <text class="special-option-name">{{ item.name }}</text>
+                      <text class="special-option-meta">默认 ¥{{ Number(item.default_daily_price || 0).toFixed(2) }}/天</text>
+                    </view>
+                    <text class="special-option-mark">{{ isSpecialItemSelected(activeRoomGroup, item.ID) ? '已选' : '选择' }}</text>
+                  </view>
+                </view>
+                <view
+                  v-for="selection in activeRoomGroup.specialItems"
+                  :key="selection.id"
+                  class="field-grid special-grid"
+                >
+                  <view class="field-card compact special-title-card">
+                    <text class="field-label">项目</text>
+                    <text class="special-selected-name">{{ specialItemLabel(selection.id) }}</text>
+                  </view>
+                  <view class="field-card compact">
+                    <text class="field-label">特殊日价</text>
+                    <input
+                      :value="selection.dailyPrice"
+                      class="input no-gap"
+                      type="digit"
+                      placeholder="例如：30"
+                      @input="handleSpecialItemInput(activeRoomGroup.id, selection.id, 'dailyPrice', $event)"
+                    />
+                  </view>
+                  <view class="field-card compact">
+                    <text class="field-label">特殊天数</text>
+                    <input
+                      :value="selection.days"
+                      class="input no-gap"
+                      type="number"
+                      placeholder="例如：2"
+                      @input="handleSpecialItemInput(activeRoomGroup.id, selection.id, 'days', $event)"
+                    />
+                  </view>
+                </view>
+              </view>
+
               <view v-if="activeRoomGroup.preview" class="room-preview-box">
                 <view class="room-preview-head">
                   <text class="room-preview-title">{{ roomLabel(activeRoomGroupIndex - 1) }} 预览</text>
@@ -266,7 +327,7 @@
                 </view>
                 <view class="line-list compact-list">
                   <view v-for="line in activeRoomGroup.preview.lines" :key="`${activeRoomGroup.id}-${line.type}-${line.label}`" class="line-row">
-                    <text class="line-name">{{ line.label }}</text>
+                    <text class="line-name">{{ formatPriceLineLabel(line) }}</text>
                     <text class="line-amount">¥{{ line.amount.toFixed(2) }}</text>
                   </view>
                 </view>
@@ -324,7 +385,7 @@
 
           <view class="line-list">
             <view v-for="line in preview.lines" :key="`${line.type}-${line.label}`" class="line-row">
-              <text class="line-name">{{ line.label }}</text>
+              <text class="line-name">{{ formatPriceLineLabel(line) }}</text>
               <text class="line-amount">¥{{ line.amount.toFixed(2) }}</text>
             </view>
           </view>
@@ -382,6 +443,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getCustomerList, createCustomer, getCustomerPets } from '@/api/customer'
 import { createPet } from '@/api/pet'
@@ -390,15 +452,18 @@ import {
   createBoardingOrder,
   getAvailableBoardingCabinets,
   getBoardingPolicies,
+  getBoardingSpecialItems,
   previewBoardingOrder,
 } from '@/api/boarding'
 
 type CustomerMode = 'regular' | 'new'
 type RoomMode = 'shared' | 'split'
 type DraftPet = { id: number; name: string; breed: string }
+type SpecialItemSelectionState = { id: number; dailyPrice: string; days: string }
 type RoomGroupState = {
   id: number
   cabinetId: number
+  specialItems: SpecialItemSelectionState[]
   availableCabinets: BoardingCabinet[]
   preview: BoardingRoomPreview | null
 }
@@ -424,6 +489,7 @@ const form = ref({
   checkInAt: '',
   checkOutAt: '',
   hasDeworming: null as boolean | null,
+  depositEnabled: false,
   remark: '',
 })
 
@@ -431,11 +497,14 @@ const preview = ref<BoardingPricePreview | null>(null)
 const previewLoading = ref(false)
 const submitting = ref(false)
 const policies = ref<BoardingDiscountPolicy[]>([])
+const specialItems = ref<BoardingSpecialItem[]>([])
 const selectedPolicyIds = ref<number[]>([])
 const roomGroups = ref<RoomGroupState[]>([])
 const activeRoomGroupId = ref<number | null>(null)
 const petRoomAssignments = ref<Record<string, number>>({})
 const assignmentModalPet = ref<SelectedPetOption | null>(null)
+
+const visibleSpecialItems = computed(() => dedupeSpecialItems(specialItems.value))
 
 let roomGroupSeed = 1
 
@@ -460,12 +529,17 @@ const selectedPetOptions = computed<SelectedPetOption[]>(() => {
 })
 
 const stayText = computed(() => {
-  if (!form.value.checkInAt || !form.value.checkOutAt) return ''
+  const nights = stayNights.value
+  return nights > 0 ? `${nights} 晚` : ''
+})
+
+const stayNights = computed(() => {
+  if (!form.value.checkInAt || !form.value.checkOutAt) return 0
   const start = new Date(form.value.checkInAt)
   const end = new Date(form.value.checkOutAt)
   const diff = end.getTime() - start.getTime()
-  if (Number.isNaN(diff) || diff <= 0) return ''
-  return `${Math.round(diff / (24 * 60 * 60 * 1000))} 晚`
+  if (Number.isNaN(diff) || diff <= 0) return 0
+  return Math.round(diff / (24 * 60 * 60 * 1000))
 })
 
 const activeDraftPet = computed(() => newPets.value.find((pet) => pet.id === activeDraftPetId.value) || newPets.value[0] || null)
@@ -538,6 +612,7 @@ function createRoomGroupState(): RoomGroupState {
   return {
     id: roomGroupSeed,
     cabinetId: 0,
+    specialItems: [],
     availableCabinets: [],
     preview: null,
   }
@@ -556,6 +631,30 @@ function cabinetName(cabinetId: number, group: RoomGroupState) {
   return group.availableCabinets.find((item) => item.ID === cabinetId)?.cabinet_type || '未选房型'
 }
 
+function specialItemLabel(id: number) {
+  return specialItems.value.find((item) => item.ID === id)?.name || '特殊寄养项目'
+}
+
+function normalizeSpecialItemName(name?: string) {
+  return String(name || '').trim()
+}
+
+function dedupeSpecialItems(items: BoardingSpecialItem[]) {
+  const byName = new Map<string, BoardingSpecialItem>()
+  for (const item of items) {
+    const key = normalizeSpecialItemName(item.name) || String(item.ID)
+    const existing = byName.get(key)
+    if (!existing || Number(item.ID || 0) > Number(existing.ID || 0)) {
+      byName.set(key, item)
+    }
+  }
+  return Array.from(byName.values())
+}
+
+function isSpecialItemSelected(group: RoomGroupState, itemId: number) {
+  return group.specialItems.some((item) => item.id === itemId)
+}
+
 function roomPets(groupId: number) {
   return selectedPetOptions.value.filter((pet) => petRoomAssignments.value[pet.key] === groupId)
 }
@@ -570,8 +669,8 @@ function syncRoomGroups() {
   }
 
   if (roomGroups.value.length === 0) {
-    roomGroups.value = [{ id: 1, cabinetId: 0, availableCabinets: [], preview: null }]
-    roomGroupSeed = 1
+    roomGroupSeed = 0
+    roomGroups.value = [createRoomGroupState()]
     activeRoomGroupId.value = roomGroups.value[0].id
   }
 
@@ -796,6 +895,55 @@ function togglePolicy(id: number) {
   else selectedPolicyIds.value.push(id)
 }
 
+function setDepositEnabled(enabled: boolean) {
+  form.value.depositEnabled = enabled
+  preview.value = null
+  roomGroups.value = roomGroups.value.map((group) => ({ ...group, preview: null }))
+}
+
+function toggleSpecialItem(groupId: number, item: BoardingSpecialItem) {
+  roomGroups.value = roomGroups.value.map((group) => {
+    if (group.id !== groupId) return group
+    const exists = group.specialItems.some((selection) => selection.id === item.ID)
+    const itemName = normalizeSpecialItemName(item.name)
+    if (exists) {
+      return {
+        ...group,
+        specialItems: group.specialItems.filter((selection) => selection.id !== item.ID),
+        preview: null,
+      }
+    }
+    return {
+      ...group,
+      specialItems: [
+        ...group.specialItems.filter((selection) => normalizeSpecialItemName(specialItemLabel(selection.id)) !== itemName),
+        { id: item.ID, dailyPrice: String(item.default_daily_price || ''), days: '' },
+      ],
+      preview: null,
+    }
+  })
+  preview.value = null
+}
+
+function updateSpecialItemField(groupId: number, itemId: number, field: 'dailyPrice' | 'days', value: string) {
+  roomGroups.value = roomGroups.value.map((group) => (
+    group.id === groupId
+      ? {
+          ...group,
+          specialItems: group.specialItems.map((item) => (
+            item.id === itemId ? { ...item, [field]: value } : item
+          )),
+          preview: null,
+        }
+      : group
+  ))
+  preview.value = null
+}
+
+function handleSpecialItemInput(groupId: number, itemId: number, field: 'dailyPrice' | 'days', event: any) {
+  updateSpecialItemField(groupId, itemId, field, event?.detail?.value ?? '')
+}
+
 function describePolicy(policy: BoardingDiscountPolicy) {
   try {
     const rule = JSON.parse(policy.rule_json || '{}')
@@ -807,6 +955,13 @@ function describePolicy(policy: BoardingDiscountPolicy) {
     }
   } catch {}
   return policy.remark || '寄养优惠'
+}
+
+function formatPriceLineLabel(line: BoardingPriceLine) {
+  if (line.type === 'special_item' && line.quantity > 0 && line.unit_price > 0 && !line.label.includes('天')) {
+    return `${line.label} ${line.quantity}天 × ¥${line.unit_price.toFixed(2)}`
+  }
+  return line.label
 }
 
 function validateCoreFields() {
@@ -845,6 +1000,23 @@ function validateRoomGroups(requireCabinet = true) {
       uni.showToast({ title: `${roomLabel(index)} 还没选房型`, icon: 'none' })
       return false
     }
+    for (const item of group.specialItems) {
+      const specialItemDailyPrice = Number(item.dailyPrice || 0)
+      const specialItemDays = Number(item.days || 0)
+      const itemName = specialItemLabel(item.id)
+      if (!Number.isFinite(specialItemDailyPrice) || specialItemDailyPrice <= 0) {
+        uni.showToast({ title: `${roomLabel(index)} ${itemName} 请填写日价`, icon: 'none' })
+        return false
+      }
+      if (!Number.isInteger(specialItemDays) || specialItemDays < 1) {
+        uni.showToast({ title: `${roomLabel(index)} ${itemName} 请填写天数`, icon: 'none' })
+        return false
+      }
+      if (stayNights.value > 0 && specialItemDays > stayNights.value) {
+        uni.showToast({ title: `${roomLabel(index)} ${itemName} 天数不能超过寄养晚数`, icon: 'none' })
+        return false
+      }
+    }
   }
   return true
 }
@@ -858,10 +1030,18 @@ function buildRoomGroupsPayload(mode: 'preview' | 'submit', petIdMap?: Record<st
       cabinet_id: number
       check_in_at: string
       check_out_at: string
+      special_items?: Array<{ id: number; daily_price: number; days: number }>
     } = {
       cabinet_id: group.cabinetId,
       check_in_at: form.value.checkInAt,
       check_out_at: form.value.checkOutAt,
+    }
+    if (group.specialItems.length > 0) {
+      payload.special_items = group.specialItems.map((item) => ({
+        id: item.id,
+        daily_price: Number(item.dailyPrice || 0),
+        days: Number(item.days || 0),
+      }))
     }
     if (mode === 'submit') {
       payload.pet_ids = pets.map((pet) => petIdMap?.[pet.key] || pet.petId || 0).filter(Boolean)
@@ -879,6 +1059,11 @@ async function ensurePoliciesLoaded() {
   const res = await getBoardingPolicies()
   policies.value = (res.data || []).filter((item) => item.status === 1)
   selectedPolicyIds.value = policies.value.map((item) => item.ID)
+}
+
+async function loadSpecialItems() {
+  const res = await getBoardingSpecialItems({ active_only: 1 })
+  specialItems.value = (res.data || []).filter((item) => item.status === 1)
 }
 
 async function loadAvailableCabinets() {
@@ -918,6 +1103,7 @@ async function loadPreview() {
   try {
     const payload = {
       customer_id: customerMode.value === 'regular' ? selectedCustomer.value?.ID : undefined,
+      deposit_enabled: form.value.depositEnabled,
       policy_ids: selectedPolicyIds.value,
       room_groups: buildRoomGroupsPayload('preview'),
     }
@@ -938,10 +1124,6 @@ const runSubmit = singleFlight(async () => {
     if (!preview.value) {
       await loadPreview()
       if (!preview.value) return
-    }
-    if (form.value.hasDeworming === null) {
-      uni.showToast({ title: '请选择是否已驱虫', icon: 'none' })
-      return
     }
 
     let customerId = selectedCustomer.value?.ID || 0
@@ -970,6 +1152,7 @@ const runSubmit = singleFlight(async () => {
 
     const res = await createBoardingOrder({
       customer_id: customerId,
+      deposit_enabled: form.value.depositEnabled,
       policy_ids: selectedPolicyIds.value,
       room_groups: buildRoomGroupsPayload('submit', petIdMap),
       has_deworming: form.value.hasDeworming,
@@ -988,7 +1171,10 @@ async function submit() {
   await runSubmit()
 }
 
-ensurePoliciesLoaded()
+onShow(() => {
+  void ensurePoliciesLoaded()
+  void loadSpecialItems()
+})
 </script>
 
 <style scoped>
@@ -1234,6 +1420,54 @@ ensurePoliciesLoaded()
   color: #4f46e5;
   font-size: 22rpx;
   white-space: nowrap;
+}
+.special-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.special-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid #e5e7eb;
+  background: #fff;
+}
+.special-option.active {
+  border-color: #4f46e5;
+  background: #eef2ff;
+}
+.special-option-name,
+.special-selected-name {
+  display: block;
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #111827;
+}
+.special-option-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #6b7280;
+}
+.special-option-mark {
+  flex-shrink: 0;
+  padding: 8rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 22rpx;
+}
+.special-option.active .special-option-mark {
+  background: #4f46e5;
+  color: #fff;
+}
+.special-title-card {
+  justify-content: center;
 }
 .action-card {
   gap: 0;

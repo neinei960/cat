@@ -1,0 +1,5 @@
+{
+  "status": 200,
+  "contentType": "text/html",
+  "text": "<!DOCTYPE html>\n<html>\n  <head>\n    <link rel=\"stylesheet\" href=\"/assets/uni.ba61913d.css\">\n\n    <meta charset=\"UTF-8\" />\n    <script>\n      var coverSupport = 'CSS' in window && typeof CSS.supports === 'function' && (CSS.supports('top: env(a)') ||\n        CSS.supports('top: constant(a)'))\n      document.write(\n        '<meta name=\"viewport\" content=\"width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0' +\n        (coverSupport ? ', viewport-fit=cover' : '"
+}

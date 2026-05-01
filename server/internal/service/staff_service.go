@@ -13,6 +13,11 @@ type StaffService struct {
 	serviceRepo  *repository.ServiceRepository
 }
 
+type CalendarResources struct {
+	Staffs    []model.Staff         `json:"staffs"`
+	Schedules []model.StaffSchedule `json:"schedules"`
+}
+
 func NewStaffService(staffRepo *repository.StaffRepository, scheduleRepo *repository.ScheduleRepository, serviceRepo *repository.ServiceRepository) *StaffService {
 	return &StaffService{staffRepo: staffRepo, scheduleRepo: scheduleRepo, serviceRepo: serviceRepo}
 }
@@ -88,6 +93,33 @@ func (s *StaffService) BatchSetSchedule(schedules []model.StaffSchedule) error {
 
 func (s *StaffService) GetSchedule(staffID uint, startDate, endDate string) ([]model.StaffSchedule, error) {
 	return s.scheduleRepo.FindByStaffAndDateRange(staffID, startDate, endDate)
+}
+
+func (s *StaffService) ListCalendarResources(shopID uint, date string) (*CalendarResources, error) {
+	staffs, _, err := s.List(shopID, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	activeStaffs := make([]model.Staff, 0, len(staffs))
+	staffIDs := make([]uint, 0, len(staffs))
+	for _, staff := range staffs {
+		if staff.Status != 1 {
+			continue
+		}
+		activeStaffs = append(activeStaffs, staff)
+		staffIDs = append(staffIDs, staff.ID)
+	}
+
+	schedules, err := s.scheduleRepo.FindByShopStaffsAndDate(shopID, staffIDs, date)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CalendarResources{
+		Staffs:    activeStaffs,
+		Schedules: schedules,
+	}, nil
 }
 
 // Staff services

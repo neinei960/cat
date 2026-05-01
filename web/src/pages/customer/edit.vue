@@ -269,9 +269,12 @@ async function onSubmit() {
   color: #1F2937;
 }
 .field-textarea {
+  width: 100%;
+  height: 84rpx;
   font-size: 28rpx;
   color: #1F2937;
   line-height: 1.5;
+  box-sizing: border-box;
 }
 .field-summary {
   flex: 1;

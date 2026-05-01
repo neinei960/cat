@@ -90,7 +90,9 @@ func (h *BoardingHandler) UpdateCabinet(c *gin.Context) {
 }
 
 type saveHolidayReq struct {
-	HolidayDate string `json:"holiday_date" binding:"required"`
+	HolidayDate string `json:"holiday_date"`
+	StartDate   string `json:"start_date"`
+	EndDate     string `json:"end_date"`
 	Name        string `json:"name"`
 }
 
@@ -109,16 +111,32 @@ func (h *BoardingHandler) CreateHoliday(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
-	holiday := &model.BoardingHoliday{
-		ShopID:      c.GetUint("shop_id"),
-		HolidayDate: req.HolidayDate,
-		Name:        req.Name,
+
+	shopID := c.GetUint("shop_id")
+	if req.HolidayDate != "" {
+		holiday := &model.BoardingHoliday{
+			ShopID:      shopID,
+			HolidayDate: req.HolidayDate,
+			Name:        req.Name,
+		}
+		if err := h.service.CreateHoliday(holiday); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(c, []model.BoardingHoliday{*holiday})
+		return
 	}
-	if err := h.service.CreateHoliday(holiday); err != nil {
+	if req.StartDate == "" || req.EndDate == "" {
+		response.Error(c, http.StatusBadRequest, "请选择开始和结束日期")
+		return
+	}
+
+	holidays, err := h.service.CreateHolidayRange(shopID, req.StartDate, req.EndDate, req.Name)
+	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.Success(c, holiday)
+	response.Success(c, holidays)
 }
 
 func (h *BoardingHandler) DeleteHoliday(c *gin.Context) {
@@ -208,6 +226,76 @@ func (h *BoardingHandler) UpdatePolicy(c *gin.Context) {
 	response.Success(c, policy)
 }
 
+type saveSpecialItemReq struct {
+	Name              string  `json:"name" binding:"required"`
+	DefaultDailyPrice float64 `json:"default_daily_price"`
+	SortOrder         int     `json:"sort_order"`
+	Status            int     `json:"status"`
+	Remark            string  `json:"remark"`
+}
+
+func (h *BoardingHandler) ListSpecialItems(c *gin.Context) {
+	onlyActive := c.DefaultQuery("active_only", "") == "1"
+	list, err := h.service.ListSpecialItems(c.GetUint("shop_id"), onlyActive)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, list)
+}
+
+func (h *BoardingHandler) CreateSpecialItem(c *gin.Context) {
+	var req saveSpecialItemReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	item := &model.BoardingSpecialItem{
+		ShopID:            c.GetUint("shop_id"),
+		Name:              req.Name,
+		DefaultDailyPrice: req.DefaultDailyPrice,
+		SortOrder:         req.SortOrder,
+		Status:            req.Status,
+		Remark:            req.Remark,
+	}
+	if err := h.service.CreateSpecialItem(item); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *BoardingHandler) UpdateSpecialItem(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req saveSpecialItemReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	item := &model.BoardingSpecialItem{
+		Name:              req.Name,
+		DefaultDailyPrice: req.DefaultDailyPrice,
+		SortOrder:         req.SortOrder,
+		Status:            req.Status,
+		Remark:            req.Remark,
+	}
+	item.ID = uint(id)
+	if err := h.service.UpdateSpecialItem(c.GetUint("shop_id"), item); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, item)
+}
+
+func (h *BoardingHandler) DeleteSpecialItem(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err := h.service.DeleteSpecialItem(c.GetUint("shop_id"), uint(id)); err != nil {
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
+	response.Success(c, nil)
+}
+
 func (h *BoardingHandler) GetAvailableCabinets(c *gin.Context) {
 	petCount, _ := strconv.Atoi(c.DefaultQuery("pet_count", "1"))
 	excludeOrderID, _ := strconv.ParseUint(c.DefaultQuery("exclude_order_id", "0"), 10, 64)
@@ -228,22 +316,37 @@ func (h *BoardingHandler) GetAvailableCabinets(c *gin.Context) {
 }
 
 type boardingRoomGroupReq struct {
-	PetIDs     []uint `json:"pet_ids"`
-	PetCount   int    `json:"pet_count"`
-	CabinetID  uint   `json:"cabinet_id" binding:"required"`
-	CheckInAt  string `json:"check_in_at" binding:"required"`
-	CheckOutAt string `json:"check_out_at" binding:"required"`
+	PetIDs                []uint                   `json:"pet_ids"`
+	PetCount              int                      `json:"pet_count"`
+	CabinetID             uint                     `json:"cabinet_id" binding:"required"`
+	CheckInAt             string                   `json:"check_in_at" binding:"required"`
+	CheckOutAt            string                   `json:"check_out_at" binding:"required"`
+	SpecialItemID         uint                     `json:"special_item_id"`
+	SpecialItemDailyPrice float64                  `json:"special_item_daily_price"`
+	SpecialItemDays       int                      `json:"special_item_days"`
+	SpecialItems          []boardingSpecialItemReq `json:"special_items"`
+}
+
+type boardingSpecialItemReq struct {
+	ID         uint    `json:"id"`
+	DailyPrice float64 `json:"daily_price"`
+	Days       int     `json:"days"`
 }
 
 type previewReq struct {
-	CustomerID uint                   `json:"customer_id"`
-	PetIDs     []uint                 `json:"pet_ids"`
-	PetCount   int                    `json:"pet_count"`
-	CabinetID  uint                   `json:"cabinet_id"`
-	CheckInAt  string                 `json:"check_in_at"`
-	CheckOutAt string                 `json:"check_out_at"`
-	PolicyIDs  []uint                 `json:"policy_ids"`
-	RoomGroups []boardingRoomGroupReq `json:"room_groups"`
+	CustomerID            uint                     `json:"customer_id"`
+	PetIDs                []uint                   `json:"pet_ids"`
+	PetCount              int                      `json:"pet_count"`
+	CabinetID             uint                     `json:"cabinet_id"`
+	CheckInAt             string                   `json:"check_in_at"`
+	CheckOutAt            string                   `json:"check_out_at"`
+	DepositEnabled        bool                     `json:"deposit_enabled"`
+	SpecialItemID         uint                     `json:"special_item_id"`
+	SpecialItemDailyPrice float64                  `json:"special_item_daily_price"`
+	SpecialItemDays       int                      `json:"special_item_days"`
+	SpecialItems          []boardingSpecialItemReq `json:"special_items"`
+	PolicyIDs             []uint                   `json:"policy_ids"`
+	RoomGroups            []boardingRoomGroupReq   `json:"room_groups"`
 }
 
 func (h *BoardingHandler) PricePreview(c *gin.Context) {
@@ -255,22 +358,31 @@ func (h *BoardingHandler) PricePreview(c *gin.Context) {
 	roomGroups := make([]service.BoardingRoomGroupInput, 0, len(req.RoomGroups))
 	for _, group := range req.RoomGroups {
 		roomGroups = append(roomGroups, service.BoardingRoomGroupInput{
-			PetIDs:     group.PetIDs,
-			PetCount:   group.PetCount,
-			CabinetID:  group.CabinetID,
-			CheckInAt:  group.CheckInAt,
-			CheckOutAt: group.CheckOutAt,
+			PetIDs:                group.PetIDs,
+			PetCount:              group.PetCount,
+			CabinetID:             group.CabinetID,
+			CheckInAt:             group.CheckInAt,
+			CheckOutAt:            group.CheckOutAt,
+			SpecialItemID:         group.SpecialItemID,
+			SpecialItemDailyPrice: group.SpecialItemDailyPrice,
+			SpecialItemDays:       group.SpecialItemDays,
+			SpecialItems:          mapBoardingSpecialItemReqs(group.SpecialItems),
 		})
 	}
 	preview, err := h.service.PreviewOrder(c.GetUint("shop_id"), service.BoardingPreviewInput{
-		CustomerID: req.CustomerID,
-		PetIDs:     req.PetIDs,
-		PetCount:   req.PetCount,
-		CabinetID:  req.CabinetID,
-		CheckInAt:  req.CheckInAt,
-		CheckOutAt: req.CheckOutAt,
-		PolicyIDs:  req.PolicyIDs,
-		RoomGroups: roomGroups,
+		CustomerID:            req.CustomerID,
+		PetIDs:                req.PetIDs,
+		PetCount:              req.PetCount,
+		CabinetID:             req.CabinetID,
+		CheckInAt:             req.CheckInAt,
+		CheckOutAt:            req.CheckOutAt,
+		DepositEnabled:        req.DepositEnabled,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqs(req.SpecialItems),
+		PolicyIDs:             req.PolicyIDs,
+		RoomGroups:            roomGroups,
 	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -280,15 +392,20 @@ func (h *BoardingHandler) PricePreview(c *gin.Context) {
 }
 
 type createBoardingOrderReq struct {
-	CustomerID   uint                   `json:"customer_id" binding:"required"`
-	PetIDs       []uint                 `json:"pet_ids"`
-	CabinetID    uint                   `json:"cabinet_id"`
-	CheckInAt    string                 `json:"check_in_at"`
-	CheckOutAt   string                 `json:"check_out_at"`
-	PolicyIDs    []uint                 `json:"policy_ids"`
-	RoomGroups   []boardingRoomGroupReq `json:"room_groups"`
-	HasDeworming *bool                  `json:"has_deworming"`
-	Remark       string                 `json:"remark"`
+	CustomerID            uint                     `json:"customer_id" binding:"required"`
+	PetIDs                []uint                   `json:"pet_ids"`
+	CabinetID             uint                     `json:"cabinet_id"`
+	CheckInAt             string                   `json:"check_in_at"`
+	CheckOutAt            string                   `json:"check_out_at"`
+	DepositEnabled        bool                     `json:"deposit_enabled"`
+	SpecialItemID         uint                     `json:"special_item_id"`
+	SpecialItemDailyPrice float64                  `json:"special_item_daily_price"`
+	SpecialItemDays       int                      `json:"special_item_days"`
+	SpecialItems          []boardingSpecialItemReq `json:"special_items"`
+	PolicyIDs             []uint                   `json:"policy_ids"`
+	RoomGroups            []boardingRoomGroupReq   `json:"room_groups"`
+	HasDeworming          *bool                    `json:"has_deworming"`
+	Remark                string                   `json:"remark"`
 }
 
 func (h *BoardingHandler) CreateOrder(c *gin.Context) {
@@ -300,24 +417,33 @@ func (h *BoardingHandler) CreateOrder(c *gin.Context) {
 	roomGroups := make([]service.BoardingRoomGroupInput, 0, len(req.RoomGroups))
 	for _, group := range req.RoomGroups {
 		roomGroups = append(roomGroups, service.BoardingRoomGroupInput{
-			PetIDs:     group.PetIDs,
-			PetCount:   group.PetCount,
-			CabinetID:  group.CabinetID,
-			CheckInAt:  group.CheckInAt,
-			CheckOutAt: group.CheckOutAt,
+			PetIDs:                group.PetIDs,
+			PetCount:              group.PetCount,
+			CabinetID:             group.CabinetID,
+			CheckInAt:             group.CheckInAt,
+			CheckOutAt:            group.CheckOutAt,
+			SpecialItemID:         group.SpecialItemID,
+			SpecialItemDailyPrice: group.SpecialItemDailyPrice,
+			SpecialItemDays:       group.SpecialItemDays,
+			SpecialItems:          mapBoardingSpecialItemReqs(group.SpecialItems),
 		})
 	}
 	order, err := h.service.CreateOrder(c.GetUint("shop_id"), service.BoardingCreateInput{
-		CustomerID:   req.CustomerID,
-		PetIDs:       req.PetIDs,
-		CabinetID:    req.CabinetID,
-		CheckInAt:    req.CheckInAt,
-		CheckOutAt:   req.CheckOutAt,
-		PolicyIDs:    req.PolicyIDs,
-		RoomGroups:   roomGroups,
-		HasDeworming: req.HasDeworming,
-		Remark:       req.Remark,
-		OperatorID:   c.GetUint("staff_id"),
+		CustomerID:            req.CustomerID,
+		PetIDs:                req.PetIDs,
+		CabinetID:             req.CabinetID,
+		CheckInAt:             req.CheckInAt,
+		CheckOutAt:            req.CheckOutAt,
+		DepositEnabled:        req.DepositEnabled,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqs(req.SpecialItems),
+		PolicyIDs:             req.PolicyIDs,
+		RoomGroups:            roomGroups,
+		HasDeworming:          req.HasDeworming,
+		Remark:                req.Remark,
+		OperatorID:            c.GetUint("staff_id"),
 	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -356,6 +482,25 @@ func (h *BoardingHandler) GetOrder(c *gin.Context) {
 	response.Success(c, order)
 }
 
+type updateBoardingDewormingReq struct {
+	HasDeworming *bool `json:"has_deworming"`
+}
+
+func (h *BoardingHandler) UpdateDeworming(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req updateBoardingDewormingReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	order, err := h.service.UpdateDeworming(c.GetUint("shop_id"), uint(id), c.GetUint("staff_id"), req.HasDeworming)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, order)
+}
+
 func (h *BoardingHandler) Dashboard(c *gin.Context) {
 	data, err := h.service.Dashboard(c.GetUint("shop_id"))
 	if err != nil {
@@ -365,17 +510,53 @@ func (h *BoardingHandler) Dashboard(c *gin.Context) {
 	response.Success(c, data)
 }
 
+type boardingAdjustReq struct {
+	DiscountAmount        float64                   `json:"discount_amount"`
+	SpecialItemID         *uint                     `json:"special_item_id"`
+	SpecialItemDailyPrice *float64                  `json:"special_item_daily_price"`
+	SpecialItemDays       *int                      `json:"special_item_days"`
+	SpecialItems          *[]boardingSpecialItemReq `json:"special_items"`
+}
+
+func mapBoardingSpecialItemReqs(items []boardingSpecialItemReq) []service.BoardingSpecialItemSelection {
+	if len(items) == 0 {
+		return nil
+	}
+	selections := make([]service.BoardingSpecialItemSelection, 0, len(items))
+	for _, item := range items {
+		if item.ID == 0 {
+			continue
+		}
+		selections = append(selections, service.BoardingSpecialItemSelection{
+			ID:         item.ID,
+			DailyPrice: item.DailyPrice,
+			Days:       item.Days,
+		})
+	}
+	return selections
+}
+
+func mapBoardingSpecialItemReqPtr(items *[]boardingSpecialItemReq) *[]service.BoardingSpecialItemSelection {
+	if items == nil {
+		return nil
+	}
+	mapped := mapBoardingSpecialItemReqs(*items)
+	return &mapped
+}
+
 func (h *BoardingHandler) CheckIn(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var req struct {
-		DiscountAmount float64 `json:"discount_amount"`
-	}
+	var req boardingAdjustReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 	order, err := h.service.CheckIn(c.GetUint("shop_id"), uint(id), c.GetUint("staff_id"), service.BoardingCheckInInput{
-		DiscountAmount: req.DiscountAmount,
+		DiscountAmount:        req.DiscountAmount,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqPtr(req.SpecialItems),
 	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -387,15 +568,60 @@ func (h *BoardingHandler) CheckIn(c *gin.Context) {
 func (h *BoardingHandler) CheckInRoom(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	roomID, _ := strconv.ParseUint(c.Param("room_id"), 10, 64)
-	var req struct {
-		DiscountAmount float64 `json:"discount_amount"`
-	}
+	var req boardingAdjustReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 	order, err := h.service.CheckInRoom(c.GetUint("shop_id"), uint(id), uint(roomID), c.GetUint("staff_id"), service.BoardingCheckInInput{
-		DiscountAmount: req.DiscountAmount,
+		DiscountAmount:        req.DiscountAmount,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqPtr(req.SpecialItems),
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, order)
+}
+
+func (h *BoardingHandler) AdjustPrice(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req boardingAdjustReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	order, err := h.service.AdjustPrice(c.GetUint("shop_id"), uint(id), c.GetUint("staff_id"), service.BoardingCheckInInput{
+		DiscountAmount:        req.DiscountAmount,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqPtr(req.SpecialItems),
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, order)
+}
+
+func (h *BoardingHandler) AdjustRoomPrice(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	roomID, _ := strconv.ParseUint(c.Param("room_id"), 10, 64)
+	var req boardingAdjustReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	order, err := h.service.AdjustRoomPrice(c.GetUint("shop_id"), uint(id), uint(roomID), c.GetUint("staff_id"), service.BoardingCheckInInput{
+		DiscountAmount:        req.DiscountAmount,
+		SpecialItemID:         req.SpecialItemID,
+		SpecialItemDailyPrice: req.SpecialItemDailyPrice,
+		SpecialItemDays:       req.SpecialItemDays,
+		SpecialItems:          mapBoardingSpecialItemReqPtr(req.SpecialItems),
 	})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())

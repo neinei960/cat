@@ -1,0 +1,102 @@
+- generic [ref=e7]:
+  - generic [ref=e8]:
+    - generic [ref=e10]: 猫咪洗护
+    - generic [ref=e11]:
+      - generic [ref=e12] [cursor=pointer]:
+        - generic [ref=e14]: 🏠
+        - generic [ref=e15]: 工作台
+      - generic [ref=e16] [cursor=pointer]:
+        - generic [ref=e18]: 🧾
+        - generic [ref=e19]: 开单
+      - generic [ref=e20] [cursor=pointer]:
+        - generic [ref=e22]: 📅
+        - generic [ref=e23]: 预约日历
+      - generic [ref=e24] [cursor=pointer]:
+        - generic [ref=e26]: 📋
+        - generic [ref=e27]: 预约列表
+      - generic [ref=e28] [cursor=pointer]:
+        - img [ref=e78]
+        - generic [ref=e32]: 猫咪管理
+      - generic [ref=e33] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - generic [ref=e36]: 客户管理
+      - generic [ref=e37] [cursor=pointer]:
+        - generic [ref=e39]: 📋
+        - generic [ref=e40]: 订单管理
+      - generic [ref=e41] [cursor=pointer]:
+        - generic [ref=e43]: ✂️
+        - generic [ref=e44]: 服务管理
+      - generic [ref=e45] [cursor=pointer]:
+        - generic [ref=e47]: 📦
+        - generic [ref=e48]: 商品管理
+      - generic [ref=e49] [cursor=pointer]:
+        - generic [ref=e51]: 🛵
+        - generic [ref=e52]: 上门喂养
+      - generic [ref=e53] [cursor=pointer]:
+        - generic [ref=e55]: 🏨
+        - generic [ref=e56]: 寄养看板
+      - generic [ref=e57] [cursor=pointer]:
+        - generic [ref=e59]: 🧑‍💼
+        - generic [ref=e60]: 员工管理
+      - generic [ref=e61] [cursor=pointer]:
+        - generic [ref=e63]: 📊
+        - generic [ref=e64]: 数据看板
+      - generic [ref=e65] [cursor=pointer]:
+        - generic [ref=e67]: 💳
+        - generic [ref=e68]: 会员卡
+      - generic [ref=e69] [cursor=pointer]:
+        - generic [ref=e71]: ⚙️
+        - generic [ref=e72]: 店铺设置
+    - generic [ref=e73]:
+      - generic [ref=e74]: 测试
+      - generic [ref=e76] [cursor=pointer]: 退出登录
+  - generic [ref=e79]:
+    - generic [ref=e81]: 已支付
+    - generic [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]: 订单号
+        - generic [ref=e85]: "20260418111412199893"
+      - generic [ref=e86]:
+        - generic [ref=e87]: 客户
+        - generic [ref=e88] [cursor=pointer]: okey dokey
+      - generic [ref=e89]:
+        - generic [ref=e90]: 猫咪
+        - generic [ref=e92] [cursor=pointer]: 初一
+      - generic [ref=e93]:
+        - generic [ref=e94]: 订单类型
+        - generic [ref=e95]: 商品零售
+      - generic [ref=e96]:
+        - generic [ref=e97]: 经手员工
+        - generic [ref=e98]: 乐乐
+      - generic [ref=e99]:
+        - generic [ref=e100]: 支付方式
+        - generic [ref=e101]: 扫码
+      - generic [ref=e102]:
+        - generic [ref=e103]: 支付时间
+        - generic [ref=e104]: 2026年04月18日 11:14:17
+    - generic [ref=e105]:
+      - generic [ref=e106]: 明细
+      - generic [ref=e107]:
+        - generic [ref=e108]:
+          - generic [ref=e109]: 📦 零售商品
+          - generic [ref=e110]: 1项
+        - generic [ref=e111]:
+          - generic [ref=e112]: 猫博士混合猫砂
+          - generic [ref=e113]: x1
+          - generic [ref=e114]: ¥32
+      - generic [ref=e115]:
+        - generic [ref=e116]:
+          - generic [ref=e117]: 应付
+          - generic [ref=e118]: ¥32
+        - generic [ref=e119]:
+          - generic [ref=e120]:
+            - generic [ref=e121]: 备注
+            - generic [ref=e123]: 保存
+          - generic [ref=e125]:
+            - generic [ref=e126]: 备注收款说明、客户要求或补充信息
+            - textbox [ref=e127]
+    - generic [ref=e128]:
+      - generic [ref=e129] [cursor=pointer]: 修改订单
+      - generic [ref=e130] [cursor=pointer]: 退款
+      - generic [ref=e131] [cursor=pointer]: 删除订单
+      - generic [ref=e132] [cursor=pointer]: 生成小票

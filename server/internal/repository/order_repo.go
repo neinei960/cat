@@ -50,6 +50,7 @@ type OrderFilter struct {
 	CustomerID     uint
 	StaffID        uint
 	PayMethod      string
+	CategoryID     uint
 	ProductKeyword string
 	OrderKind      string
 }
@@ -74,6 +75,9 @@ func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) 
 	if f.PayMethod != "" {
 		db = applyPayMethodFilter(db, "pay_method", f.PayMethod)
 	}
+	if f.CategoryID > 0 {
+		db = applyServiceCategoryFilter(db, "orders", f.CategoryID)
+	}
 	if f.ProductKeyword != "" {
 		like := "%" + f.ProductKeyword + "%"
 		db = db.Where(
@@ -92,8 +96,7 @@ func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, page
 	db := r.applyFilters(database.DB.Model(&model.Order{}), shopID, f)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
-		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("FeedingPlan").
 		Order("id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
 }
@@ -128,6 +131,9 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 	if f.PayMethod != "" {
 		db = applyPayMethodFilter(db, "orders.pay_method", f.PayMethod)
 	}
+	if f.CategoryID > 0 {
+		db = applyServiceCategoryFilter(db, "orders", f.CategoryID)
+	}
 	if f.ProductKeyword != "" {
 		productLike := "%" + f.ProductKeyword + "%"
 		db = db.Where(
@@ -140,8 +146,7 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 	db = applyOrderKindFilter(db, "orders", f.OrderKind)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
-		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("FeedingPlan").
 		Order("orders.id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
 }
@@ -163,6 +168,19 @@ func applyOrderKindFilter(db *gorm.DB, orderTable string, orderKind string) *gor
 	default:
 		return db
 	}
+}
+
+func applyServiceCategoryFilter(db *gorm.DB, orderTable string, categoryID uint) *gorm.DB {
+	orderIDColumn := orderTable + ".id"
+	return db.Where(
+		"EXISTS (?)",
+		database.DB.Model(&model.OrderItem{}).
+			Select("1").
+			Joins("JOIN services ON services.id = order_items.item_id AND services.deleted_at IS NULL").
+			Joins("LEFT JOIN service_categories ON service_categories.id = services.category_id AND service_categories.deleted_at IS NULL").
+			Where("order_items.order_id = "+orderIDColumn+" AND order_items.deleted_at IS NULL AND order_items.item_type = ?", 1).
+			Where("(services.category_id = ? OR service_categories.parent_id = ?)", categoryID, categoryID),
+	)
 }
 
 func applyPayMethodFilter(db *gorm.DB, column string, payMethod string) *gorm.DB {

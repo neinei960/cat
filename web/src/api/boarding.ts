@@ -20,8 +20,15 @@ export function getBoardingHolidays() {
   return request<BoardingHoliday[]>({ url: '/b/boarding/holidays' })
 }
 
-export function createBoardingHoliday(data: Partial<BoardingHoliday>) {
-  return request<BoardingHoliday>({ url: '/b/boarding/holidays', method: 'POST', data })
+export type BoardingHolidayCreatePayload = {
+  holiday_date?: string
+  start_date?: string
+  end_date?: string
+  name?: string
+}
+
+export function createBoardingHoliday(data: BoardingHolidayCreatePayload) {
+  return request<BoardingHoliday[]>({ url: '/b/boarding/holidays', method: 'POST', data })
 }
 
 export function deleteBoardingHoliday(id: number) {
@@ -32,12 +39,34 @@ export function getBoardingPolicies() {
   return request<BoardingDiscountPolicy[]>({ url: '/b/boarding/policies' })
 }
 
+export function getBoardingSpecialItems(params?: { active_only?: 0 | 1 }) {
+  return request<BoardingSpecialItem[]>({ url: '/b/boarding/special-items', data: params })
+}
+
+export function createBoardingSpecialItem(data: Partial<BoardingSpecialItem>) {
+  return request<BoardingSpecialItem>({ url: '/b/boarding/special-items', method: 'POST', data })
+}
+
+export function updateBoardingSpecialItem(id: number, data: Partial<BoardingSpecialItem>) {
+  return request<BoardingSpecialItem>({ url: `/b/boarding/special-items/${id}`, method: 'PUT', data })
+}
+
+export function deleteBoardingSpecialItem(id: number) {
+  return request({ url: `/b/boarding/special-items/${id}`, method: 'DELETE' })
+}
+
 export function createBoardingPolicy(data: any) {
   return request<BoardingDiscountPolicy>({ url: '/b/boarding/policies', method: 'POST', data })
 }
 
 export function updateBoardingPolicy(id: number, data: any) {
   return request<BoardingDiscountPolicy>({ url: `/b/boarding/policies/${id}`, method: 'PUT', data })
+}
+
+export type BoardingSpecialItemSelectionPayload = {
+  id: number
+  daily_price: number
+  days: number
 }
 
 export function previewBoardingOrder(data: {
@@ -47,6 +76,11 @@ export function previewBoardingOrder(data: {
   cabinet_id?: number
   check_in_at?: string
   check_out_at?: string
+  deposit_enabled?: boolean
+  special_item_id?: number
+  special_item_daily_price?: number
+  special_item_days?: number
+  special_items?: BoardingSpecialItemSelectionPayload[]
   policy_ids?: number[]
   room_groups?: Array<{
     pet_ids?: number[]
@@ -54,6 +88,10 @@ export function previewBoardingOrder(data: {
     cabinet_id: number
     check_in_at: string
     check_out_at: string
+    special_item_id?: number
+    special_item_daily_price?: number
+    special_item_days?: number
+    special_items?: BoardingSpecialItemSelectionPayload[]
   }>
 }) {
   return request<BoardingPricePreview>({ url: '/b/boarding/orders/price-preview', method: 'POST', data })
@@ -65,6 +103,11 @@ export function createBoardingOrder(data: {
   cabinet_id?: number
   check_in_at?: string
   check_out_at?: string
+  deposit_enabled?: boolean
+  special_item_id?: number
+  special_item_daily_price?: number
+  special_item_days?: number
+  special_items?: BoardingSpecialItemSelectionPayload[]
   policy_ids?: number[]
   room_groups?: Array<{
     pet_ids?: number[]
@@ -72,6 +115,10 @@ export function createBoardingOrder(data: {
     cabinet_id: number
     check_in_at: string
     check_out_at: string
+    special_item_id?: number
+    special_item_daily_price?: number
+    special_item_days?: number
+    special_items?: BoardingSpecialItemSelectionPayload[]
   }>
   has_deworming?: boolean | null
   remark?: string
@@ -92,16 +139,30 @@ export function getBoardingOrder(id: number) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}` })
 }
 
+export function updateBoardingOrderDeworming(id: number, hasDeworming: boolean | null) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/deworming`, method: 'PUT', data: { has_deworming: hasDeworming } })
+}
+
 export function getBoardingDashboard() {
   return request<BoardingDashboardGroup[]>({ url: '/b/boarding/dashboard' })
 }
 
-export function checkInBoardingOrder(id: number, data?: { discount_amount?: number }) {
+export type BoardingPriceAdjustPayload = { discount_amount?: number; special_item_id?: number; special_item_daily_price?: number; special_item_days?: number; special_items?: BoardingSpecialItemSelectionPayload[] }
+
+export function checkInBoardingOrder(id: number, data?: BoardingPriceAdjustPayload) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/check-in`, method: 'PUT', data: data || {} })
 }
 
-export function checkInBoardingRoom(id: number, roomId: number, data?: { discount_amount?: number }) {
+export function checkInBoardingRoom(id: number, roomId: number, data?: BoardingPriceAdjustPayload) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/check-in`, method: 'PUT', data: data || {} })
+}
+
+export function adjustBoardingOrderPrice(id: number, data?: BoardingPriceAdjustPayload) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/adjust-price`, method: 'PUT', data: data || {} })
+}
+
+export function adjustBoardingRoomPrice(id: number, roomId: number, data?: BoardingPriceAdjustPayload) {
+  return request<BoardingOrder>({ url: `/b/boarding/orders/${id}/rooms/${roomId}/adjust-price`, method: 'PUT', data: data || {} })
 }
 
 export function checkOutBoardingOrder(id: number, actualCheckOutAt: string) {

@@ -71,7 +71,7 @@
                     <view class="chart-bar-bg" :style="{ height: getBarPct(d.revenue) + '%' }"></view>
                     <view class="chart-dot" :style="{ bottom: getBarPct(d.revenue) + '%' }">
                       <view class="dot-inner"></view>
-                      <text class="dot-tooltip" v-if="d.revenue > 0">¥{{ d.revenue.toFixed(0) }}</text>
+                      <text class="dot-tooltip" v-if="d.revenue > 0">¥{{ d.revenue.toFixed(2) }}</text>
                     </view>
                   </view>
                 </view>

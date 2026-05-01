@@ -307,6 +307,21 @@ func (h *StaffHandler) GetSchedule(c *gin.Context) {
 	response.Success(c, schedules)
 }
 
+func (h *StaffHandler) CalendarResources(c *gin.Context) {
+	date := c.Query("date")
+	if date == "" {
+		response.Error(c, http.StatusBadRequest, "请提供date")
+		return
+	}
+
+	resources, err := h.staffService.ListCalendarResources(c.GetUint("shop_id"), date)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, resources)
+}
+
 // Staff services
 
 type setServicesReq struct {
