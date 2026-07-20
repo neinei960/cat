@@ -22,6 +22,34 @@
       </view>
     </view>
 
+    <view v-if="isEditMode && step < 4" class="card edit-deposit-card">
+      <view class="section-title section-title-between">
+        <view class="section-title-main">
+          <text class="section-icon">💵</text>
+          <text>添加/修改预约金</text>
+        </view>
+        <text class="edit-deposit-total">合计 ¥{{ totalAmount }}</text>
+      </view>
+      <view class="edit-deposit-row">
+        <text class="label">预约金</text>
+        <view class="confirm-deposit-box">
+          <input
+            v-if="!isMemberCustomer"
+            :value="depositInput"
+            type="digit"
+            placeholder="0.00"
+            class="deposit-input"
+            @input="onDepositInput"
+            @blur="onDepositBlur"
+          />
+          <text v-else class="deposit-static">会员预约无需预约金</text>
+        </view>
+      </view>
+      <text class="deposit-tip">
+        {{ isMemberCustomer ? '会员预约不收预约金。' : '默认 0，保存修改后转订单时会自动抵扣，最高不超过服务总金额。' }}
+      </text>
+    </view>
+
     <!-- Step 1: Customer & Pet -->
     <view v-if="step === 1" class="step-content">
       <!-- Tab: 熟客 / 新客 -->
@@ -443,6 +471,22 @@
 
           <view v-if="form.staff_id === currentStaffSlot.staff.ID && form.start_time" class="end-time-panel">
             <text class="time-section-label">结束时间</text>
+            <view class="appointment-shortcuts">
+              <view class="appointment-shortcuts-head">
+                <text class="appointment-shortcuts-title">刷牙 / 剪指甲</text>
+                <text class="appointment-shortcuts-desc">短项目快速占位</text>
+              </view>
+              <view class="appointment-shortcuts-actions">
+                <view
+                  v-for="option in shortCareDurations"
+                  :key="option.minutes"
+                  :class="['slot', 'short-slot', isShortCareEndTimeSelected(option.minutes) ? 'selected' : '']"
+                  @click="selectShortCareEndTime(option.minutes)"
+                >
+                  {{ option.label }}
+                </view>
+              </view>
+            </view>
             <view class="slots-grid" v-if="getEndTimeOptions(currentStaffSlot.staff.ID).length > 0">
               <view
                 v-for="endTime in getEndTimeOptions(currentStaffSlot.staff.ID)"
@@ -626,7 +670,6 @@ import SideLayout from '@/components/SideLayout.vue'
 import { getCustomerList, getCustomerPets, createCustomer, updateCustomer } from '@/api/customer'
 import { createPet, updatePet } from '@/api/pet'
 import { getServiceList } from '@/api/service'
-import { getServiceRanking } from '@/api/dashboard'
 import { getCategoryTree } from '@/api/service-category'
 import { getAvailableSlots, createAppointment, getAppointment, updateAppointment } from '@/api/appointment'
 import { getCustomerCard } from '@/api/member-card'
@@ -697,6 +740,10 @@ interface AppointmentPetFormItem {
 
 const APPOINTMENT_CUSTOMER_TYPE_NEW = 1
 const APPOINTMENT_CUSTOMER_TYPE_REGULAR = 2
+const shortCareDurations = [
+  { minutes: 5, label: '5分钟' },
+  { minutes: 10, label: '10分钟' },
+]
 
 const step = ref(1)
 const submitting = ref(false)
@@ -716,7 +763,6 @@ const customerKeyword = ref('')
 const customerList = ref<Customer[]>([])
 const petList = ref<Pet[]>([])
 const serviceList = ref<ServiceItem[]>([])
-const serviceRankingMap = ref<Record<string, number>>({})
 const categoryTree = ref<any[]>([])
 const activeCategoryId = ref<number>(0)
 const activeSubCategoryId = ref<number>(0)
@@ -961,15 +1007,17 @@ const filteredServices = computed(() => {
       list = list.filter(s => s.category_id && subIds.includes(s.category_id))
     }
   }
-  if (activeSubCategoryId.value !== 0) return list
-
   const serviceOrderIndex = new Map(serviceList.value.map((service, index) => [service.ID, index]))
-  return [...list].sort((a, b) => {
-    const countDiff = (serviceRankingMap.value[b.name] || 0) - (serviceRankingMap.value[a.name] || 0)
-    if (countDiff !== 0) return countDiff
-    return (serviceOrderIndex.get(a.ID) || 0) - (serviceOrderIndex.get(b.ID) || 0)
-  })
+  return [...list].sort((a, b) => compareServicesByUsage(a, b, serviceOrderIndex))
 })
+
+function compareServicesByUsage(a: ServiceItem, b: ServiceItem, serviceOrderIndex: Map<number, number>) {
+  const customerUsageDiff = Number(b.customer_usage_count || 0) - Number(a.customer_usage_count || 0)
+  if (customerUsageDiff !== 0) return customerUsageDiff
+  const usageDiff = Number(b.monthly_usage_count || 0) - Number(a.monthly_usage_count || 0)
+  if (usageDiff !== 0) return usageDiff
+  return (serviceOrderIndex.get(a.ID) || 0) - (serviceOrderIndex.get(b.ID) || 0)
+}
 const canProceedServices = computed(() =>
   form.value.pets.length > 0 && form.value.pets.every(petItem => petItem.service_ids.length > 0)
 )
@@ -999,18 +1047,14 @@ onLoad(async (query) => {
   if (query?.staff_id) form.value.staff_id = parseInt(query.staff_id)
   if (query?.time) form.value.start_time = query.time
 
-  const [cRes, sRes, catRes, rankingRes] = await Promise.all([
+  const [cRes, sRes, catRes] = await Promise.all([
     getCustomerList({ page: 1, page_size: 100 }),
-    getServiceList({ page: 1, page_size: 100, order_by: 'monthly_usage' }),
+    fetchOrderedServices(),
     getCategoryTree(),
-    getServiceRanking(getMonthStart(), getMonthEnd()).catch(() => ({ data: [] as Array<{ service_name: string; count: number }> })),
   ])
   customerList.value = cRes.data.list || []
-  serviceList.value = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+  serviceList.value = normalizeActiveServices(sRes.data.list || [])
   categoryTree.value = (catRes.data || []).filter((c: any) => c.status === 1)
-  serviceRankingMap.value = Object.fromEntries(
-    (rankingRes.data || []).map((item) => [item.service_name, item.count || 0]),
-  )
   if (categoryTree.value.length > 0) {
     activeCategoryId.value = categoryTree.value[0].ID
   }
@@ -1020,14 +1064,29 @@ onLoad(async (query) => {
   }
 })
 
-function getMonthStart(date = new Date()) {
-  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1)
-  return `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-${String(monthStart.getDate()).padStart(2, '0')}`
+function normalizeActiveServices(list: ServiceItem[]) {
+  return list.filter((s: ServiceItem) => s.status === 1)
 }
 
-function getMonthEnd(date = new Date()) {
-  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0)
-  return `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, '0')}-${String(monthEnd.getDate()).padStart(2, '0')}`
+function getServiceListParams(customerId = form.value.customer_id) {
+  const params: { page: number; page_size: number; order_by: string; customer_id?: number } = {
+    page: 1,
+    page_size: 100,
+    order_by: customerId ? 'customer_usage' : 'monthly_usage',
+  }
+  if (customerId) {
+    params.customer_id = customerId
+  }
+  return params
+}
+
+function fetchOrderedServices(customerId = form.value.customer_id) {
+  return getServiceList(getServiceListParams(customerId))
+}
+
+async function refreshServicesForCustomer(customerId = form.value.customer_id) {
+  const sRes = await fetchOrderedServices(customerId)
+  serviceList.value = normalizeActiveServices(sRes.data.list || [])
 }
 
 function upsertCustomerOption(customer?: Customer | null) {
@@ -1242,6 +1301,7 @@ async function selectCustomer(c: Customer, preferredPetId = 0) {
   const [res, cardRes] = await Promise.all([
     getCustomerPets(c.ID),
     getCustomerCard(c.ID).catch(() => ({ data: null as MemberCard | null })),
+    refreshServicesForCustomer(c.ID).catch(() => undefined),
   ])
   petList.value = res.data || []
   customerCard.value = cardRes.data || null
@@ -1443,7 +1503,7 @@ function isCurrentEndTimeValid() {
   if (!form.value.staff_id || !form.value.start_time || !form.value.end_time) {
     return false
   }
-  return getEndTimeOptions(form.value.staff_id).includes(form.value.end_time)
+  return getEndTimeOptions(form.value.staff_id).includes(form.value.end_time) || isShortCareEndTimeValid()
 }
 
 function getEndTimeOptions(staffId: number) {
@@ -1483,6 +1543,27 @@ function selectStartSlot(staffId: number, startTime: string) {
 }
 
 function selectEndTime(endTime: string) {
+  form.value.end_time = endTime
+}
+
+function getShortCareEndTime(minutes: number) {
+  if (!form.value.start_time) return ''
+  return minutesToTime(parseTime(form.value.start_time) + minutes)
+}
+
+function isShortCareEndTimeValid() {
+  if (!form.value.start_time || !form.value.end_time) return false
+  const duration = parseTime(form.value.end_time) - parseTime(form.value.start_time)
+  return shortCareDurations.some(option => option.minutes === duration)
+}
+
+function isShortCareEndTimeSelected(minutes: number) {
+  return form.value.end_time === getShortCareEndTime(minutes)
+}
+
+function selectShortCareEndTime(minutes: number) {
+  const endTime = getShortCareEndTime(minutes)
+  if (!endTime) return
   form.value.end_time = endTime
 }
 
@@ -1752,6 +1833,7 @@ async function submitNewCustomer() {
     form.value.customer_id = customerId
     customerCard.value = null
     setAppointmentDeposit(form.value.deposit || 0)
+    await refreshServicesForCustomer(customerId)
 
     const createdPets: Pet[] = []
     const appointmentPets: AppointmentPetFormItem[] = []
@@ -1817,8 +1899,8 @@ async function onSubmit() {
     if (!(await validateAppointmentBeforeSubmit())) return
 
     // 提交前校验：重新获取服务列表，确保选中的服务仍然有效（防止服务被删除/下架后仍提交旧ID）
-    const sRes = await getServiceList({ page: 1, page_size: 100, order_by: 'monthly_usage' })
-    const freshServices = (sRes.data.list || []).filter((s: ServiceItem) => s.status === 1)
+    const sRes = await fetchOrderedServices()
+    const freshServices = normalizeActiveServices(sRes.data.list || [])
     const freshIds = new Set(freshServices.map(s => s.ID))
     let hasInvalid = false
     for (const petItem of form.value.pets) {
@@ -2648,6 +2730,34 @@ async function onSubmit() {
   padding-top: 24rpx;
   border-top: 2rpx dashed #E5E7EB;
 }
+.appointment-shortcuts {
+  margin-bottom: 18rpx;
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+}
+.appointment-shortcuts-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+}
+.appointment-shortcuts-title {
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #1F2937;
+}
+.appointment-shortcuts-desc {
+  font-size: 22rpx;
+  color: #94A3B8;
+}
+.appointment-shortcuts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
 .end-time-empty {
   display: block;
   font-size: 24rpx;
@@ -2666,6 +2776,10 @@ async function onSubmit() {
 }
 .slot:active {
   transform: scale(0.95);
+}
+.short-slot {
+  padding: 14rpx 24rpx;
+  background: #FFFFFF;
 }
 .slot.selected {
   border-color: #4F46E5;
@@ -2750,6 +2864,26 @@ async function onSubmit() {
   margin-top: 6rpx;
   font-size: 22rpx;
   line-height: 1.6;
+  color: #6B7280;
+}
+.edit-deposit-card {
+  margin-top: 20rpx;
+  border: 1rpx solid #E0E7FF;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFF 100%);
+}
+.edit-deposit-total {
+  font-size: 24rpx;
+  color: #4F46E5;
+  font-weight: 700;
+}
+.edit-deposit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 0 8rpx;
+}
+.edit-deposit-row .label {
+  font-size: 26rpx;
   color: #6B7280;
 }
 .amount {

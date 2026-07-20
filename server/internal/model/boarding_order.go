@@ -1,6 +1,10 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 const (
 	BoardingOrderStatusPendingCheckin = "pending_checkin"
@@ -41,7 +45,16 @@ type BoardingOrder struct {
 	Pets     []BoardingOrderPet  `json:"pets,omitempty" gorm:"foreignKey:BoardingOrderID"`
 	Logs     []BoardingOrderLog  `json:"logs,omitempty" gorm:"foreignKey:BoardingOrderID"`
 
-	RoomIndex int `json:"room_index,omitempty" gorm:"-"`
+	PaymentLogs []BoardingPaymentLog `json:"payment_logs,omitempty" gorm:"-"`
+	RoomIndex   int                  `json:"room_index,omitempty" gorm:"-"`
+}
+
+type BoardingPaymentLog struct {
+	OrderID   uint       `json:"order_id"`
+	OrderNo   string     `json:"order_no"`
+	PayAmount float64    `json:"pay_amount"`
+	PayMethod string     `json:"pay_method"`
+	PayTime   *time.Time `json:"pay_time"`
 }
 
 type BoardingOrderRoom struct {

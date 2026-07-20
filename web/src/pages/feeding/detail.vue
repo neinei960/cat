@@ -96,7 +96,7 @@
           <text class="section-desc">同客户的上门喂养计划</text>
         </view>
         <view class="history-list">
-          <view class="history-order" v-for="item in historyPlans" :key="item.ID" @click="goHistoryPlan(item.ID)">
+          <view class="history-order" v-for="item in historyPlans" :key="item.ID" @click="goHistoryPlan(item.ID)" @longpress.stop="deleteHistoryPlan(item)">
             <view class="history-main">
               <text class="history-no">计划 #{{ item.ID }}</text>
               <text class="history-amount">¥{{ Number(item.total_amount || 0).toFixed(2) }}</text>
@@ -105,6 +105,7 @@
               <text>{{ planDateText(item) }}</text>
               <text>{{ feedingStatusLabel(item.status) }}</text>
             </view>
+            <text v-if="canDeleteHistory" class="history-delete-hint">长按可删除</text>
           </view>
         </view>
       </view>
@@ -125,7 +126,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { assignFeedingVisit, cancelFeedingPlan, generateFeedingOrder, getFeedingPlan, getFeedingPlans, pauseFeedingPlan, resumeFeedingPlan, updateFeedingDeposit, updateFeedingPlayDates, updateFeedingVisitNote } from '@/api/feeding'
+import { assignFeedingVisit, cancelFeedingPlan, deleteFeedingPlan, generateFeedingOrder, getFeedingPlan, getFeedingPlans, pauseFeedingPlan, resumeFeedingPlan, updateFeedingDeposit, updateFeedingPlayDates, updateFeedingVisitNote } from '@/api/feeding'
 import { getStaffList } from '@/api/staff'
 import { useAuthStore } from '@/store/auth'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
@@ -133,6 +134,7 @@ import { feedingStatusLabel, feedingWindowLabel, feedingWeekdays, formatFeedingD
 
 const authStore = useAuthStore()
 const canOperate = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'staff'))
+const canDeleteHistory = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const id = ref(0)
 const plan = ref<FeedingPlan | null>(null)
 const showAssign = ref(false)
@@ -148,6 +150,8 @@ const editingNoteText = ref('')
 const playDates = ref<Set<string>>(new Set())
 const savingPlayDates = ref(false)
 const depositInput = ref('')
+const deletingHistoryId = ref(0)
+const suppressHistoryClick = ref(false)
 const historyPlans = ref<FeedingPlan[]>([])
 const balanceDisplay = computed(() => {
   const total = plan.value?.total_amount || 0
@@ -344,7 +348,38 @@ function goOrder() {
 }
 
 function goHistoryPlan(planId: number) {
+  if (suppressHistoryClick.value) {
+    suppressHistoryClick.value = false
+    return
+  }
   uni.navigateTo({ url: `/pages/feeding/detail?id=${planId}` })
+}
+
+function deleteHistoryPlan(item: FeedingPlan) {
+  if (!canDeleteHistory.value || deletingHistoryId.value) return
+  suppressHistoryClick.value = true
+  setTimeout(() => {
+    suppressHistoryClick.value = false
+  }, 800)
+  uni.showModal({
+    title: '删除历史上门',
+    content: `确认删除计划 #${item.ID}？关联收款订单也会同步删除。`,
+    confirmText: '删除',
+    confirmColor: '#DC2626',
+    success: async (res) => {
+      if (!res.confirm) return
+      deletingHistoryId.value = item.ID
+      try {
+        await deleteFeedingPlan(item.ID)
+        historyPlans.value = historyPlans.value.filter((planItem) => Number(planItem.ID) !== Number(item.ID))
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '删除失败', icon: 'none' })
+      } finally {
+        deletingHistoryId.value = 0
+      }
+    },
+  })
 }
 
 function planDateText(item: FeedingPlan) {
@@ -397,6 +432,7 @@ onShow(async () => {
 .history-no { font-size: 24rpx; color: #111827; font-weight: 600; }
 .history-amount { font-size: 24rpx; color: #4F46E5; font-weight: 700; }
 .history-sub { display: flex; justify-content: space-between; gap: 12rpx; margin-top: 8rpx; font-size: 22rpx; color: #6B7280; }
+.history-delete-hint { display: block; margin-top: 8rpx; font-size: 20rpx; color: #94A3B8; }
 .rule-row { display: flex; justify-content: space-between; gap: 12rpx; font-size: 24rpx; color: #374151; }
 .visit-head { display: flex; justify-content: space-between; gap: 10rpx; align-items: center; }
 .visit-head-left { flex: 1; min-width: 0; }

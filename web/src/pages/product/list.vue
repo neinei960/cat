@@ -12,12 +12,12 @@
     <view class="search-bar">
       <input
         v-model="keyword"
-        placeholder="搜索商品名 / 品牌"
         class="search-input"
         confirm-type="search"
         @confirm="onSearch"
         @input="onSearchInput"
       />
+      <text v-if="!keyword" class="search-placeholder">搜索商品名 / 品牌</text>
       <view v-if="keyword" class="search-clear" @click="clearSearch">✕</view>
     </view>
 
@@ -199,15 +199,7 @@ onShow(async () => {
   font-size: 24rpx;
   color: #1F2937;
 }
-.search-input :deep(.uni-input-placeholder) {
-  display: flex !important;
-  align-items: center !important;
-  min-height: 76rpx !important;
-  height: 76rpx !important;
-  line-height: 76rpx !important;
-  color: #9CA3AF;
-  font-size: 24rpx;
-}
+.search-placeholder { position: absolute; left: 22rpx; top: 50%; transform: translateY(-50%); font-size: 24rpx; color: #9CA3AF; pointer-events: none; line-height: 1; }
 .search-clear { position: absolute; right: 18rpx; top: 50%; transform: translateY(-50%); font-size: 26rpx; color: #9CA3AF; padding: 8rpx; }
 .tabs { display: flex; gap: 10rpx; margin-bottom: 18rpx; flex-wrap: wrap; }
 .tab { font-size: 22rpx; padding: 8rpx 18rpx; border-radius: 18rpx; background: #F3F4F6; color: #6B7280; }

@@ -8,7 +8,12 @@
         <text class="summary-title">{{ isEditing ? '修改合单' : '预约合单确认' }}</text>
         <text class="summary-line">{{ appt.date }} {{ appt.start_time }} - {{ appt.end_time }}</text>
         <text class="summary-line">客户：{{ appt.customer?.nickname || appt.customer?.phone || '-' }}</text>
-        <text class="summary-line">洗护师：{{ appt.staff?.name || '待分配' }}</text>
+        <view class="summary-picker-row">
+          <text class="summary-picker-label">经手员工</text>
+          <picker :range="staffNames" :value="selectedStaffIdx" @change="onStaffChange">
+            <view :class="['staff-picker', !selectedStaff ? 'staff-picker-warn' : '']">{{ staffNames[selectedStaffIdx] || '请选择' }}</view>
+          </picker>
+        </view>
         <text class="summary-line">宠物：{{ petSummary }}</text>
         <view v-if="appt" class="arrival-block">
           <text class="summary-line">到店状态</text>
@@ -189,9 +194,9 @@
             </view>
           </scroll-view>
           <view v-if="productLoading" class="modal-empty">搜索中...</view>
-          <view v-else-if="filteredProducts.length === 0" class="modal-empty">暂无商品</view>
+          <view v-else-if="visibleProducts.length === 0" class="modal-empty">暂无商品</view>
           <scroll-view scroll-y class="service-pick-list">
-            <view v-for="prod in filteredProducts" :key="prod.ID" class="service-pick-group">
+            <view v-for="prod in visibleProducts" :key="prod.ID" class="service-pick-group">
               <view class="service-pick-item" @click="toggleProductExpand(prod)">
                 <text class="service-pick-name">{{ prod.name }}</text>
                 <text class="service-pick-arrow" v-if="getSellableProductSkus(prod).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
@@ -227,6 +232,7 @@ import { createBatchOrdersFromAppointment, getOrder, updateOrder } from '@/api/o
 import { getServiceList } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { getProductList, getProductCategories } from '@/api/product'
+import { getStaffList } from '@/api/staff'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
 
 const appointmentId = ref(0)
@@ -241,6 +247,8 @@ const allServices = ref<any[]>([])
 const categoryTree = ref<any[]>([]) // 树形：顶级分类，子分类在 children 里
 const activeCat1 = ref(0)
 const activeCat2 = ref(0)
+const staffList = ref<any[]>([])
+const selectedStaffIdx = ref(0)
 
 const topCategories = computed(() => categoryTree.value)
 const subCategories = computed(() => {
@@ -364,10 +372,16 @@ const payAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.v
 const petSummary = computed(() => drafts.map((draft) => draft.petName).filter(Boolean).join(' / ') || '-')
 const isEditing = computed(() => editingOrderId.value > 0)
 const canEditAppointmentLate = computed(() => !isEditing.value || Number(existingOrder.value?.pay_status || 0) !== 1)
+const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
+const staffNames = computed(() => ['请选择', ...staffList.value.map((staff: any) => staff.name)])
 
 function setAppointmentLate(value: boolean) {
   if (!canEditAppointmentLate.value) return
   appointmentIsLate.value = value
+}
+
+function onStaffChange(e: any) {
+  selectedStaffIdx.value = Number(e.detail?.value || 0)
 }
 
 // === 修改价格 ===
@@ -470,21 +484,33 @@ const activeProductCat = ref(0)
 const expandedProductId = ref(0)
 const productKeyword = ref('')
 const filteredProducts = ref<any[]>([])
+const visibleProducts = computed(() => {
+  return filteredProducts.value.filter((product: any) => {
+    if (activeProductCat.value <= 0) return true
+    return Number(product.category_id || product.CategoryID || product.category?.ID || 0) === activeProductCat.value
+  })
+})
 const productLoading = ref(false)
 let productSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productRequestSeq = 0
 
 async function loadProductOptions() {
+  const requestSeq = ++productRequestSeq
   productLoading.value = true
   try {
     const params: any = { page: 1, page_size: 100 }
     if (activeProductCat.value) params.category_id = activeProductCat.value
     if (productKeyword.value.trim()) params.keyword = productKeyword.value.trim()
     const res = await getProductList(params)
+    if (requestSeq !== productRequestSeq) return
     filteredProducts.value = (res.data?.list || []).filter((p: any) => p.status === 1)
   } catch {
+    if (requestSeq !== productRequestSeq) return
     filteredProducts.value = []
   } finally {
-    productLoading.value = false
+    if (requestSeq === productRequestSeq) {
+      productLoading.value = false
+    }
   }
 }
 
@@ -502,7 +528,9 @@ function onProductKeywordConfirm() {
 }
 
 function setProductCategory(categoryID: number) {
+  if (activeProductCat.value === categoryID) return
   activeProductCat.value = categoryID
+  expandedProductId.value = 0
   loadProductOptions()
 }
 
@@ -584,11 +612,13 @@ async function loadData() {
   if (!appointmentId.value) return
   loading.value = true
   try {
-    const [apptRes, orderRes] = await Promise.all([
+    const [apptRes, orderRes, staffRes] = await Promise.all([
       getAppointment(appointmentId.value),
       editingOrderId.value ? getOrder(editingOrderId.value) : Promise.resolve(null as any),
+      getStaffList({ page: 1, page_size: 50 } as any),
     ])
     appt.value = apptRes.data
+    staffList.value = (staffRes.data?.list || []).filter((staff: any) => staff.status === 1)
     if (Number(appt.value?.customer_id || 0) > 0) {
       try {
         const cardRes = await getCustomerCard(appt.value.customer_id)
@@ -602,6 +632,9 @@ async function loadData() {
     existingOrder.value = orderRes?.data || null
     appointmentIsLate.value = !!existingOrder.value?.appointment_is_late
     noteDraft.value = appt.value?.notes || ''
+    const initialStaffId = Number(existingOrder.value?.staff_id || appt.value?.staff_id || 0)
+    const staffIdx = staffList.value.findIndex((staff: any) => Number(staff.ID) === initialStaffId)
+    selectedStaffIdx.value = staffIdx >= 0 ? staffIdx + 1 : 0
 
     // 加载服务列表、分类、商品（用于添加服务/商品）
     try {
@@ -688,6 +721,10 @@ async function loadData() {
 async function submitBatch() {
   if (productOrServiceModalOpen.value) return
   if (!appointmentId.value) return
+  if (!selectedStaff.value) {
+    uni.showToast({ title: '请选择经手员工', icon: 'none' })
+    return
+  }
   submitting.value = true
   try {
     await syncAppointmentNotes()
@@ -712,7 +749,7 @@ async function submitBatch() {
       ])
       res = await updateOrder(editingOrderId.value, {
         customer_id: existingOrder.value?.customer_id || appt.value?.customer_id,
-        staff_id: existingOrder.value?.staff_id || appt.value?.staff_id,
+        staff_id: selectedStaff.value?.ID,
         appointment_is_late: appointmentIsLate.value,
         remark: existingOrder.value?.remark || appt.value?.notes || '',
         items,
@@ -720,6 +757,7 @@ async function submitBatch() {
     } else {
       res = await createBatchOrdersFromAppointment(appointmentId.value, {
         appointment_is_late: appointmentIsLate.value,
+        staff_id: selectedStaff.value?.ID,
         overrides: drafts.map(d => ({
           pet_id: d.petId,
           services: d.services.map(s => ({
@@ -776,6 +814,34 @@ onLoad((query) => {
 .summary-title { font-size: 32rpx; font-weight: 700; color: #111827; display: block; margin-bottom: 12rpx; }
 .summary-line { font-size: 24rpx; color: #6B7280; display: block; margin-top: 6rpx; }
 .summary-line.accent { color: #0F766E; font-weight: 600; }
+.summary-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 14rpx;
+}
+.summary-picker-label {
+  font-size: 24rpx;
+  color: #6B7280;
+}
+.staff-picker {
+  min-width: 180rpx;
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #EEF2FF;
+  color: #4338CA;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.staff-picker-warn {
+  background: #FEF2F2;
+  color: #DC2626;
+}
 .arrival-block { margin-top: 12rpx; }
 .arrival-toggle { display: inline-flex; gap: 12rpx; margin-top: 10rpx; }
 .arrival-toggle.disabled { opacity: 0.5; }

@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"crypto/rand"
 	"errors"
+	"math/big"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
@@ -45,6 +48,7 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 	}
 
 	shopID := c.GetUint("shop_id")
+	req.Phone = ensureCustomerPhone(h.customerService, shopID, req.Phone)
 	if err := h.ensurePhoneUnique(shopID, req.Phone, 0); err != nil {
 		if errors.Is(err, errDuplicateCustomerPhone) {
 			response.Error(c, http.StatusConflict, err.Error())
@@ -128,6 +132,7 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 		return
 	}
 
+	req.Phone = ensureCustomerPhone(h.customerService, customer.ShopID, req.Phone)
 	if err := h.ensurePhoneUnique(customer.ShopID, req.Phone, customer.ID); err != nil {
 		if errors.Is(err, errDuplicateCustomerPhone) {
 			response.Error(c, http.StatusConflict, err.Error())
@@ -196,6 +201,39 @@ func (h *CustomerHandler) GetPets(c *gin.Context) {
 		return
 	}
 	response.Success(c, pets)
+}
+
+func ensureCustomerPhone(customerService *service.CustomerService, shopID uint, phone string) string {
+	if phone != "" {
+		return phone
+	}
+	for i := 0; i < 10; i++ {
+		candidate := generatedCustomerPhone(i)
+		if _, err := customerService.GetByPhone(candidate, shopID); errors.Is(err, gorm.ErrRecordNotFound) {
+			return candidate
+		}
+	}
+	return generatedCustomerPhone(99)
+}
+
+func generatedCustomerPhone(offset int) string {
+	value := randomTenDigitValue()
+	if value < 0 {
+		value = (time.Now().UnixNano() + int64(offset)) % 10000000000
+	}
+	if value < 0 {
+		value = -value
+	}
+	return "9" + strconv.FormatInt(value+10000000000, 10)[1:]
+}
+
+func randomTenDigitValue() int64 {
+	max := big.NewInt(10000000000)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return -1
+	}
+	return n.Int64()
 }
 
 func (h *CustomerHandler) ensurePhoneUnique(shopID uint, phone string, currentCustomerID uint) error {

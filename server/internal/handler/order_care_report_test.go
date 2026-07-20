@@ -104,6 +104,45 @@ func TestCreateOrderCareReportReturns500ForUnexpectedServiceError(t *testing.T) 
 	}
 }
 
+func TestCreateOrderCareReportPassesDisplayOverridesToService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setupOrderCareReportHandlerTestDB(t)
+
+	capturingService := &capturingCareReportService{}
+	handler := newOrderCareReportTestHandler(capturingService)
+	router := newOrderCareReportTestRouter(handler)
+
+	rec := performOrderCareReportRequest(t, router, http.MethodPost, "/b/orders/7/care-report", map[string]any{
+		"pet_id":         12,
+		"pet_name":       "报告猫咪",
+		"breed":          "金吉拉",
+		"gender":         "妹妹",
+		"age":            "2岁1个月",
+		"portrait_url":   "/uploads/test-portrait.jpg",
+		"weight":         "4.2kg",
+		"care_date":      "2026-07-16",
+		"next_care_date": "2026-08-16",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	input := capturingService.input
+	if input.PetName == nil || *input.PetName != "报告猫咪" {
+		t.Fatalf("unexpected pet name override: %#v", input.PetName)
+	}
+	if input.Breed == nil || *input.Breed != "金吉拉" {
+		t.Fatalf("unexpected breed override: %#v", input.Breed)
+	}
+	if input.Gender == nil || *input.Gender != "妹妹" {
+		t.Fatalf("unexpected gender override: %#v", input.Gender)
+	}
+	if input.Age == nil || *input.Age != "2岁1个月" {
+		t.Fatalf("unexpected age override: %#v", input.Age)
+	}
+}
+
 func TestRouterRegistersOrderCareReportRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -277,6 +316,15 @@ type failingCareReportService struct {
 
 func (s failingCareReportService) Create(shopID, orderID uint, input service.CreateOrderCareReportInput) (*service.OrderCareReportResult, error) {
 	return nil, s.err
+}
+
+type capturingCareReportService struct {
+	input service.CreateOrderCareReportInput
+}
+
+func (s *capturingCareReportService) Create(shopID, orderID uint, input service.CreateOrderCareReportInput) (*service.OrderCareReportResult, error) {
+	s.input = input
+	return &service.OrderCareReportResult{}, nil
 }
 
 func newOrderCareReportTestRouter(orderHandler *handler.OrderHandler) *gin.Engine {

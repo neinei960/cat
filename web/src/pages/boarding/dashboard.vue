@@ -52,9 +52,12 @@
 
           <view v-if="group.orders?.length" class="order-list">
             <view class="order-row" v-for="item in group.orders" :key="item.ID" @click="go(`/pages/boarding/detail?id=${item.ID}`)">
-              <view>
+              <view class="order-info">
                 <text class="order-pets">{{ roomLabel(item) }} · {{ petNames(item) }}</text>
-                <text class="order-meta">{{ item.customer?.nickname || item.customer?.phone || '-' }} · {{ statusLabel(item.status) }}</text>
+                <view class="order-meta-row">
+                  <text class="order-meta">{{ item.customer?.nickname || item.customer?.phone || '-' }} · {{ statusLabel(item.status) }}</text>
+                  <text v-if="isPaidOrder(item)" class="paid-tag">已支付</text>
+                </view>
               </view>
               <text class="order-date">{{ item.check_in_at }} → {{ item.check_out_at }}</text>
             </view>
@@ -101,6 +104,10 @@ function roomLabel(order?: BoardingOrder) {
   return `房间${order?.room_index || 1}`
 }
 
+function isPaidOrder(order?: BoardingOrder) {
+  return Number(order?.order?.pay_status || 0) === 1
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -139,8 +146,12 @@ onShow(loadData)
 .remark { display: block; margin-top: 14rpx; font-size: 22rpx; color: #6B7280; line-height: 1.6; }
 .order-list { margin-top: 18rpx; display: flex; flex-direction: column; gap: 12rpx; }
 .order-row { display: flex; justify-content: space-between; gap: 16rpx; align-items: center; padding: 18rpx 20rpx; border-radius: 16rpx; background: #F9FAFB; }
+.order-info { min-width: 0; }
 .order-pets { display: block; font-size: 26rpx; font-weight: 600; color: #111827; }
-.order-meta, .order-date { display: block; margin-top: 6rpx; font-size: 22rpx; color: #6B7280; text-align: right; }
+.order-meta-row { display: flex; align-items: center; gap: 8rpx; margin-top: 6rpx; flex-wrap: wrap; }
+.order-meta { display: block; font-size: 22rpx; color: #6B7280; }
+.paid-tag { display: inline-flex; align-items: center; padding: 2rpx 10rpx; border-radius: 999rpx; background: #DCFCE7; color: #15803D; font-size: 20rpx; line-height: 1.5; font-weight: 600; }
+.order-date { display: block; margin-top: 6rpx; font-size: 22rpx; color: #6B7280; text-align: right; }
 @media (max-width: 768px) {
   .hero { flex-direction: column; }
   .hero-actions { width: 100%; justify-content: flex-start; }

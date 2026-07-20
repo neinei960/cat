@@ -25,10 +25,16 @@ export type BoardingHolidayCreatePayload = {
   start_date?: string
   end_date?: string
   name?: string
+  surcharge_amount?: number
+  ids?: number[]
 }
 
 export function createBoardingHoliday(data: BoardingHolidayCreatePayload) {
   return request<BoardingHoliday[]>({ url: '/b/boarding/holidays', method: 'POST', data })
+}
+
+export function updateBoardingHolidayRange(data: BoardingHolidayCreatePayload & { ids: number[] }) {
+  return request<BoardingHoliday[]>({ url: '/b/boarding/holidays/range', method: 'PUT', data })
 }
 
 export function deleteBoardingHoliday(id: number) {
@@ -137,6 +143,10 @@ export function getBoardingOrders(params?: PageParams & {
 
 export function getBoardingOrder(id: number) {
   return request<BoardingOrder>({ url: `/b/boarding/orders/${id}` })
+}
+
+export function deleteBoardingOrder(id: number) {
+  return request({ url: `/b/boarding/orders/${id}`, method: 'DELETE' })
 }
 
 export function updateBoardingOrderDeworming(id: number, hasDeworming: boolean | null) {

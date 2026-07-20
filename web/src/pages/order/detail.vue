@@ -17,7 +17,7 @@
           @click="goCustomerDetail(order.customer_id)"
         >{{ order.customer?.nickname || '-' }}</text>
       </view>
-      <view class="row pet-row" v-if="headerPets.length || order.order_kind !== 'product'">
+      <view class="row pet-row" v-if="headerPets.length || order.order_kind !== 'product' || canEditCustomerPet">
         <text class="label">猫咪</text>
         <view class="pet-name-list">
           <template v-if="headerPets.length">
@@ -41,7 +41,9 @@
         <text :class="['row-value', appointmentIsLateValue ? 'late-flag' : '']">{{ appointmentIsLateValue ? '迟到' : '正常' }}</text>
       </view>
       <view class="row"><text class="label">经手员工</text><text>{{ order.staff?.name || '-' }}</text></view>
-      <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ payMethodMap[order.pay_method] || order.pay_method }}</text></view>
+      <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ displayPayMethod }}</text></view>
+      <view class="row" v-if="order.pay_method === 'mixed_balance'"><text class="label">余额扣款</text><text>¥{{ Number(order.member_balance_used || 0).toFixed(2) }}</text></view>
+      <view class="row" v-if="order.pay_method === 'mixed_balance'"><text class="label">补差金额</text><text>¥{{ Number(order.cash_pay_amount || 0).toFixed(2) }}</text></view>
       <view class="row" v-if="order.pay_time"><text class="label">支付时间</text><text>{{ formatDateTime(order.pay_time) }}</text></view>
     </view>
 
@@ -90,6 +92,7 @@
     </view>
 
     <view class="actions">
+      <button v-if="canEditCustomerPet" class="btn link" @click="openCustomerPetModal">修改客户/猫咪</button>
       <button v-if="canEditPrice" class="btn edit" @click="goEditOrder">修改订单</button>
       <button v-if="order.status === 0 && !isDeletedView" class="btn pay" @click="openPayModal">收款</button>
       <button v-if="order.status === 0 && isAdmin && !isDeletedView" class="btn cancel" @click="doCancel">取消订单</button>
@@ -99,16 +102,85 @@
       <button class="btn receipt" @click="showReceipt = true">生成小票</button>
     </view>
 
+    <view class="modal-mask" v-if="showCustomerPetModal" @click="closeCustomerPetModal">
+      <view class="link-modal" @click.stop>
+        <view class="modal-head">
+          <view>
+            <text class="modal-title">修改客户/猫咪</text>
+            <text class="modal-subtitle">只修改订单归属，不改金额和明细</text>
+          </view>
+          <text class="modal-close" @click="closeCustomerPetModal">×</text>
+        </view>
+
+        <view class="link-section">
+          <view class="link-section-head">
+            <text class="link-section-title">客户</text>
+            <text v-if="customerPetSelectedCustomer" class="link-clear" @click="clearCustomerPetCustomer">清空</text>
+          </view>
+          <view v-if="customerPetSelectedCustomer" class="selected-link-card">
+            <text class="selected-link-name">{{ customerPetSelectedCustomer.nickname || '未命名客户' }}</text>
+            <text class="selected-link-meta">{{ customerPetSelectedCustomer.phone || '未留手机号' }}</text>
+          </view>
+          <view class="link-search">
+            <input
+              v-model="customerPetCustomerKeyword"
+              class="link-search-input"
+              confirm-type="search"
+              @input="searchCustomerPetCustomers"
+              @confirm="searchCustomerPetCustomers"
+            />
+            <text v-if="!customerPetCustomerKeyword" class="link-search-placeholder">搜索客户昵称或手机号</text>
+          </view>
+          <view v-if="customerPetCustomerOptions.length" class="link-options">
+            <view
+              v-for="customer in customerPetCustomerOptions"
+              :key="customer.ID"
+              class="link-option"
+              @click="selectCustomerPetCustomer(customer)"
+            >
+              <text class="link-option-name">{{ customer.nickname || '未命名客户' }}</text>
+              <text class="link-option-meta">{{ customer.phone || '未留手机号' }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="link-section">
+          <view class="link-section-head">
+            <text class="link-section-title">猫咪</text>
+            <text v-if="customerPetSelectedPet" class="link-clear" @click="customerPetSelectedPet = null">清空</text>
+          </view>
+          <view v-if="!customerPetSelectedCustomer" class="link-empty">先选择客户；纯商品单也可以只绑定客户。</view>
+          <view v-else-if="customerPetPets.length === 0" class="link-empty">该客户暂无猫咪档案，可以只保存客户。</view>
+          <view v-else class="pet-choice-list">
+            <view
+              v-for="pet in customerPetPets"
+              :key="pet.ID"
+              :class="['pet-choice', customerPetSelectedPet?.ID === pet.ID ? 'active' : '']"
+              @click="customerPetSelectedPet = pet"
+            >
+              <text class="pet-choice-name">{{ pet.name }}</text>
+              <text class="pet-choice-meta">{{ pet.breed || '未知品种' }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="link-actions">
+          <button class="link-btn ghost" @click="closeCustomerPetModal">取消</button>
+          <button class="link-btn primary" :disabled="savingCustomerPet" @click="saveCustomerPet">{{ savingCustomerPet ? '保存中...' : '保存' }}</button>
+        </view>
+      </view>
+    </view>
+
     <!-- 小票弹窗 -->
     <view class="modal-mask" v-if="showReceipt" @click="closeReceipt">
       <view class="receipt-outer" @click.stop>
       <view class="receipt-wrap" v-if="!receiptImageUrl">
-        <view class="receipt" id="receiptContent">
+        <view class="receipt" id="receiptContent" :class="{ 'receipt-lite-render': receiptLiteRender }">
           <view class="receipt-card receipt-brand-card">
             <view class="receipt-brand-top">
               <view class="receipt-logo">
                 <image
-                  v-if="!logoError"
+                  v-if="!logoError && !receiptLiteRender"
                   class="receipt-logo-img"
                   :src="logoSrc"
                   mode="aspectFill"
@@ -142,7 +214,7 @@
                 <text class="receipt-meta-label">会员余额</text>
                 <view class="receipt-member-badge">
                   <text class="receipt-member-level">VIP {{ memberCardLevel }}</text>
-                  <text class="receipt-member-amount">¥{{ balanceBeforePay.toFixed(2) }}</text>
+                  <text class="receipt-member-amount">¥{{ receiptBalanceBeforePay.toFixed(2) }}</text>
                 </view>
               </view>
             </view>
@@ -163,9 +235,11 @@
               <view class="receipt-item-main">
                 <text class="receipt-item-name">{{ item.name }}</text>
                 <view class="receipt-item-meta">
-                  <text>原价 ¥{{ Number(item.unit_price || 0).toFixed(2) }}</text>
-                  <text class="receipt-item-dot">·</text>
-                  <text>{{ getReceiptDiscountText(item) }}</text>
+                  <text>售价 ¥{{ Number(item.unit_price || 0).toFixed(2) }}</text>
+                  <template v-if="hasReceiptDiscount(item)">
+                    <text class="receipt-item-dot">·</text>
+                    <text>{{ getReceiptDiscountTag(item) }}</text>
+                  </template>
                   <text class="receipt-item-dot">·</text>
                   <text>×{{ item.quantity }}</text>
                 </view>
@@ -212,7 +286,15 @@
 
             <view v-if="hasMemberCard" class="receipt-balance-row">
               <text class="receipt-meta-label">消费后余额</text>
-              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ balanceAfterPay.toFixed(2) }}</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptBalanceAfterPay.toFixed(2) }}</text>
+            </view>
+            <view v-if="receiptBalanceUsedAmount > 0" class="receipt-balance-row">
+              <text class="receipt-meta-label">余额抵扣</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptBalanceUsedAmount.toFixed(2) }}</text>
+            </view>
+            <view v-if="receiptCashPayAmount > 0" class="receipt-balance-row">
+              <text class="receipt-meta-label">用户需补</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptCashPayAmount.toFixed(2) }}</text>
             </view>
           </view>
 
@@ -223,7 +305,15 @@
             </view>
             <view class="receipt-footer-row">
               <text class="receipt-footer-label">支付方式</text>
-              <text class="receipt-footer-value">{{ payMethodMap[order.pay_method] || order.pay_method || '待付款' }}</text>
+              <text class="receipt-footer-value">{{ displayPayMethod }}</text>
+            </view>
+            <view v-if="order.pay_method === 'mixed_balance'" class="receipt-footer-row">
+              <text class="receipt-footer-label">余额扣款</text>
+              <text class="receipt-footer-value">¥{{ Number(order.member_balance_used || 0).toFixed(2) }}</text>
+            </view>
+            <view v-if="order.pay_method === 'mixed_balance'" class="receipt-footer-row">
+              <text class="receipt-footer-label">补差金额</text>
+              <text class="receipt-footer-value">¥{{ Number(order.cash_pay_amount || 0).toFixed(2) }}</text>
             </view>
           </view>
 
@@ -245,6 +335,8 @@
             :src="receiptPreviewSrc"
             class="receipt-image receipt-image-native"
             alt="小票图片"
+            @click.stop
+            @touchstart.stop
           />
           <image
             v-else
@@ -284,6 +376,11 @@
           <text class="modal-amount">¥{{ order.pay_amount }}</text>
         </view>
 
+        <view v-if="canChooseBalancePayment && customerCard" class="pay-choice-tip">
+          <text class="pay-choice-title">会员余额</text>
+          <text class="pay-choice-desc">该客户会员余额 ¥{{ memberBalance.toFixed(2) }}，店长可选择扣余额，也可以选择其它收款方式。</text>
+        </view>
+
         <view class="pay-remark-panel">
           <text class="pay-remark-label">备注</text>
           <textarea
@@ -296,17 +393,17 @@
         </view>
 
         <view class="pay-grid">
-          <view class="pay-card qrcode" @click="doPay('qrcode')">
+          <view :class="['pay-card', 'qrcode', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('qrcode')">
             <view class="pay-card-badge">码</view>
             <text class="pay-card-label">扫码</text>
             <text class="pay-card-sub">聚合码 / 扫码枪</text>
           </view>
-          <view class="pay-card wechat" @click="doPay('wechat')">
+          <view :class="['pay-card', 'wechat', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('wechat')">
             <view class="pay-card-badge">微</view>
             <text class="pay-card-label">微信</text>
             <text class="pay-card-sub">微信转账 / 收款</text>
           </view>
-          <view class="pay-card meituan" @click="doPay('meituan')">
+          <view :class="['pay-card', 'meituan', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('meituan')">
             <view class="pay-card-badge">团</view>
             <text class="pay-card-label">美团</text>
             <text class="pay-card-sub">平台核销订单</text>
@@ -330,11 +427,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import OrderCareReportModal from '@/components/order/OrderCareReportModal.vue'
-import { getOrder, payOrder, cancelOrder, refundOrder, updateOrderRemark, deleteOrder } from '@/api/order'
+import { getOrder, payOrder, cancelOrder, refundOrder, updateOrderRemark, updateOrderCustomerPet, deleteOrder } from '@/api/order'
+import { getCustomerList, getCustomerPets } from '@/api/customer'
 import { getPetList } from '@/api/pet'
 import { getShop } from '@/api/shop'
 import { getCustomerCard } from '@/api/member-card'
@@ -343,18 +441,33 @@ import html2canvas from 'html2canvas'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 import { getReceiptGroupName, getReceiptItemDisplayName, splitOrderItemName } from '@/utils/order-item-display'
 import { canGenerateOrderCareReport } from '@/utils/order-care-report'
+import { getReceiptCanvasScale } from '@/utils/receipt-image'
 import { buildReceiptFileName, dataUrlToBlob, isAppleSafariBrowser, saveImageByUrl } from '@/utils/web-image-save'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
+const currentStaffRole = computed(() => {
+  if (authStore.staffInfo?.role) return authStore.staffInfo.role
+  try {
+    const raw = uni.getStorageSync('staffInfo')
+    if (!raw) return ''
+    return JSON.parse(raw)?.role || ''
+  } catch {
+    return ''
+  }
+})
+const isStoreOwner = computed(() => currentStaffRole.value === 'admin')
 const order = ref<any>(null)
 const isDeletedView = ref(false)
 const showPayModal = ref(false)
 const showReceipt = ref(false)
 const showCareReport = ref(false)
+const showCustomerPetModal = ref(false)
 const remarkDraft = ref('')
 const savingRemark = ref(false)
+const savingCustomerPet = ref(false)
+const paying = ref(false)
 const memberBalance = ref(0)
 const customerCard = ref<any>(null)
 const logoError = ref(false)
@@ -364,6 +477,12 @@ const shopSubtitle = ref('')
 const lockedScrollY = ref(0)
 const pageScrollLockApplied = ref(false)
 const resolvingPetName = ref('')
+const customerPetCustomerKeyword = ref('')
+const customerPetCustomerOptions = ref<any[]>([])
+const customerPetSelectedCustomer = ref<any | null>(null)
+const customerPetSelectedPet = ref<any | null>(null)
+const customerPetPets = ref<any[]>([])
+let customerPetSearchTimer: ReturnType<typeof setTimeout> | null = null
 const SERVICE_LIKE_ITEM_TYPES = [1, 4, 5, 6]
 
 function setPageScrollLock(locked: boolean) {
@@ -397,17 +516,51 @@ function setPageScrollLock(locked: boolean) {
   window.scrollTo(0, lockedScrollY.value)
   pageScrollLockApplied.value = false
 }
-const hasMemberCard = computed(() => !!customerCard.value?.ID)
+function hasSnapshotAmount(value: unknown) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+}
+
+const hasMemberBalanceSnapshot = computed(() => {
+  return hasSnapshotAmount(order.value?.member_balance_before) || hasSnapshotAmount(order.value?.member_balance_after)
+})
+const hasMemberCard = computed(() => !!customerCard.value?.ID || hasMemberBalanceSnapshot.value)
 const memberCardLevel = computed(() => {
   return customerCard.value?.template?.name || customerCard.value?.card_name || '会员'
 })
-const balanceBeforePay = computed(() => {
+const receiptBalanceBeforePay = computed(() => {
+  if (hasSnapshotAmount(order.value?.member_balance_before)) {
+    return Math.max(Number(order.value?.member_balance_before), 0)
+  }
   const balance = Number(memberBalance.value || 0)
   if (!order.value || order.value.pay_method !== 'balance') return Math.max(balance, 0)
   return Math.max(balance + Number(order.value.pay_amount || 0), 0)
 })
-const balanceAfterPay = computed(() => {
+const isMixedBalancePreview = computed(() => {
+  return !!customerCard.value
+    && Number(order.value?.pay_status || 0) === 0
+    && memberBalance.value > 0
+    && memberBalance.value < Number(order.value?.pay_amount || 0)
+})
+const receiptBalanceAfterPay = computed(() => {
+  if (hasSnapshotAmount(order.value?.member_balance_after)) {
+    return Math.max(Number(order.value?.member_balance_after), 0)
+  }
+  if (isMixedBalancePreview.value) {
+    return 0
+  }
   return Math.max(Number(memberBalance.value || 0), 0)
+})
+const receiptBalanceUsedAmount = computed(() => {
+  const stored = Number(order.value?.member_balance_used || 0)
+  if (stored > 0) return Math.max(stored, 0)
+  if (!isMixedBalancePreview.value) return 0
+  return Math.min(Math.max(Number(memberBalance.value || 0), 0), Math.max(Number(order.value?.pay_amount || 0), 0))
+})
+const receiptCashPayAmount = computed(() => {
+  const stored = Number(order.value?.cash_pay_amount || 0)
+  if (stored > 0) return Math.max(stored, 0)
+  if (!isMixedBalancePreview.value) return 0
+  return Math.max(Number(order.value?.pay_amount || 0) - receiptBalanceUsedAmount.value, 0)
 })
 const receiptSubtitleLines = computed(() => {
   const fallback = '专注猫咪科学与健康的可持续人宠美护生活'
@@ -482,6 +635,17 @@ const productDiscountRate = computed(() => {
   if (productTotalValue.value <= 0) return 1
   return (productTotalValue.value - productDiscountValue.value) / productTotalValue.value
 })
+function getMemberCardDiscountRate(value: unknown) {
+  const rate = Number(value || 1)
+  if (rate > 0 && rate < 1) return rate
+  return 1
+}
+const receiptServiceDiscountRate = computed(() => {
+  const customerRate = getMemberCardDiscountRate(order.value?.customer?.discount_rate)
+  if (customerRate < 1) return customerRate
+  return getMemberCardDiscountRate(customerCard.value?.discount_rate)
+})
+const receiptProductDiscountRate = computed(() => getMemberCardDiscountRate(customerCard.value?.product_discount_rate))
 
 const canEditPrice = computed(() => {
   if (!order.value) return false
@@ -497,7 +661,13 @@ const canEditPrice = computed(() => {
   if (payStatus === 0) return true
   return payStatus === 1 && status === 1 && canManageOpenedOrder.value
 })
+const canEditCustomerPet = computed(() => {
+  if (!order.value || isDeletedView.value) return false
+  const status = Number(order.value.status || 0)
+  return status === 0 || status === 1
+})
 const canGenerateCareReport = computed(() => canGenerateOrderCareReport(order.value))
+const canChooseBalancePayment = computed(() => isStoreOwner.value)
 
 const orderKindLabel = computed(() => {
   switch (order.value?.order_kind) {
@@ -715,27 +885,27 @@ function getItemSubtotalByTypes(itemTypes: number[]) {
 
 function getReceiptDiscountTag(item: any) {
   if (item?.item_type === 1) {
-    if (serviceDiscountRate.value >= 1) return '-'
-    return `${(serviceDiscountRate.value * 10).toFixed(1)}折`
+    if (receiptServiceDiscountRate.value >= 1) return '-'
+    return `${(receiptServiceDiscountRate.value * 10).toFixed(1)}折`
   }
   if (item?.item_type === 2) {
-    if (productDiscountRate.value >= 1) return '-'
-    return `${(productDiscountRate.value * 10).toFixed(1)}折`
+    if (receiptProductDiscountRate.value >= 1) return '-'
+    return `${(receiptProductDiscountRate.value * 10).toFixed(1)}折`
   }
   return '-'
 }
 
-function getReceiptDiscountText(item: any) {
-  const tag = getReceiptDiscountTag(item)
-  return tag === '-' ? '无折扣' : tag
+function hasReceiptDiscount(item: any) {
+  return getReceiptDiscountTag(item) !== '-'
 }
 
 const receiptImageUrl = ref('')
 const receiptBlobUrl = ref('')
 const generatingImage = ref(false)
 const receiptRenderToken = ref(0)
+const receiptLiteRender = ref(false)
 const isAppleSafari = computed(() => isAppleSafariBrowser())
-const showNativeReceiptImage = computed(() => isAppleSafari.value)
+const showNativeReceiptImage = computed(() => true)
 const receiptPreviewSrc = computed(() => {
   if (!receiptImageUrl.value) return ''
   return isAppleSafari.value ? receiptImageUrl.value : receiptBlobUrl.value || receiptImageUrl.value
@@ -747,6 +917,59 @@ const receiptImageHint = computed(() => {
   return '点击「保存图片」或长按图片保存'
 })
 
+function isConstrainedReceiptCanvas() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent || ''
+  return /iP(hone|od|ad)/i.test(userAgent) || window.innerWidth <= 480
+}
+
+async function renderReceiptCanvas(el: HTMLElement, scale: number) {
+  await nextTick()
+  return html2canvas(el, {
+    backgroundColor: '#F6F2EA',
+    scale,
+    useCORS: true,
+    allowTaint: false,
+    logging: false,
+    scrollX: 0,
+    scrollY: 0,
+    windowWidth: Math.ceil(el.scrollWidth),
+    windowHeight: Math.ceil(el.scrollHeight),
+    foreignObjectRendering: false,
+    imageTimeout: 8000,
+    removeContainer: true,
+  })
+}
+
+async function renderReceiptDataUrl(el: HTMLElement, scale: number) {
+  const canvas = await renderReceiptCanvas(el, scale)
+  return canvas.toDataURL('image/png')
+}
+
+async function renderReceiptDataUrlWithFallback(el: HTMLElement, scale: number) {
+  try {
+    return await renderReceiptDataUrl(el, scale)
+  } catch (primaryError) {
+    console.error('html2canvas primary render error:', primaryError)
+  }
+
+  if (scale > 1) {
+    try {
+      return await renderReceiptDataUrl(el, 1)
+    } catch (scaleError) {
+      console.error('html2canvas scale-1 render error:', scaleError)
+    }
+  }
+
+  receiptLiteRender.value = true
+  try {
+    return await renderReceiptDataUrl(el, 1)
+  } finally {
+    receiptLiteRender.value = false
+    await nextTick()
+  }
+}
+
 async function saveReceiptImage() {
   const el = document.getElementById('receiptContent')
   if (!el) {
@@ -757,19 +980,9 @@ async function saveReceiptImage() {
   receiptRenderToken.value = renderToken
   generatingImage.value = true
   try {
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#F6F2EA',
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: el.scrollWidth,
-      windowHeight: el.scrollHeight,
-    })
+    const scale = getReceiptCanvasScale(el.scrollWidth, el.scrollHeight, isConstrainedReceiptCanvas())
+    const dataUrl = await renderReceiptDataUrlWithFallback(el, scale)
     if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
-    const dataUrl = canvas.toDataURL('image/png')
     // Keep a blob URL for non-Safari download fallback.
     const blob = dataUrlToBlob(dataUrl)
     if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
@@ -818,11 +1031,33 @@ const payMethodMap: Record<string, string> = {
   wechat: '微信',
   meituan: '美团',
   balance: '会员余额',
+  mixed_balance: '会员余额 + 补差',
   other: '其他',
   alipay: '扫码',
   cash: '其他',
   card: '会员余额',
 }
+const payMethodConfirmMap: Record<string, string> = {
+  qrcode: '扫码',
+  wechat: '微信',
+  meituan: '美团',
+  balance: '会员余额',
+  other: '其他',
+}
+const mixedBalanceCashPayMethods = [
+  { label: '扫码补差', method: 'qrcode' },
+  { label: '微信补差', method: 'wechat' },
+  { label: '美团补差', method: 'meituan' },
+  { label: '其他补差', method: 'other' },
+]
+const displayPayMethod = computed(() => {
+  if (!order.value?.pay_method) return '待付款'
+  if (order.value.pay_method === 'mixed_balance') {
+    const cashLabel = payMethodMap[order.value.cash_pay_method] || order.value.cash_pay_method || '补差'
+    return `会员余额 + ${cashLabel}`
+  }
+  return payMethodMap[order.value.pay_method] || order.value.pay_method
+})
 
 onLoad(async (query) => {
   if (query?.id) {
@@ -852,7 +1087,7 @@ onLoad(async (query) => {
 })
 
 watch(
-  () => showReceipt.value || showPayModal.value || showCareReport.value,
+  () => showReceipt.value || showPayModal.value || showCareReport.value || showCustomerPetModal.value,
   (visible) => {
     setPageScrollLock(visible)
   }
@@ -866,6 +1101,89 @@ async function reload() {
   const res = await getOrder(order.value.ID, isDeletedView.value)
   order.value = res.data
   remarkDraft.value = resolveEditableRemark(order.value)
+}
+
+async function openCustomerPetModal() {
+  if (!order.value) return
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+  customerPetSelectedCustomer.value = order.value.customer || null
+  customerPetSelectedPet.value = order.value.pet || null
+  customerPetPets.value = []
+  showCustomerPetModal.value = true
+  const customerId = Number(order.value.customer_id || order.value.customer?.ID || 0)
+  if (customerId > 0) {
+    await loadCustomerPetPets(customerId)
+  }
+}
+
+function closeCustomerPetModal() {
+  showCustomerPetModal.value = false
+}
+
+async function searchCustomerPetCustomers() {
+  if (customerPetSearchTimer) clearTimeout(customerPetSearchTimer)
+  customerPetSearchTimer = setTimeout(async () => {
+    const keyword = customerPetCustomerKeyword.value.trim()
+    if (!keyword) {
+      customerPetCustomerOptions.value = []
+      return
+    }
+    try {
+      const res = await getCustomerList({ page: 1, page_size: 20, keyword } as any)
+      customerPetCustomerOptions.value = res.data?.list || []
+    } catch {
+      customerPetCustomerOptions.value = []
+    }
+  }, 250)
+}
+
+async function selectCustomerPetCustomer(customer: any) {
+  customerPetSelectedCustomer.value = customer
+  customerPetSelectedPet.value = null
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+  await loadCustomerPetPets(Number(customer.ID || 0))
+}
+
+async function loadCustomerPetPets(customerId: number) {
+  if (!customerId) {
+    customerPetPets.value = []
+    return
+  }
+  try {
+    const res = await getCustomerPets(customerId)
+    customerPetPets.value = Array.isArray(res.data) ? res.data : []
+  } catch {
+    customerPetPets.value = []
+  }
+}
+
+function clearCustomerPetCustomer() {
+  customerPetSelectedCustomer.value = null
+  customerPetSelectedPet.value = null
+  customerPetPets.value = []
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+}
+
+async function saveCustomerPet() {
+  if (!order.value || savingCustomerPet.value) return
+  savingCustomerPet.value = true
+  try {
+    const res = await updateOrderCustomerPet(order.value.ID, {
+      customer_id: customerPetSelectedCustomer.value?.ID || null,
+      pet_id: customerPetSelectedPet.value?.ID || null,
+    })
+    order.value = res.data
+    remarkDraft.value = resolveEditableRemark(order.value)
+    closeCustomerPetModal()
+    uni.showToast({ title: '归属已保存', icon: 'success' })
+  } catch (e: any) {
+    uni.showToast({ title: e?.msg || e?.message || '保存失败', icon: 'none' })
+  } finally {
+    savingCustomerPet.value = false
+  }
 }
 
 function resolveEditableRemark(target?: Order | null) {
@@ -892,7 +1210,11 @@ async function openPayModal() {
     } catch {}
   }
 
-  if (customerCard.value && memberBalance.value >= Number(order.value?.pay_amount || 0)) {
+  if (
+    customerCard.value &&
+    memberBalance.value >= Number(order.value?.pay_amount || 0) &&
+    !canChooseBalancePayment.value
+  ) {
     await payWithBalance()
     return
   }
@@ -900,14 +1222,37 @@ async function openPayModal() {
   showPayModal.value = true
 }
 
-async function doPay(method: string) {
+function confirmPayMethod(method: string) {
+  if (paying.value) return
+  const label = payMethodConfirmMap[method] || method
+  uni.showModal({
+    title: '确认收款方式',
+    content: `确认使用「${label}」收款 ¥${Number(order.value?.pay_amount || 0).toFixed(2)}？`,
+    confirmText: label,
+    success: async (res) => {
+      if (res.confirm) {
+        await doPay(method, true)
+      }
+    },
+  })
+}
+
+async function doPay(method: string, confirmed = false, cashPayMethod?: string) {
+  if (paying.value) return
+  if (!confirmed) {
+    confirmPayMethod(method)
+    return
+  }
+  paying.value = true
   try {
-    await payOrder(order.value.ID, method, undefined, remarkDraft.value.trim())
+    await payOrder(order.value.ID, method, undefined, remarkDraft.value.trim(), cashPayMethod)
     showPayModal.value = false
     uni.showToast({ title: '收款成功', icon: 'success' })
     await reload()
   } catch (e: any) {
     uni.showToast({ title: e.message || '收款失败', icon: 'none' })
+  } finally {
+    paying.value = false
   }
 }
 
@@ -917,11 +1262,7 @@ async function payWithBalance() {
     return
   }
   if (memberBalance.value < order.value.pay_amount) {
-    uni.showModal({
-      title: '余额不足',
-      content: `会员余额¥${memberBalance.value.toFixed(2)}，应付¥${order.value.pay_amount.toFixed(2)}，余额不足。`,
-      showCancel: false,
-    })
+    payWithMixedBalance()
     return
   }
   uni.showModal({
@@ -929,9 +1270,31 @@ async function payWithBalance() {
     content: `从会员余额中扣除¥${order.value.pay_amount.toFixed(2)}？\n扣后余额：¥${(memberBalance.value - order.value.pay_amount).toFixed(2)}`,
     success: async (res) => {
       if (res.confirm) {
-        await doPay('balance')
+        await doPay('balance', true)
       }
     }
+  })
+}
+
+function payWithMixedBalance() {
+  const itemList = mixedBalanceCashPayMethods.map((item) => item.label)
+  uni.showActionSheet({
+    itemList,
+    success: (res) => {
+      const selected = mixedBalanceCashPayMethods[res.tapIndex]
+      if (!selected) return
+      const label = payMethodMap[selected.method] || selected.method
+      uni.showModal({
+        title: '余额补差收款',
+        content: `会员余额 ¥${memberBalance.value.toFixed(2)} 将全部扣除，未覆盖部分不再享受会员折扣，由后端重新计算后使用「${label}」补差。`,
+        confirmText: label,
+        success: async (modalRes) => {
+          if (modalRes.confirm) {
+            await doPay('mixed_balance', true, selected.method)
+          }
+        },
+      })
+    },
   })
 }
 
@@ -1216,6 +1579,7 @@ async function saveRemark() {
 .cancel { background: #fff; color: #64748B; border-color: #CBD5E1; }
 .refund { background: #FFF1F2; color: #DC2626; border-color: #FECDD3; }
 .delete { background: #FFF1F2; color: #DC2626; border-color: #FCA5A5; }
+.btn.link { background: #F5F3FF; color: #4F46E5; border-color: #DDD6FE; }
 
 /* Pay modal */
 .modal-mask {
@@ -1230,7 +1594,7 @@ async function saveRemark() {
   justify-content: center;
   padding: 24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  z-index: 5000;
+  z-index: 900;
   overscroll-behavior: contain;
 }
 .pay-modal {
@@ -1252,6 +1616,157 @@ async function saveRemark() {
   font-weight: 800;
   color: #111827;
   display: block;
+}
+.link-modal {
+  width: min(92vw, 720rpx);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 28rpx;
+  padding: 28rpx;
+  box-sizing: border-box;
+  box-shadow: 0 24rpx 60rpx rgba(15, 23, 42, 0.24);
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+.modal-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #94A3B8;
+}
+.modal-close {
+  width: 56rpx;
+  height: 56rpx;
+  line-height: 52rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #F3F4F6;
+  color: #64748B;
+  font-size: 34rpx;
+  flex-shrink: 0;
+}
+.link-section {
+  padding: 18rpx 0;
+  border-top: 1rpx solid #F1F5F9;
+}
+.link-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14rpx;
+}
+.link-section-title {
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.link-clear {
+  font-size: 24rpx;
+  color: #4F46E5;
+}
+.selected-link-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  margin-bottom: 14rpx;
+}
+.selected-link-name {
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.selected-link-meta,
+.link-option-meta,
+.pet-choice-meta {
+  font-size: 23rpx;
+  color: #64748B;
+}
+.link-search {
+  position: relative;
+  height: 72rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #E2E8F0;
+  background: #F8FAFC;
+}
+.link-search-input {
+  width: 100%;
+  height: 72rpx;
+  padding: 0 22rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  color: #111827;
+}
+.link-search-placeholder {
+  position: absolute;
+  left: 22rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 24rpx;
+  color: #94A3B8;
+  pointer-events: none;
+}
+.link-options,
+.pet-choice-list {
+  display: grid;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.link-option,
+.pet-choice {
+  padding: 18rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #E2E8F0;
+  background: #fff;
+}
+.link-option-name,
+.pet-choice-name {
+  display: block;
+  margin-bottom: 6rpx;
+  font-size: 27rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.pet-choice.active {
+  border-color: #4F46E5;
+  background: #F5F3FF;
+}
+.link-empty {
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  color: #64748B;
+  font-size: 24rpx;
+}
+.link-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}
+.link-btn {
+  margin: 0;
+  height: 84rpx;
+  border-radius: 18rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+.link-btn.ghost {
+  background: #fff;
+  color: #64748B;
+  border: 1rpx solid #CBD5E1;
+}
+.link-btn.primary {
+  background: #4F46E5;
+  color: #fff;
 }
 .pay-modal-subtitle {
   display: block;
@@ -1290,6 +1805,26 @@ async function saveRemark() {
   line-height: 1;
   font-weight: 900;
   color: #4338CA;
+}
+.pay-choice-tip {
+  margin: -10rpx 0 22rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+}
+.pay-choice-title {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #334155;
+}
+.pay-choice-desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #64748B;
+  line-height: 1.5;
 }
 .pay-remark-panel {
   margin: 0 0 22rpx;
@@ -1385,6 +1920,19 @@ async function saveRemark() {
   display: flex;
   flex-direction: column;
   gap: 12rpx;
+}
+.receipt-lite-render {
+  background: #FDF8ED !important;
+  box-shadow: none !important;
+}
+.receipt-lite-render .receipt-card,
+.receipt-lite-render .receipt-logo,
+.receipt-lite-render .receipt-member-badge {
+  background: #FFFDF8 !important;
+  box-shadow: none !important;
+}
+.receipt-lite-render .receipt-logo-img {
+  display: none !important;
 }
 .receipt-card {
   background: linear-gradient(180deg, #FFFDF8, #FFF9EE);

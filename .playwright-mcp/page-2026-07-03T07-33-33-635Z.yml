@@ -1,0 +1,55 @@
+- generic [ref=e51]:
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e57]: 客户
+        - generic [ref=e59]:
+          - generic [ref=e60]: 搜客户
+          - generic [ref=e61]:
+            - searchbox [ref=e65]
+            - generic:
+              - generic: 输入客户昵称或手机号搜索
+      - generic [ref=e66]:
+        - generic [ref=e68]: 猫咪
+        - generic [ref=e70]:
+          - generic [ref=e71]: 搜猫咪
+          - generic [ref=e72]:
+            - searchbox [ref=e76]
+            - generic:
+              - generic: 输入猫咪名搜索
+    - generic [ref=e77]:
+      - generic [ref=e79]:
+        - generic [ref=e80]: 商品开单
+        - generic [ref=e81]: 可直接零售，也可和服务一起结算。
+      - generic [ref=e82]:
+        - generic [ref=e83]: 搜商品
+        - generic [ref=e84]:
+          - searchbox [ref=e88]
+          - generic:
+            - generic: 搜索商品名称 / 品牌 / 分类 / 规格
+      - generic [ref=e94]: 全部
+      - generic [ref=e95]: 商品加载中...
+    - generic [ref=e97]:
+      - generic [ref=e98]:
+        - generic [ref=e99]: 服务项目
+        - generic [ref=e100]: 点击下方箭头展开后再添加服务。
+      - generic [ref=e102]: ⌄
+  - generic [ref=e103]:
+    - generic [ref=e104]:
+      - generic [ref=e106]: 🏠
+      - generic [ref=e107]: 工作台
+    - generic [ref=e108]:
+      - generic [ref=e110]: 🧾
+      - generic [ref=e111]: 开单
+    - generic [ref=e112]:
+      - generic [ref=e114]: 📅
+      - generic [ref=e115]: 预约
+    - generic [ref=e116]:
+      - img [ref=e120]
+      - generic [ref=e121]: 猫咪
+    - generic [ref=e122]:
+      - generic [ref=e124]: 📋
+      - generic [ref=e125]: 订单
+    - generic [ref=e126]:
+      - generic [ref=e128]: ⚙️
+      - generic [ref=e129]: 更多

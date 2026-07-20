@@ -122,7 +122,7 @@ function main() {
     assertEqual((0, order_care_report_1.canGenerateOrderCareReport)({ status: 0, pet_groups: [] }), false, 'unpaid empty order cannot generate');
     assertEqual((0, order_care_report_1.canGenerateOrderCareReport)(fixtureOrder), true, 'missing pay_status fixture can generate');
     assertEqual((0, order_care_report_1.canGenerateOrderCareReport)(paidOrder), true, 'paid order can generate');
-    assertEqual((0, web_image_save_1.buildOrderCareReportFileName)('NO167', '福福'), '护理报告_NO167_福福.png', 'report filename');
+    assertEqual((0, web_image_save_1.buildOrderCareReportFileName)('NO167', '福福'), '护理报告_NO167_福福.jpg', 'report filename');
     const petOptions = (0, order_care_report_1.buildOrderCareReportPetOptions)(fixtureOrder);
     assertEqual(petOptions.length, 2, 'pet options length');
     assertDeepEqual(petOptions.map((option) => option.petId), [11, 12], 'pet options ids');
@@ -131,11 +131,45 @@ function main() {
     assertEqual(draft.breed, '布偶', 'draft.breed');
     assertEqual(draft.age, '2岁11月', 'draft.age');
     assertEqual(draft.careContent, 'Harmurry精致皮毛调理', 'draft.careContent');
+    draft.portraitUrl = '/uploads/care-report.jpg';
+    draft.weight = '5.2kg';
+    draft.nextCareDate = '2026.05.20';
+    draft.bodyShape = 'standard';
+    draft.skin = { checks: ['normal', 'red'], note: '局部轻微泛红' };
+    assertDeepEqual((0, order_care_report_1.buildOrderCareReportPayload)(draft), {
+        pet_id: 12,
+        pet_name: '豆豆',
+        breed: '布偶',
+        gender: 'MM',
+        age: '2岁11月',
+        portrait_url: '/uploads/care-report.jpg',
+        weight: '5.2kg',
+        care_date: '2026-04-20',
+        next_care_date: '2026-05-20',
+        care_content: 'Harmurry精致皮毛调理',
+        body_shape: 'standard',
+        skin: { checks: ['normal', 'red'], note: '局部轻微泛红' },
+        hair: { checks: [], note: '' },
+        nails: { checks: [], note: '' },
+        eyes_face: { checks: [], note: '' },
+        ears: { checks: [], note: '' },
+        oral: { checks: [], note: '' },
+        anus: { checks: [], note: '' },
+    }, 'backend payload');
     assertEqual((0, order_care_report_1.normalizeOrderCareReportDate)('2026.04.20'), '2026-04-20', 'normalize dotted date');
     assertEqual((0, order_care_report_1.normalizeOrderCareReportDate)('2026-04-25'), '2026-04-25', 'normalize dashed date');
     assertEqual(order_care_report_1.orderCareReportBodyShapeOptions.length, 5, 'body shape option count');
     assertEqual(order_care_report_1.orderCareReportSectionDefinitions.length, 7, 'section definition count');
     assertDeepEqual(order_care_report_1.orderCareReportSectionDefinitions.map((section) => section.key), ['skin', 'hair', 'nails', 'eyesFace', 'ears', 'oral', 'anus'], 'section keys');
+    assertDeepEqual(Object.fromEntries(order_care_report_1.orderCareReportSectionDefinitions.map((section) => [section.key, section.options.map((option) => option.value)])), {
+        skin: ['normal', 'dandruff', 'red', 'greasy', 'scab', 'wound'],
+        hair: ['shedding', 'undercoat_many', 'dry', 'greasy', 'matting'],
+        nails: ['trimmed', 'dewclaw_abnormal', 'pads_dry', 'too_long', 'wound'],
+        eyesFace: ['cleaned', 'tear_many', 'eye_red', 'eye_abnormal', 'wound'],
+        ears: ['cleaned', 'touch_sensitive', 'inflamed', 'earwax', 'black_earwax', 'wound'],
+        oral: ['normal', 'touch_sensitive', 'tartar', 'gum_red', 'gum_swollen', 'oral_ulcer', 'bad_breath', 'dental_abnormal'],
+        anus: ['normal', 'prolapse', 'red', 'inflamed'],
+    }, 'section options should exactly match the printed template');
 }
 main();
 function assertEqual(actual, expected, label) {

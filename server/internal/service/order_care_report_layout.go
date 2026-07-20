@@ -1,8 +1,9 @@
 package service
 
 const (
-	orderCareReportWidth  = 1279
-	orderCareReportHeight = 1810
+	orderCareReportWidth                = 1279
+	orderCareReportHeight               = 1810
+	orderCareReportCheckmarkStrokeWidth = 6.0
 )
 
 type orderCareReportLineBox struct {
@@ -15,6 +16,12 @@ type orderCareReportPoint struct {
 	X float64
 	Y float64
 }
+
+var (
+	orderCareReportCheckmarkStartOffset = orderCareReportPoint{X: -10, Y: -1}
+	orderCareReportCheckmarkKneeOffset  = orderCareReportPoint{X: -2, Y: 8}
+	orderCareReportCheckmarkEndOffset   = orderCareReportPoint{X: 14, Y: -14}
+)
 
 type orderCareReportCircle struct {
 	CenterX float64
@@ -35,14 +42,14 @@ var orderCareReportPortraitFrame = orderCareReportCircle{
 }
 
 var orderCareReportPrimaryFieldBoxes = map[string]orderCareReportLineBox{
-	"pet_name":       {Left: 279, Right: 666, Baseline: 285},
-	"breed":          {Left: 279, Right: 666, Baseline: 427},
-	"gender":         {Left: 196, Right: 371, Baseline: 557},
-	"age":            {Left: 490, Right: 668, Baseline: 557},
-	"care_content":   {Left: 279, Right: 666, Baseline: 641},
-	"care_date":      {Left: 279, Right: 666, Baseline: 775},
-	"next_care_date": {Left: 905, Right: 1134, Baseline: 775},
-	"weight":         {Left: 108, Right: 219, Baseline: 853},
+	"pet_name":       {Left: 279, Right: 666, Baseline: 257},
+	"breed":          {Left: 279, Right: 666, Baseline: 389},
+	"gender":         {Left: 196, Right: 371, Baseline: 511},
+	"age":            {Left: 490, Right: 668, Baseline: 511},
+	"care_content":   {Left: 279, Right: 666, Baseline: 625},
+	"care_date":      {Left: 279, Right: 666, Baseline: 730},
+	"next_care_date": {Left: 905, Right: 1134, Baseline: 730},
+	"weight":         {Left: 108, Right: 219, Baseline: 843},
 }
 
 var orderCareReportPrimaryFieldLimits = map[string]int{
@@ -57,87 +64,93 @@ var orderCareReportPrimaryFieldLimits = map[string]int{
 }
 
 var orderCareReportBodyShapeAnchors = map[string]orderCareReportPoint{
-	"thin":     {X: 408, Y: 833},
-	"skinny":   {X: 573, Y: 833},
-	"standard": {X: 737, Y: 833},
-	"chubby":   {X: 901, Y: 833},
-	"obese":    {X: 1066, Y: 833},
+	"thin":     {X: 406, Y: 833},
+	"skinny":   {X: 569, Y: 833},
+	"standard": {X: 732, Y: 833},
+	"chubby":   {X: 895, Y: 833},
+	"obese":    {X: 1058, Y: 833},
 }
 
 var orderCareReportSectionLayouts = map[string]orderCareReportSectionLayout{
 	"skin": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"normal":   {X: 408, Y: 928},
-			"dandruff": {X: 573, Y: 928},
-			"red":      {X: 737, Y: 928},
-			"greasy":   {X: 901, Y: 928},
-			"scab":     {X: 1066, Y: 928},
+			"normal":   {X: 406, Y: 929},
+			"dandruff": {X: 569, Y: 929},
+			"red":      {X: 732, Y: 929},
+			"greasy":   {X: 895, Y: 929},
+			"scab":     {X: 1058, Y: 929},
+			"wound":    {X: 406, Y: 977},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 981},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 648, Right: 1166, Baseline: 975},
+		NoteLimit: 80,
 	},
 	"hair": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"shedding":       {X: 408, Y: 1027},
-			"undercoat_many": {X: 573, Y: 1027},
-			"dry":            {X: 737, Y: 1027},
-			"greasy":         {X: 901, Y: 1027},
-			"matting":        {X: 1066, Y: 1027},
+			"shedding":       {X: 406, Y: 1025},
+			"undercoat_many": {X: 569, Y: 1025},
+			"dry":            {X: 732, Y: 1025},
+			"greasy":         {X: 895, Y: 1025},
+			"matting":        {X: 1058, Y: 1025},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1080},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1071},
+		NoteLimit: 80,
 	},
 	"nails": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"trimmed":          {X: 408, Y: 1125},
-			"dewclaw_abnormal": {X: 573, Y: 1125},
-			"pads_dry":         {X: 737, Y: 1125},
-			"too_long":         {X: 901, Y: 1125},
-			"wound":            {X: 1066, Y: 1125},
+			"trimmed":          {X: 406, Y: 1121},
+			"dewclaw_abnormal": {X: 569, Y: 1121},
+			"pads_dry":         {X: 732, Y: 1121},
+			"too_long":         {X: 895, Y: 1121},
+			"wound":            {X: 1058, Y: 1121},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1178},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1168},
+		NoteLimit: 80,
 	},
 	"eyes_face": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"cleaned":      {X: 408, Y: 1222},
-			"tear_many":    {X: 573, Y: 1222},
-			"eye_red":      {X: 737, Y: 1222},
-			"eye_abnormal": {X: 901, Y: 1222},
-			"wound":        {X: 1066, Y: 1222},
+			"cleaned":      {X: 406, Y: 1217},
+			"tear_many":    {X: 569, Y: 1217},
+			"eye_red":      {X: 732, Y: 1217},
+			"eye_abnormal": {X: 895, Y: 1217},
+			"wound":        {X: 1058, Y: 1217},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1276},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1264},
+		NoteLimit: 80,
 	},
 	"ears": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"cleaned":         {X: 408, Y: 1321},
-			"touch_sensitive": {X: 573, Y: 1321},
-			"inflamed":        {X: 737, Y: 1321},
-			"earwax":          {X: 901, Y: 1321},
-			"black_earwax":    {X: 1066, Y: 1321},
+			"cleaned":         {X: 406, Y: 1313},
+			"touch_sensitive": {X: 569, Y: 1313},
+			"inflamed":        {X: 732, Y: 1313},
+			"earwax":          {X: 895, Y: 1313},
+			"black_earwax":    {X: 1058, Y: 1313},
+			"wound":           {X: 406, Y: 1361},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1373},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 648, Right: 1166, Baseline: 1359},
+		NoteLimit: 80,
 	},
 	"oral": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"normal":      {X: 408, Y: 1420},
-			"tartar":      {X: 737, Y: 1420},
-			"gum_red":     {X: 901, Y: 1420},
-			"gum_swollen": {X: 1066, Y: 1420},
+			"normal":          {X: 406, Y: 1410},
+			"touch_sensitive": {X: 569, Y: 1410},
+			"tartar":          {X: 732, Y: 1410},
+			"gum_red":         {X: 895, Y: 1410},
+			"gum_swollen":     {X: 1058, Y: 1410},
+			"oral_ulcer":      {X: 406, Y: 1458},
+			"bad_breath":      {X: 569, Y: 1458},
+			"dental_abnormal": {X: 732, Y: 1458},
 		},
 		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1503},
-		NoteLimit: 30,
+		NoteLimit: 80,
 	},
 	"anus": {
 		Checkboxes: map[string]orderCareReportPoint{
-			"normal":             {X: 408, Y: 1605},
-			"red":                {X: 737, Y: 1605},
-			"inflamed":           {X: 901, Y: 1605},
-			"anal_gland_swollen": {X: 1066, Y: 1605},
+			"normal":   {X: 406, Y: 1553},
+			"prolapse": {X: 569, Y: 1553},
+			"red":      {X: 732, Y: 1553},
+			"inflamed": {X: 895, Y: 1553},
 		},
-		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1657},
-		NoteLimit: 30,
+		NoteBox:   orderCareReportLineBox{Left: 493, Right: 1166, Baseline: 1600},
+		NoteLimit: 80,
 	},
 }

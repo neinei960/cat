@@ -231,6 +231,7 @@ interface ServiceItem {
   pricing_type: number  // 1按次 2按天
   holiday_price: number
   monthly_usage_count?: number
+  customer_usage_count?: number
   price_rules?: ServicePriceRule[]
   discounts?: ServiceDiscount[]
   service_category?: ServiceCategory
@@ -294,6 +295,7 @@ interface BoardingHoliday {
   shop_id: number
   holiday_date: string
   name: string
+  surcharge_amount: number
   CreatedAt?: string
 }
 
@@ -426,6 +428,14 @@ interface BoardingOrderLog {
   CreatedAt?: string
 }
 
+interface BoardingPaymentLog {
+  order_id: number
+  order_no: string
+  pay_amount: number
+  pay_method: string
+  pay_time?: string
+}
+
 interface BoardingOrder {
   ID: number
   shop_id: number
@@ -454,6 +464,7 @@ interface BoardingOrder {
   rooms?: BoardingOrderRoom[]
   pets?: BoardingOrderPet[]
   logs?: BoardingOrderLog[]
+  payment_logs?: BoardingPaymentLog[]
   order?: Order
   CreatedAt?: string
 }
@@ -628,6 +639,11 @@ interface Order {
   appointment_deposit_deduction_amount?: number
   pay_amount: number
   commission: number
+  member_balance_before?: number | null
+  member_balance_after?: number | null
+  member_balance_used?: number
+  cash_pay_amount?: number
+  cash_pay_method?: string
   pay_method: string
   pay_status: number
   status: number

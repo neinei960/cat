@@ -16,6 +16,7 @@ interface AddonItem {
 interface CreateOrderReq {
   pet_id?: number
   customer_id?: number
+  customer_phone?: string
   staff_id?: number
   service_id?: number
   appointment_is_late?: boolean
@@ -53,12 +54,20 @@ export function getOrder(id: number, includeDeleted = false) {
   return request<any>({ url: `/b/orders/${id}`, data: includeDeleted ? { include_deleted: 1 } : undefined })
 }
 
-export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string) {
-  return request({ url: `/b/orders/${id}/pay`, method: 'PUT', data: { pay_method: payMethod, transaction_id: transactionId, remark } })
+export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string, cashPayMethod?: string) {
+  return request({
+    url: `/b/orders/${id}/pay`,
+    method: 'PUT',
+    data: { pay_method: payMethod, transaction_id: transactionId, remark, cash_pay_method: cashPayMethod },
+  })
 }
 
 export function updateOrderRemark(id: number, remark: string) {
   return request({ url: `/b/orders/${id}/remark`, method: 'PUT', data: { remark } })
+}
+
+export function updateOrderCustomerPet(id: number, data: { customer_id?: number | null; pet_id?: number | null }) {
+  return request<any>({ url: `/b/orders/${id}/customer-pet`, method: 'PUT', data })
 }
 
 export function refundOrder(id: number, remark?: string) {

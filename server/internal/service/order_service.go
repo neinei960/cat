@@ -87,8 +87,22 @@ func applyMemberDiscountToOrder(order *model.Order, customerID *uint, serviceTot
 	order.DiscountRate = calculateOrderDiscountRate(totalAmount, payAmount)
 }
 
+func calculateStaffCommission(staffID *uint, serviceTotal, productTotal float64) float64 {
+	if staffID == nil || *staffID == 0 {
+		return 0
+	}
+
+	var staff model.Staff
+	if err := database.DB.First(&staff, *staffID).Error; err != nil {
+		return 0
+	}
+	serviceCommission := serviceTotal * staff.CommissionRate / 100
+	productCommission := productTotal * staff.ProductCommissionRate / 100
+	return roundOrderAmount(serviceCommission + productCommission)
+}
+
 // CreateFromAppointment generates an order from a completed appointment
-func (s *OrderService) CreateFromAppointment(appointmentID uint, appointmentIsLate bool) (*model.Order, error) {
+func (s *OrderService) CreateFromAppointment(appointmentID uint, appointmentIsLate bool, staffIDOverride ...*uint) (*model.Order, error) {
 	existingCount, err := s.orderRepo.CountByAppointment(appointmentID)
 	if err != nil {
 		return nil, err
@@ -103,12 +117,16 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint, appointmentIsLa
 	}
 
 	custID := appt.CustomerID
+	staffID := appt.StaffID
+	if len(staffIDOverride) > 0 && staffIDOverride[0] != nil && *staffIDOverride[0] > 0 {
+		staffID = staffIDOverride[0]
+	}
 	order := &model.Order{
 		OrderNo:           utils.GenerateOrderNo(),
 		ShopID:            appt.ShopID,
 		CustomerID:        &custID,
 		AppointmentID:     &appt.ID,
-		StaffID:           appt.StaffID,
+		StaffID:           staffID,
 		AppointmentIsLate: appointmentIsLate,
 	}
 
@@ -147,6 +165,7 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint, appointmentIsLa
 	}
 
 	applyMemberDiscountToOrder(order, &custID, serviceTotal, 0, 0)
+	order.Commission = calculateStaffCommission(staffID, order.ServiceTotal-order.ServiceDiscountAmount, 0)
 	applyAppointmentDepositToOrder(order, appt)
 
 	tx := database.DB.Begin()
@@ -162,6 +181,10 @@ func (s *OrderService) CreateFromAppointment(appointmentID uint, appointmentIsLa
 			tx.Rollback()
 			return nil, err
 		}
+	}
+	if err := syncAppointmentServicesFromOrderItems(tx, appt.ID, order.PetID, items); err != nil {
+		tx.Rollback()
+		return nil, err
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -191,7 +214,7 @@ type PetOverrideData struct {
 	Products []ProductOverride
 }
 
-func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmentIsLate bool, overrides ...map[uint]PetOverrideData) ([]model.Order, error) {
+func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmentIsLate bool, staffIDOverride *uint, overrides ...map[uint]PetOverrideData) ([]model.Order, error) {
 	var overrideMap map[uint]PetOverrideData
 	if len(overrides) > 0 && overrides[0] != nil {
 		overrideMap = overrides[0]
@@ -200,6 +223,10 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 	appt, err := s.apptRepo.FindByID(appointmentID)
 	if err != nil {
 		return nil, errors.New("预约不存在")
+	}
+	staffID := appt.StaffID
+	if staffIDOverride != nil && *staffIDOverride > 0 {
+		staffID = staffIDOverride
 	}
 
 	validPets := filterBillableAppointmentPets(appt)
@@ -213,7 +240,7 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 	}
 
 	if len(validPets) == 0 {
-		order, err := s.CreateFromAppointment(appointmentID, appointmentIsLate)
+		order, err := s.CreateFromAppointment(appointmentID, appointmentIsLate, staffID)
 		if err != nil {
 			return nil, err
 		}
@@ -228,7 +255,7 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 		CustomerID:        &custID,
 		PetID:             nil,
 		AppointmentID:     &appt.ID,
-		StaffID:           appt.StaffID,
+		StaffID:           staffID,
 		Remark:            appt.Notes,
 		AppointmentIsLate: appointmentIsLate,
 	}
@@ -248,11 +275,6 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 		}
 
 		serviceList := buildOrderServices(apptPet, overrideMap)
-		if len(serviceList) == 0 {
-			tx.Rollback()
-			return nil, errors.New("请至少保留一项服务后再开单")
-		}
-
 		for _, svc := range serviceList {
 			name := svc.ServiceName
 			if name == "" {
@@ -293,6 +315,10 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 			}
 		}
 	}
+	if len(items) == 0 {
+		tx.Rollback()
+		return nil, errors.New("请至少保留一项服务后再开单")
+	}
 	applyMemberDiscountToOrder(&order, &custID, serviceTotal, productTotal, 0)
 	applyAppointmentDepositToOrder(&order, appt)
 	if err := tx.Save(&order).Error; err != nil {
@@ -304,6 +330,10 @@ func (s *OrderService) CreateSplitFromAppointment(appointmentID uint, appointmen
 			tx.Rollback()
 			return nil, err
 		}
+	}
+	if err := syncAppointmentServicesFromOrderItems(tx, appt.ID, order.PetID, items); err != nil {
+		tx.Rollback()
+		return nil, err
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -423,7 +453,7 @@ func (s *OrderService) CreateDirect(order *model.Order, items []model.OrderItem)
 	order.ServiceTotal = serviceTotal
 	order.ProductTotal = productTotal
 	order.AddonTotal = addonTotal
-	order.PayAmount = total - order.DiscountAmount
+	order.PayAmount = roundOrderAmount(math.Max(total-order.DiscountAmount, 0))
 
 	tx := database.DB.Begin()
 	if err := tx.Create(order).Error; err != nil {
@@ -491,6 +521,13 @@ func (s *OrderService) UpdateDraft(shopID uint, role string, id uint, patch *mod
 		order.Commission = patch.Commission
 		order.Remark = patch.Remark
 
+		order.Customer = nil
+		order.Pet = nil
+		order.Staff = nil
+		order.Appointment = nil
+		order.FeedingPlan = nil
+		order.Items = nil
+
 		if err := tx.Save(order).Error; err != nil {
 			return err
 		}
@@ -502,6 +539,11 @@ func (s *OrderService) UpdateDraft(shopID uint, role string, id uint, patch *mod
 		}
 		if err := tx.Create(&items).Error; err != nil {
 			return err
+		}
+		if order.AppointmentID != nil && *order.AppointmentID > 0 {
+			if err := syncAppointmentServicesFromOrderItems(tx, *order.AppointmentID, order.PetID, items); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -577,6 +619,7 @@ func (s *OrderService) MarkPaid(id uint, payMethod, transactionID string) error 
 	order.PayTime = &now
 	order.TransactionID = transactionID
 	order.Status = 1 // completed
+	s.snapshotMemberBalanceAtPay(order)
 
 	// 美团订单提成打9折
 	if payMethod == "meituan" && order.Commission > 0 {
@@ -599,6 +642,27 @@ func (s *OrderService) MarkPaid(id uint, payMethod, transactionID string) error 
 	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
 
 	return nil
+}
+
+func (s *OrderService) snapshotMemberBalanceAtPay(order *model.Order) {
+	if order == nil || order.CustomerID == nil || *order.CustomerID == 0 {
+		return
+	}
+	if order.MemberBalanceBefore != nil && order.MemberBalanceAfter != nil {
+		return
+	}
+
+	var card model.MemberCard
+	if err := database.DB.Where("customer_id = ? AND status = 1", *order.CustomerID).First(&card).Error; err != nil {
+		return
+	}
+	balance := roundOrderAmount(card.Balance)
+	if order.MemberBalanceBefore == nil {
+		order.MemberBalanceBefore = &balance
+	}
+	if order.MemberBalanceAfter == nil {
+		order.MemberBalanceAfter = &balance
+	}
 }
 
 // Refund processes a refund
@@ -628,6 +692,47 @@ func (s *OrderService) UpdateRemark(id uint, remark string) error {
 	return s.orderRepo.UpdateRemark(id, remark)
 }
 
+func (s *OrderService) UpdateCustomerPet(shopID, id uint, customerID *uint, petID *uint) error {
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil {
+		return errors.New("订单不存在")
+	}
+	if order.ShopID != shopID {
+		return errors.New("订单不存在")
+	}
+	if order.Status == 2 || order.Status == 3 {
+		return errors.New("当前订单不可修改客户猫咪")
+	}
+
+	var normalizedCustomerID *uint
+	if customerID != nil && *customerID > 0 {
+		var customer model.Customer
+		if err := database.DB.Where("id = ? AND shop_id = ?", *customerID, shopID).First(&customer).Error; err != nil {
+			return errors.New("客户不存在")
+		}
+		normalizedCustomerID = customerID
+	}
+
+	var normalizedPetID *uint
+	if petID != nil && *petID > 0 {
+		var pet model.Pet
+		if err := database.DB.Where("id = ? AND shop_id = ?", *petID, shopID).First(&pet).Error; err != nil {
+			return errors.New("猫咪不存在")
+		}
+		if normalizedCustomerID != nil {
+			if pet.CustomerID == nil || *pet.CustomerID != *normalizedCustomerID {
+				return errors.New("猫咪不属于所选客户")
+			}
+		} else if pet.CustomerID != nil && *pet.CustomerID > 0 {
+			petCustomerID := *pet.CustomerID
+			normalizedCustomerID = &petCustomerID
+		}
+		normalizedPetID = petID
+	}
+
+	return s.orderRepo.UpdateCustomerPet(id, normalizedCustomerID, normalizedPetID)
+}
+
 // Cancel cancels an unpaid order
 func (s *OrderService) Cancel(id uint) error {
 	order, err := s.orderRepo.FindByID(id)
@@ -638,8 +743,15 @@ func (s *OrderService) Cancel(id uint) error {
 		return errors.New("仅待付款订单可取消")
 	}
 
-	order.Status = 2
-	if err := s.orderRepo.Update(order); err != nil {
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Order{}).
+			Where("id = ?", order.ID).
+			Update("status", 2).Error; err != nil {
+			return err
+		}
+		order.Status = 2
+		return cancelLinkedFeedingPlanForOrder(tx, order)
+	}); err != nil {
 		return err
 	}
 	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
@@ -667,6 +779,9 @@ func (s *OrderService) Delete(shopID, id uint, role ...string) error {
 		if err := rollbackBalancePaymentOnDelete(tx, order); err != nil {
 			return err
 		}
+		if err := cancelLinkedFeedingPlanForOrder(tx, order); err != nil {
+			return err
+		}
 		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
 			return err
 		}
@@ -680,6 +795,27 @@ func (s *OrderService) Delete(shopID, id uint, role ...string) error {
 
 	_ = s.syncAppointmentSettlementPtr(order.AppointmentID)
 	return nil
+}
+
+func cancelLinkedFeedingPlanForOrder(tx *gorm.DB, order *model.Order) error {
+	if order == nil || order.FeedingPlanID == nil || *order.FeedingPlanID == 0 {
+		return nil
+	}
+	planID := *order.FeedingPlanID
+	if err := tx.Model(&model.FeedingPlan{}).
+		Where("id = ? AND shop_id = ?", planID, order.ShopID).
+		Updates(map[string]any{
+			"status":        model.FeedingPlanStatusCancelled,
+			"unpaid_amount": 0,
+		}).Error; err != nil {
+		return err
+	}
+	return tx.Model(&model.FeedingVisit{}).
+		Where("feeding_plan_id = ? AND shop_id = ? AND status IN ?", planID, order.ShopID, []string{
+			model.FeedingVisitStatusPending,
+			model.FeedingVisitStatusAssigned,
+		}).
+		Update("status", model.FeedingVisitStatusCancelled).Error
 }
 
 func (s *OrderService) ListDeleted(shopID uint, page, pageSize int) ([]model.Order, int64, error) {
@@ -725,7 +861,7 @@ func (s *OrderService) Restore(shopID, id uint) error {
 }
 
 func isBalancePayMethod(payMethod string) bool {
-	return payMethod == "balance" || payMethod == "card"
+	return payMethod == "balance" || payMethod == "card" || payMethod == "mixed_balance"
 }
 
 func rollbackBalancePaymentOnDelete(tx *gorm.DB, order *model.Order) error {
@@ -1159,6 +1295,163 @@ func splitOrderItemPetName(name string) (string, string) {
 		return "", name
 	}
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
+type appointmentServiceSnapshot struct {
+	ServiceID   uint
+	ServiceName string
+	Price       float64
+	Duration    int
+}
+
+func syncAppointmentServicesFromOrderItems(tx *gorm.DB, appointmentID uint, orderPetID *uint, items []model.OrderItem) error {
+	if appointmentID == 0 {
+		return nil
+	}
+
+	serviceItems := make([]model.OrderItem, 0)
+	serviceIDs := make([]uint, 0)
+	for _, item := range items {
+		if item.ItemType != 1 {
+			continue
+		}
+		serviceItems = append(serviceItems, item)
+		if item.ItemID > 0 {
+			serviceIDs = append(serviceIDs, item.ItemID)
+		}
+	}
+	if len(serviceItems) == 0 {
+		return nil
+	}
+
+	var apptPets []model.AppointmentPet
+	if err := tx.Preload("Pet").
+		Where("appointment_id = ?", appointmentID).
+		Order("sort_order ASC, id ASC").
+		Find(&apptPets).Error; err != nil {
+		return err
+	}
+	if len(apptPets) == 0 {
+		return nil
+	}
+
+	serviceByID := map[uint]model.Service{}
+	if len(serviceIDs) > 0 {
+		var services []model.Service
+		if err := tx.Where("id IN ?", serviceIDs).Find(&services).Error; err != nil {
+			return err
+		}
+		for _, svc := range services {
+			serviceByID[svc.ID] = svc
+		}
+	}
+
+	apptPetByID := make(map[uint]model.AppointmentPet, len(apptPets))
+	apptPetByName := make(map[string]model.AppointmentPet, len(apptPets))
+	for _, apptPet := range apptPets {
+		apptPetByID[apptPet.PetID] = apptPet
+		if apptPet.Pet != nil && strings.TrimSpace(apptPet.Pet.Name) != "" {
+			apptPetByName[strings.TrimSpace(apptPet.Pet.Name)] = apptPet
+		}
+	}
+
+	grouped := make(map[uint][]appointmentServiceSnapshot)
+	allSnapshots := make([]appointmentServiceSnapshot, 0, len(serviceItems))
+	for _, item := range serviceItems {
+		petName, serviceName := splitOrderItemPetName(item.Name)
+		targetPet, ok := apptPetByName[petName]
+		if !ok && orderPetID != nil && *orderPetID > 0 {
+			targetPet, ok = apptPetByID[*orderPetID]
+		}
+		if !ok && len(apptPets) == 1 {
+			targetPet = apptPets[0]
+			ok = true
+		}
+		if !ok {
+			return fmt.Errorf("订单服务项目无法匹配预约猫咪: %s", item.Name)
+		}
+
+		if serviceName == "" {
+			serviceName = item.Name
+		}
+		duration := 0
+		if svc, exists := serviceByID[item.ItemID]; exists {
+			if serviceName == "" && strings.TrimSpace(svc.Name) != "" {
+				serviceName = svc.Name
+			}
+			duration = svc.Duration
+		}
+		price := roundOrderAmount(item.UnitPrice * float64(maxInt(item.Quantity, 1)))
+		snapshot := appointmentServiceSnapshot{
+			ServiceID:   item.ItemID,
+			ServiceName: serviceName,
+			Price:       price,
+			Duration:    duration,
+		}
+		grouped[targetPet.ID] = append(grouped[targetPet.ID], snapshot)
+		allSnapshots = append(allSnapshots, snapshot)
+	}
+
+	petSubQuery := tx.Model(&model.AppointmentPet{}).Select("id").Where("appointment_id = ?", appointmentID)
+	if err := tx.Where("appointment_pet_id IN (?)", petSubQuery).Delete(&model.AppointmentPetService{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("appointment_id = ?", appointmentID).Delete(&model.AppointmentService{}).Error; err != nil {
+		return err
+	}
+
+	totalAmount := 0.0
+	for _, apptPet := range apptPets {
+		snapshots := grouped[apptPet.ID]
+		petAmount := 0.0
+		petDuration := 0
+		rows := make([]model.AppointmentPetService, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			petAmount += snapshot.Price
+			petDuration += snapshot.Duration
+			rows = append(rows, model.AppointmentPetService{
+				AppointmentPetID: apptPet.ID,
+				ServiceID:        snapshot.ServiceID,
+				ServiceName:      snapshot.ServiceName,
+				Price:            snapshot.Price,
+				Duration:         snapshot.Duration,
+			})
+		}
+		if len(rows) > 0 {
+			if err := tx.Create(&rows).Error; err != nil {
+				return err
+			}
+		}
+		totalAmount += petAmount
+		if err := tx.Model(&model.AppointmentPet{}).
+			Where("id = ?", apptPet.ID).
+			Updates(map[string]any{
+				"total_amount":   roundOrderAmount(petAmount),
+				"total_duration": petDuration,
+			}).Error; err != nil {
+			return err
+		}
+	}
+
+	legacyRows := make([]model.AppointmentService, 0, len(allSnapshots))
+	for _, snapshot := range allSnapshots {
+		legacyRows = append(legacyRows, model.AppointmentService{
+			AppointmentID: appointmentID,
+			ServiceID:     snapshot.ServiceID,
+			ServiceName:   snapshot.ServiceName,
+			Price:         snapshot.Price,
+			Duration:      snapshot.Duration,
+		})
+	}
+	if len(legacyRows) > 0 {
+		if err := tx.Create(&legacyRows).Error; err != nil {
+			return err
+		}
+	}
+
+	return tx.Model(&model.Appointment{}).
+		Where("id = ?", appointmentID).
+		Update("total_amount", roundOrderAmount(totalAmount)).Error
 }
 
 func (s *OrderService) syncAppointmentSettlementPtr(appointmentID *uint) error {

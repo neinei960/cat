@@ -60,7 +60,8 @@
                 <text class="pc-meta">{{ row.catCount }}猫 · {{ row.totalDays }}天</text>
               </view>
               <text class="pc-addr">{{ row.address || '未填地址' }}</text>
-              <view class="pc-tags" v-if="row.playDateSet.has(selectedDate) || row.extraTags.length">
+              <view class="pc-tags" v-if="row.isPaid || row.playDateSet.has(selectedDate) || row.extraTags.length">
+                <text v-if="row.isPaid" class="pc-tag paid">已支付</text>
                 <text v-if="row.playDateSet.has(selectedDate)" class="pc-tag play">{{ row.playDayTag }}</text>
                 <text v-for="tag in row.extraTags" :key="tag" class="pc-tag">{{ tag }}</text>
               </view>
@@ -101,7 +102,8 @@
               <text v-if="row.deposit"> · 定金 ¥{{ row.deposit }}</text>
               <text> · 尾款 ¥{{ row.balance.toFixed(0) }}</text>
             </view>
-            <view class="pc-tags" v-if="row.playSummaryTag || row.extraTags.length || row.remark">
+            <view class="pc-tags" v-if="row.isPaid || row.playSummaryTag || row.extraTags.length || row.remark">
+              <text v-if="row.isPaid" class="pc-tag paid">已支付</text>
               <text v-if="row.playSummaryTag" class="pc-tag play">{{ row.playSummaryTag }}</text>
               <text v-for="tag in row.extraTags" :key="tag" class="pc-tag">{{ tag }}</text>
               <text v-if="row.remark" class="pc-tag muted">{{ row.remark }}</text>
@@ -113,7 +115,13 @@
       <view v-else-if="viewMode === 'history'" class="cards-view">
         <view v-if="!historyRows.length" class="state-card">暂无历史喂养计划</view>
         <view v-else class="plan-cards">
-          <view class="plan-card history-card" v-for="row in historyRows" :key="row.planId" @click="openPlan(row.planId)">
+          <view
+            class="plan-card history-card"
+            v-for="row in historyRows"
+            :key="row.planId"
+            @click="openPlan(row.planId)"
+            @longpress.stop="deleteHistoryPlan(row)"
+          >
             <view class="pc-head">
               <text class="pc-name">{{ row.name }}</text>
               <text class="pc-meta">{{ row.catCount }}猫 · {{ row.totalDays }}天</text>
@@ -121,6 +129,7 @@
             <text class="pc-addr">{{ row.address || '未填地址' }}</text>
             <view class="pc-tags">
               <text :class="['pc-tag', 'status-tag', `status-${row.status}`]">{{ feedingStatusLabel(row.status) }}</text>
+              <text v-if="row.isPaid" class="pc-tag paid">已支付</text>
               <text v-if="row.playSummaryTag" class="pc-tag play">{{ row.playSummaryTag }}</text>
               <text v-for="tag in row.extraTags" :key="tag" class="pc-tag">{{ tag }}</text>
             </view>
@@ -128,6 +137,7 @@
               <text>{{ row.dateRange }}</text>
               <text> · ¥{{ (row.deposit + row.balance).toFixed(0) }}</text>
             </view>
+            <text v-if="canDeleteHistory" class="delete-hint">长按可删除</text>
           </view>
         </view>
       </view>
@@ -140,15 +150,21 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { getFeedingPlans } from '@/api/feeding'
+import { deleteFeedingPlan, getFeedingPlans } from '@/api/feeding'
 import { getBoardingHolidays } from '@/api/boarding'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 import { feedingStatusLabel, formatFeedingDateRange, isFeedingPlanHistoryByDate, parseFeedingAddress, parseFeedingSelectedDates } from '@/utils/feeding'
 
+const authStore = useAuthStore()
 const loading = ref(false)
 const plans = ref<FeedingPlan[]>([])
 const today = formatLocalDate(new Date())
 const holidaySet = ref<Set<string>>(new Set())
 const viewMode = ref<'calendar' | 'cards' | 'history'>('calendar')
+const deletingHistoryId = ref(0)
+const suppressHistoryClick = ref(false)
+const canDeleteHistory = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 
 // ========== 日历逻辑 ==========
 const calYear = ref(new Date().getFullYear())
@@ -206,7 +222,7 @@ const calCells = computed<CalCell[]>(() => {
 // 每天有多少家上门
 const feedingCountMap = computed(() => {
   const map: Record<string, number> = {}
-  for (const row of activeRows.value) {
+  for (const row of calendarRows.value) {
     row.dateSet.forEach(d => { map[d] = (map[d] || 0) + 1 })
   }
   return map
@@ -221,7 +237,7 @@ const formatSelectedDate = computed(() => {
 })
 
 const selectedDayPlans = computed(() => {
-  return activeRows.value.filter(r => r.dateSet.has(selectedDate.value))
+  return calendarRows.value.filter(r => r.dateSet.has(selectedDate.value))
 })
 
 // ========== 数据 ==========
@@ -252,6 +268,7 @@ interface TableRow {
   status: string
   endDate: string
   dateRange: string
+  isPaid: boolean
 }
 
 
@@ -301,11 +318,13 @@ const rows = computed<TableRow[]>(() => {
       status: plan.status || 'draft',
       endDate: plan.end_date,
       dateRange: formatFeedingDateRange(plan.start_date, plan.end_date),
+      isPaid: Number(plan.order?.pay_status || 0) === 1,
     }
   })
 })
 
 const activeRows = computed(() => rows.value.filter(row => row.status === 'active' && !isFeedingPlanHistoryByDate({ end_date: row.endDate }, today)))
+const calendarRows = computed(() => rows.value.filter(row => !['draft', 'cancelled'].includes(row.status)))
 const historyRows = computed(() => rows.value.filter(row => isFeedingPlanHistoryByDate({ end_date: row.endDate }, today)))
 
 
@@ -317,7 +336,41 @@ function formatLocalDate(value: Date) {
 }
 
 function go(url: string) { uni.navigateTo({ url }) }
-function openPlan(planId: number) { uni.navigateTo({ url: `/pages/feeding/detail?id=${planId}` }) }
+function openPlan(planId: number) {
+  if (suppressHistoryClick.value) {
+    suppressHistoryClick.value = false
+    return
+  }
+  uni.navigateTo({ url: `/pages/feeding/detail?id=${planId}` })
+}
+
+function deleteHistoryPlan(row: TableRow) {
+  if (!canDeleteHistory.value || deletingHistoryId.value) return
+  suppressHistoryClick.value = true
+  setTimeout(() => {
+    suppressHistoryClick.value = false
+  }, 800)
+  uni.showModal({
+    title: '删除历史上门',
+    content: `确认删除计划 #${row.planId}？关联收款订单也会同步删除。`,
+    confirmText: '删除',
+    confirmColor: '#DC2626',
+    success: async (res) => {
+      if (!res.confirm) return
+      deletingHistoryId.value = row.planId
+      try {
+        await deleteFeedingPlan(row.planId)
+        plans.value = plans.value.filter((plan) => Number(plan.ID) !== Number(row.planId))
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await loadData()
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '删除失败', icon: 'none' })
+      } finally {
+        deletingHistoryId.value = 0
+      }
+    },
+  })
+}
 
 async function loadData() {
   loading.value = true
@@ -386,6 +439,7 @@ onShow(() => {
 .pc-money { margin-top: 8rpx; font-size: 22rpx; color: #374151; }
 .pc-tags { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 8rpx; }
 .pc-tag { font-size: 20rpx; padding: 4rpx 12rpx; background: #EEF2FF; color: #4F46E5; border-radius: 6rpx; }
+.pc-tag.paid { background: #DCFCE7; color: #15803D; font-weight: 700; }
 .pc-tag.play { background: #FEF3C7; color: #B45309; font-weight: 700; }
 .pc-tag.muted { background: #F3F4F6; color: #6B7280; }
 .status-tag { font-weight: 600; }
@@ -394,6 +448,7 @@ onShow(() => {
 .status-cancelled { background: #FEE2E2; color: #B91C1C; }
 .status-paused { background: #FEF3C7; color: #92400E; }
 .status-draft { background: #E5E7EB; color: #4B5563; }
+.delete-hint { display: block; margin-top: 8rpx; font-size: 20rpx; color: #94A3B8; }
 
 /* 迷你热力条 */
 .heatmap { display: flex; gap: 3rpx; margin-top: 10rpx; flex-wrap: wrap; }

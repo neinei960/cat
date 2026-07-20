@@ -1,7 +1,11 @@
 <template>
   <view ref="shellRef" class="care-report-stage-shell" :style="{ height: `${previewHeight}px` }">
-    <view ref="stageRef" class="care-report-stage" :style="{ transform: `scale(${previewScale})` }">
+    <view class="care-report-stage" :style="{ transform: `scale(${previewScale})` }">
       <image class="care-report-stage-base" :src="baseImageHref" mode="scaleToFill" />
+      <view class="care-report-stage-label-override">
+        <text class="care-report-stage-label-cn">护理内容</text>
+        <text class="care-report-stage-label-en">Content of care</text>
+      </view>
       <image v-if="portraitHref" class="care-report-stage-portrait" :src="portraitHref" mode="aspectFill" />
 
       <view
@@ -18,9 +22,7 @@
         :key="mark.key"
         class="care-report-stage-check"
         :style="mark.style"
-      >
-        ✓
-      </view>
+      />
 
       <view
         v-for="note in notes"
@@ -52,8 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import html2canvas from 'html2canvas'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import reportBaseImage from '@/assets/order-care-report-base.jpg'
 import type { OrderCareReportDraft, OrderCareReportSectionKey } from '@/utils/order-care-report'
 
@@ -117,10 +118,9 @@ const emit = defineEmits<{
 const REPORT_WIDTH = 1279
 const REPORT_HEIGHT = 1810
 const UNDERLINE_GAP = 8
-const NOTE_LINE_HEIGHT = 32
+const NOTE_LINE_HEIGHT = 56
 
 const shellRef = ref<MaybeElementRef>(null)
-const stageRef = ref<MaybeElementRef>(null)
 const previewScale = ref(1)
 const previewHeight = computed(() => Math.round(REPORT_HEIGHT * previewScale.value))
 
@@ -138,85 +138,91 @@ const fieldRects: Record<EditableFieldKey, { x: number; y: number; width: number
 }
 
 const bodyShapeAnchors: Record<string, Point> = {
-  thin: { x: 408, y: 833 },
-  skinny: { x: 573, y: 833 },
-  standard: { x: 737, y: 833 },
-  chubby: { x: 901, y: 833 },
-  obese: { x: 1066, y: 833 },
+  thin: { x: 406, y: 833 },
+  skinny: { x: 569, y: 833 },
+  standard: { x: 732, y: 833 },
+  chubby: { x: 895, y: 833 },
+  obese: { x: 1058, y: 833 },
 }
 
 const sectionAnchors: Record<OrderCareReportSectionKey, Record<string, Point>> = {
   skin: {
-    normal: { x: 408, y: 928 },
-    dandruff: { x: 573, y: 928 },
-    red: { x: 737, y: 928 },
-    greasy: { x: 901, y: 928 },
-    scab: { x: 1066, y: 928 },
+    normal: { x: 406, y: 929 },
+    dandruff: { x: 569, y: 929 },
+    red: { x: 732, y: 929 },
+    greasy: { x: 895, y: 929 },
+    scab: { x: 1058, y: 929 },
+    wound: { x: 406, y: 977 },
   },
   hair: {
-    shedding: { x: 408, y: 1027 },
-    undercoat_many: { x: 573, y: 1027 },
-    dry: { x: 737, y: 1027 },
-    greasy: { x: 901, y: 1027 },
-    matting: { x: 1066, y: 1027 },
+    shedding: { x: 406, y: 1025 },
+    undercoat_many: { x: 569, y: 1025 },
+    dry: { x: 732, y: 1025 },
+    greasy: { x: 895, y: 1025 },
+    matting: { x: 1058, y: 1025 },
   },
   nails: {
-    trimmed: { x: 408, y: 1125 },
-    dewclaw_abnormal: { x: 573, y: 1125 },
-    pads_dry: { x: 737, y: 1125 },
-    too_long: { x: 901, y: 1125 },
-    wound: { x: 1066, y: 1125 },
+    trimmed: { x: 406, y: 1121 },
+    dewclaw_abnormal: { x: 569, y: 1121 },
+    pads_dry: { x: 732, y: 1121 },
+    too_long: { x: 895, y: 1121 },
+    wound: { x: 1058, y: 1121 },
   },
   eyesFace: {
-    cleaned: { x: 408, y: 1222 },
-    tear_many: { x: 573, y: 1222 },
-    eye_red: { x: 737, y: 1222 },
-    eye_abnormal: { x: 901, y: 1222 },
-    wound: { x: 1066, y: 1222 },
+    cleaned: { x: 406, y: 1217 },
+    tear_many: { x: 569, y: 1217 },
+    eye_red: { x: 732, y: 1217 },
+    eye_abnormal: { x: 895, y: 1217 },
+    wound: { x: 1058, y: 1217 },
   },
   ears: {
-    cleaned: { x: 408, y: 1321 },
-    touch_sensitive: { x: 573, y: 1321 },
-    inflamed: { x: 737, y: 1321 },
-    earwax: { x: 901, y: 1321 },
-    black_earwax: { x: 1066, y: 1321 },
+    cleaned: { x: 406, y: 1313 },
+    touch_sensitive: { x: 569, y: 1313 },
+    inflamed: { x: 732, y: 1313 },
+    earwax: { x: 895, y: 1313 },
+    black_earwax: { x: 1058, y: 1313 },
+    wound: { x: 406, y: 1361 },
   },
   oral: {
-    normal: { x: 408, y: 1420 },
-    tartar: { x: 737, y: 1420 },
-    gum_red: { x: 901, y: 1420 },
-    gum_swollen: { x: 1066, y: 1420 },
+    normal: { x: 406, y: 1410 },
+    touch_sensitive: { x: 569, y: 1410 },
+    tartar: { x: 732, y: 1410 },
+    gum_red: { x: 895, y: 1410 },
+    gum_swollen: { x: 1058, y: 1410 },
+    oral_ulcer: { x: 406, y: 1458 },
+    bad_breath: { x: 569, y: 1458 },
+    dental_abnormal: { x: 732, y: 1458 },
   },
   anus: {
-    normal: { x: 408, y: 1605 },
-    red: { x: 737, y: 1605 },
-    inflamed: { x: 901, y: 1605 },
-    anal_gland_swollen: { x: 1066, y: 1605 },
+    normal: { x: 406, y: 1553 },
+    prolapse: { x: 569, y: 1553 },
+    red: { x: 732, y: 1553 },
+    inflamed: { x: 895, y: 1553 },
   },
 }
 
 const noteSpecs: Array<{ key: OrderCareReportSectionKey; x: number; y: number; width: number; limit: number }> = [
-  { key: 'skin', x: 494, y: 968, width: 670, limit: 32 },
-  { key: 'hair', x: 494, y: 1068, width: 670, limit: 32 },
-  { key: 'nails', x: 494, y: 1166, width: 670, limit: 32 },
-  { key: 'eyesFace', x: 494, y: 1262, width: 670, limit: 32 },
-  { key: 'ears', x: 494, y: 1362, width: 670, limit: 32 },
-  { key: 'oral', x: 494, y: 1460, width: 670, limit: 32 },
-  { key: 'anus', x: 494, y: 1646, width: 670, limit: 32 },
+  { key: 'skin', x: 648, y: 941, width: 516, limit: 80 },
+  { key: 'hair', x: 494, y: 1037, width: 670, limit: 80 },
+  { key: 'nails', x: 494, y: 1134, width: 670, limit: 80 },
+  { key: 'eyesFace', x: 494, y: 1230, width: 670, limit: 80 },
+  { key: 'ears', x: 648, y: 1325, width: 516, limit: 80 },
+  { key: 'oral', x: 494, y: 1469, width: 670, limit: 80 },
+  { key: 'anus', x: 494, y: 1566, width: 670, limit: 80 },
 ]
 
 const baseImageHref = computed(() => resolveAbsoluteUrl(reportBaseImage))
 const portraitHref = computed(() => resolveAbsoluteUrl(props.draft.portraitUrl))
 
 const primaryFields = computed(() => [
-  createCenteredField('pet_name', props.draft.petName, 279, 228, 387, 72, 54, 700),
-  createCenteredField('breed', props.draft.breed, 279, 369, 387, 66, 44, 700),
-  createCenteredField('gender', props.draft.gender, 196, 507, 175, 56, 36, 700),
-  createCenteredField('age', props.draft.age, 490, 507, 178, 56, 36, 700),
-  createCenteredField('care_content', props.draft.careContent, 279, 597, 387, 60, 34, 700, 18),
-  createCenteredField('care_date', normalizeDate(props.draft.careDate), 279, 737, 387, 52, 32, 700),
-  createCenteredField('next_care_date', normalizeDate(props.draft.nextCareDate), 905, 737, 229, 48, 30, 600),
-  createStartField('weight', normalizeWeight(props.draft.weight), 104, 834, 118, 44, 30, 600, 8),
+  createCenteredField('pet_name', props.draft.petName, 279, 196, 387, 68, 42, 700),
+  createCenteredField('breed', props.draft.breed, 279, 331, 387, 66, 38, 700),
+  createCenteredField('gender', props.draft.gender, 196, 463, 175, 56, 40, 700),
+  createCenteredField('age', props.draft.age, 490, 463, 178, 56, 40, 700),
+  createCenteredField('care_content', props.draft.careContent, 279, 573, 387, 60, 36, 700, 18),
+  createCenteredField('care_date', formatDisplayDate(props.draft.careDate), 279, 686, 387, 52, 38, 700),
+  createCenteredField('next_care_date', formatDisplayDate(props.draft.nextCareDate), 905, 690, 229, 48, 34, 400),
+  createStartField('weight', normalizeWeight(props.draft.weight), 104, 807, 118, 44, 36, 700, 8),
 ])
 
 const checkmarks = computed(() => {
@@ -249,8 +255,14 @@ const notes = computed(() => {
         width: spec.width,
         height: NOTE_LINE_HEIGHT,
         display: 'flex',
-        alignItems: 'flex-end',
-        paddingBottom: UNDERLINE_GAP,
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        fontWeight: 700,
+        whiteSpace: 'normal',
+        lineHeight: '24px',
+        wordBreak: 'break-all',
+        overflow: 'hidden',
       }),
     }))
     .filter((item) => item.text)
@@ -393,13 +405,10 @@ function createStartField(key: string, text: string, left: number, top: number, 
 
 function createCheckmarkStyle(x: number, y: number): StyleObject {
   return pxStyle({
-    left: x - 16,
-    top: y - 30,
-    width: 32,
-    height: 32,
-    fontSize: 34,
-    lineHeight: 32,
-    textAlign: 'center',
+    left: x - 11,
+    top: y - 15,
+    width: 13,
+    height: 24,
   })
 }
 
@@ -506,8 +515,11 @@ function estimateCharacterUnit(char: string) {
   return 0.62
 }
 
-function normalizeDate(value: string | undefined | null) {
-  return String(value || '').trim().replace(/\./g, '-')
+function formatDisplayDate(value: string | undefined | null) {
+  const raw = String(value || '').trim()
+  const matched = /^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$/.exec(raw)
+  if (!matched) return raw
+  return `${Number(matched[1])}.${Number(matched[2])}.${Number(matched[3])}`
 }
 
 function normalizeWeight(value: string | undefined | null) {
@@ -523,63 +535,6 @@ function resolveAbsoluteUrl(value: string) {
   return new URL(value, window.location.origin).toString()
 }
 
-async function exportPngBlob() {
-  await nextTick()
-  const shellElement = getDomElement(shellRef.value)
-  const element = (shellElement?.querySelector('.care-report-stage') as HTMLElement | null) || getDomElement(stageRef.value)
-  if (!element) {
-    throw new Error('找不到护理报告预览')
-  }
-  await waitForStageImagesReady(element)
-  const rect = element.getBoundingClientRect()
-  const exportScale = rect.width ? REPORT_WIDTH / rect.width : 1
-  const canvas = await html2canvas(element, {
-    backgroundColor: '#FFFFFF',
-    scale: exportScale,
-    useCORS: true,
-    allowTaint: true,
-    logging: false,
-    width: rect.width,
-    height: rect.height,
-    scrollX: 0,
-    scrollY: 0,
-  })
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('护理报告导出失败'))
-        return
-      }
-      resolve(blob)
-    }, 'image/png')
-  })
-}
-
-async function waitForStageImagesReady(element: HTMLElement) {
-  const images = Array.from(element.querySelectorAll('img')) as HTMLImageElement[]
-  if (!images.length) return
-
-  await Promise.all(
-    images.map((image) => {
-      if (image.complete && image.naturalWidth > 0) {
-        return Promise.resolve()
-      }
-      return new Promise<void>((resolve) => {
-        const done = () => {
-          image.removeEventListener('load', done)
-          image.removeEventListener('error', done)
-          resolve()
-        }
-        image.addEventListener('load', done, { once: true })
-        image.addEventListener('error', done, { once: true })
-      })
-    })
-  )
-}
-
-defineExpose({
-  exportPngBlob,
-})
 </script>
 
 <style scoped>
@@ -618,13 +573,45 @@ defineExpose({
   border-radius: 999px;
 }
 
+.care-report-stage-label-override {
+  position: absolute;
+  left: 88px;
+  top: 558px;
+  width: 184px;
+  height: 90px;
+  background: #FFFFFF;
+  color: #141414;
+  font-family: "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+}
+
+.care-report-stage-label-cn,
+.care-report-stage-label-en {
+  position: absolute;
+  left: 17px;
+  white-space: nowrap;
+}
+
+.care-report-stage-label-cn {
+  top: 13px;
+  font-size: 34px;
+  line-height: 42px;
+}
+
+.care-report-stage-label-en {
+  top: 54px;
+  color: #737373;
+  font-size: 18px;
+  line-height: 24px;
+}
+
 .care-report-stage-text,
 .care-report-stage-note,
 .care-report-stage-check {
   position: absolute;
   box-sizing: border-box;
   color: #111111;
-  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-family: "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
 
 .care-report-stage-text {
@@ -632,15 +619,15 @@ defineExpose({
 }
 
 .care-report-stage-note {
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 1;
-  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 700;
 }
 
 .care-report-stage-check {
-  font-size: 34px;
-  font-weight: 700;
+  border-right: 5px solid #111111;
+  border-bottom: 5px solid #111111;
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
 
 .care-report-stage-overlay {

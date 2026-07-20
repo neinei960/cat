@@ -28,6 +28,11 @@ type Order struct {
 	AppointmentDepositDeductionAmount float64    `json:"appointment_deposit_deduction_amount" gorm:"type:decimal(10,2);default:0;comment:预约金抵扣额"`
 	PayAmount                         float64    `json:"pay_amount" gorm:"type:decimal(10,2);default:0;comment:实付金额"`
 	Commission                        float64    `json:"commission" gorm:"type:decimal(10,2);default:0;comment:洗护师提成"`
+	MemberBalanceBefore               *float64   `json:"member_balance_before" gorm:"type:decimal(10,2);comment:支付时会员余额快照-消费前"`
+	MemberBalanceAfter                *float64   `json:"member_balance_after" gorm:"type:decimal(10,2);comment:支付时会员余额快照-消费后"`
+	MemberBalanceUsed                 float64    `json:"member_balance_used" gorm:"type:decimal(10,2);default:0;comment:本单会员余额实扣金额"`
+	CashPayAmount                     float64    `json:"cash_pay_amount" gorm:"type:decimal(10,2);default:0;comment:会员余额不足时补差金额"`
+	CashPayMethod                     string     `json:"cash_pay_method" gorm:"size:20;comment:会员余额不足时补差支付方式"`
 	PayMethod                         string     `json:"pay_method" gorm:"size:20;comment:wechat/alipay/cash/card"`
 	PayStatus                         int        `json:"pay_status" gorm:"default:0;comment:0未付 1已付 2已退"`
 	PayTime                           *time.Time `json:"pay_time"`

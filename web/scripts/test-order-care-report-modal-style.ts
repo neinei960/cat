@@ -12,6 +12,11 @@ assertContains(source, '.care-report-input :deep(.uni-input-placeholder)', 'miss
 assertMatches(source, /\.care-report-input\s*:deep\(\.uni-input-wrapper\)[\s\S]*?(min-height:\s*100%|height:\s*100%)/, 'wrapper selector should fill the input shell height')
 assertMatches(source, /\.care-report-input\s*:deep\(\.uni-input-input\)[\s\S]*?(min-height|height):\s*\d+rpx;/, 'input selector should define height')
 assertMatches(source, /\.care-report-input\s*:deep\(\.uni-input-input\)[\s\S]*?line-height:\s*\d+rpx;/, 'input selector should define line-height')
+assertMatches(source, /\.care-report-form-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/, 'mobile form rows should use one column')
+assertMatches(source, /\.care-report-choice\s*\{[\s\S]*?min-height:\s*88rpx;/, 'form choices should have a mobile-friendly touch target')
+assertContains(source, 'env(safe-area-inset-bottom)', 'bottom actions should respect the mobile safe area')
+assertMatches(source, /\.care-report-draft-preview\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;/, 'read-only preview should cover the modal without changing form layout')
+assertNotContains(source, '.care-report-editor-dock', 'legacy canvas editor dock should stay removed')
 
 function assertContains(content: string, token: string, message: string) {
   if (!content.includes(token)) {

@@ -519,6 +519,63 @@ func syncBoardingPreviewToPayOrder(payOrder *model.Order, preview *BoardingPrice
 	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, payOrder.PayAmount)
 }
 
+const boardingPaidCreditItemName = "已支付抵扣"
+
+func boardingPaidCreditFromItems(items []model.OrderItem) float64 {
+	total := 0.0
+	for _, item := range items {
+		if item.ItemType != 6 || item.Name != boardingPaidCreditItemName || item.Amount >= 0 {
+			continue
+		}
+		total += -item.Amount
+	}
+	return roundMoney(total)
+}
+
+func paidBoardingAmountFromPayOrder(payOrder *model.Order) float64 {
+	if payOrder == nil || payOrder.PayStatus != 1 {
+		return 0
+	}
+	productTotal := productItemsTotal(payOrder.Items)
+	if productTotal <= 0 {
+		productTotal = roundMoney(payOrder.ProductTotal)
+	}
+	productPayAmount := roundMoney(maxBoardingFloat(productTotal-roundMoney(payOrder.ProductDiscountAmount), 0))
+	paidCredit := boardingPaidCreditFromItems(payOrder.Items)
+	return roundMoney(maxBoardingFloat(roundMoney(payOrder.PayAmount)-productPayAmount, 0) + paidCredit)
+}
+
+func applyBoardingPaidCreditToPayOrder(payOrder *model.Order, credit float64) float64 {
+	if payOrder == nil {
+		return 0
+	}
+	credit = roundMoney(minFloat(maxBoardingFloat(credit, 0), roundMoney(payOrder.PayAmount)))
+	if credit <= 0 {
+		return 0
+	}
+	payOrder.ServiceDiscountAmount = roundMoney(payOrder.ServiceDiscountAmount + credit)
+	payOrder.DiscountAmount = roundMoney(payOrder.DiscountAmount + credit)
+	payOrder.PayAmount = roundMoney(maxBoardingFloat(payOrder.PayAmount-credit, 0))
+	payOrder.DiscountRate = calculateOrderDiscountRate(payOrder.TotalAmount, payOrder.PayAmount)
+	return credit
+}
+
+func appendBoardingPaidCreditItem(items []model.OrderItem, orderID uint, credit float64) []model.OrderItem {
+	credit = roundMoney(maxBoardingFloat(credit, 0))
+	if credit <= 0 {
+		return items
+	}
+	return append(items, model.OrderItem{
+		OrderID:   orderID,
+		ItemType:  6,
+		ItemID:    0,
+		Name:      boardingPaidCreditItemName,
+		Quantity:  1,
+		UnitPrice: -credit,
+		Amount:    -credit,
+	})
+}
+
 func resetCancelledBoardingFromPayOrder(payOrder *model.Order, preservedProductItems []model.OrderItem) {
 	productTotal := productItemsTotal(preservedProductItems)
 	if productTotal <= 0 {
@@ -596,7 +653,9 @@ func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *Boar
 		}
 		return tx.Create(&preservedProductItems).Error
 	}
+	paidCredit := boardingPaidCreditFromItems(payOrder.Items)
 	syncBoardingPreviewToPayOrder(payOrder, preview, preservedProductItems)
+	paidCredit = applyBoardingPaidCreditToPayOrder(payOrder, paidCredit)
 	if err := tx.Save(&payOrder).Error; err != nil {
 		return err
 	}
@@ -604,6 +663,7 @@ func syncBoardingPayOrder(tx *gorm.DB, order *model.BoardingOrder, preview *Boar
 		return err
 	}
 	items := buildBoardingOrderItemsFromAggregate(payOrder.ID, preview)
+	items = appendBoardingPaidCreditItem(items, payOrder.ID, paidCredit)
 	items = append(items, preservedProductItems...)
 	if len(items) == 0 {
 		return nil

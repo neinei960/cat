@@ -191,6 +191,7 @@ import SideLayout from '@/components/SideLayout.vue'
 import { getService, createService, updateService, deleteService, getPriceRules, createPriceRule, deletePriceRule, getDiscounts, createDiscount, deleteDiscount } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { safeBack } from '@/utils/navigate'
+import { filterServiceManagementCategoryTree } from '@/utils/service-category-visibility'
 
 const id = ref(0)
 const submitting = ref(false)
@@ -360,7 +361,7 @@ function restorePickerFromId(catId: number | undefined) {
 
 onLoad(async (query) => {
   const res = await getCategoryTree()
-  categories.value = res.data || []
+  categories.value = filterServiceManagementCategoryTree(res.data || [])
 
   if (query?.id) {
     id.value = parseInt(query.id)

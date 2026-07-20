@@ -1,6 +1,9 @@
 package repository
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 	"gorm.io/gorm"
@@ -67,19 +70,7 @@ func (r *PetRepository) list(shopID uint, keyword, petTag string, page, pageSize
 		Where("pets.shop_id = ?", shopID)
 
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		db = db.Where(`(
-			pets.name LIKE ?
-			OR customers.nickname LIKE ?
-			OR customers.phone LIKE ?
-			OR pets.fur_level LIKE ?
-			OR pets.personality LIKE ?
-			OR pets.aggression LIKE ?
-			OR pets.forbidden_zones LIKE ?
-			OR pets.care_notes LIKE ?
-			OR pets.behavior_notes LIKE ?
-			OR (? = '已绝育' AND pets.neutered = ?)
-		)`, like, like, like, like, like, like, like, like, like, keyword, keyword == "已绝育")
+		db = applyPetKeywordFilter(db, keyword)
 	}
 
 	if petTag != "" {
@@ -92,6 +83,60 @@ func (r *PetRepository) list(shopID uint, keyword, petTag string, page, pageSize
 		Order("COALESCE(pet_spend.total_spent, 0) DESC, CASE WHEN pets.customer_id IS NULL THEN 1 ELSE 0 END ASC, pets.customer_id ASC, pets.id ASC").
 		Offset(offset).Limit(pageSize).Find(&pets).Error
 	return pets, total, err
+}
+
+func applyPetKeywordFilter(db *gorm.DB, keyword string) *gorm.DB {
+	keyword = strings.TrimSpace(keyword)
+	like := "%" + keyword + "%"
+	if id, ok := parseNumericKeyword(keyword); ok {
+		conditions := []string{
+			"pets.name LIKE ?",
+			"pets.id = ?",
+		}
+		args := []any{like, id}
+		if shouldSearchCustomerPhone(keyword) {
+			conditions = append(conditions, "customers.phone LIKE ?")
+			args = append(args, like)
+		}
+		return db.Where("("+strings.Join(conditions, " OR ")+")", args...)
+	}
+
+	conditions := []string{
+		"pets.name LIKE ?",
+		"customers.nickname LIKE ?",
+		"pets.fur_level LIKE ?",
+		"pets.personality LIKE ?",
+		"pets.aggression LIKE ?",
+		"(? = '已绝育' AND pets.neutered = ?)",
+	}
+	args := []any{like, like, like, like, like, keyword, keyword == "已绝育"}
+
+	return db.Where("("+strings.Join(conditions, " OR ")+")", args...)
+}
+
+func parseNumericKeyword(keyword string) (uint64, bool) {
+	if keyword == "" {
+		return 0, false
+	}
+	for _, r := range keyword {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	id, err := strconv.ParseUint(keyword, 10, 64)
+	return id, err == nil
+}
+
+func shouldSearchCustomerPhone(keyword string) bool {
+	digits := 0
+	for _, r := range keyword {
+		if r >= '0' && r <= '9' {
+			digits++
+			continue
+		}
+		return false
+	}
+	return digits >= 4
 }
 
 func applyPetTagFilter(db *gorm.DB, petTag string) *gorm.DB {

@@ -25,7 +25,7 @@ exports.buildReceiptFileName = buildReceiptFileName;
 function buildOrderCareReportFileName(orderNo, petName) {
     const safeOrderNo = sanitizeFileNamePart(orderNo) || 'NO';
     const safePetName = sanitizeFileNamePart(petName) || '猫咪';
-    return `护理报告_${safeOrderNo}_${safePetName}.png`;
+    return `护理报告_${safeOrderNo}_${safePetName}.jpg`;
 }
 exports.buildOrderCareReportFileName = buildOrderCareReportFileName;
 function openImagePreviewWindow(src, title = '图片预览') {
@@ -49,6 +49,12 @@ function openImagePreviewWindow(src, title = '图片预览') {
     return true;
 }
 exports.openImagePreviewWindow = openImagePreviewWindow;
+function isMobileImageSaveFallbackBrowser() {
+    if (typeof navigator === 'undefined')
+        return false;
+    const userAgent = navigator.userAgent || '';
+    return /Android|iP(hone|od|ad)|Mobile|MicroMessenger|MQQBrowser|MiuiBrowser|HuaweiBrowser|Quark|UCBrowser/i.test(userAgent);
+}
 function dataUrlToBlob(dataUrl) {
     const parts = dataUrl.split(',');
     const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'image/png';
@@ -101,6 +107,9 @@ async function saveImageByUrl(src, fileName, options = {}) {
                 }
             }
         }
+    }
+    if (isMobileImageSaveFallbackBrowser() && openImagePreviewWindow(src, options.title || fileName)) {
+        return 'preview';
     }
     const objectUrl = options.blobUrl || (blob ? URL.createObjectURL(blob) : '');
     const anchor = document.createElement('a');

@@ -8,12 +8,16 @@ export interface DashboardPaymentBreakdownItem {
 
 export interface DashboardOverview {
   today_revenue: number
+  month_revenue: number
+  month_recharge: number
+  month_collection: number
   today_order_count: number
   today_appointment_count: number
   today_service_completed_count: number
   today_pending_settlement_count: number
   today_refunded_order_count: number
   today_new_customers: number
+  regular_customer_count: number
   pending_appointments: number
   total_customers: number
   avg_order_value: number
@@ -41,9 +45,58 @@ export function getServiceRanking(startDate: string, endDate: string) {
   })
 }
 
+export interface ProjectRevenueNode {
+  key: string
+  name: string
+  kind: string
+  count: number
+  revenue: number
+  children?: ProjectRevenueNode[]
+}
+
+export interface StaffPerformanceItem {
+  staff_id: number
+  staff_name: string
+  appointment_count: number
+  revenue: number
+  product_revenue: number
+  commission_rate: number
+  product_commission_rate: number
+  commission: number
+}
+
+export interface StaffCommissionDetail {
+  order_id: number
+  order_no: string
+  date: string
+  pay_method: string
+  pay_method_label: string
+  pay_amount: number
+  service_amount: number
+  product_amount: number
+  commission_rate: number
+  commission: number
+  formula: string
+  customer_name: string
+  pet_summary: string
+  remark: string
+}
+
+export function getProjectRevenueTree(startDate: string, endDate: string) {
+  return request<ProjectRevenueNode[]>({
+    url: `/b/dashboard/project-revenue?start_date=${startDate}&end_date=${endDate}`,
+  })
+}
+
 export function getStaffPerformance(startDate: string, endDate: string) {
-  return request<{ staff_name: string; appointment_count: number; revenue: number }[]>({
+  return request<StaffPerformanceItem[]>({
     url: `/b/dashboard/staff?start_date=${startDate}&end_date=${endDate}`,
+  })
+}
+
+export function getStaffCommissionDetails(staffId: number, startDate: string, endDate: string) {
+  return request<StaffCommissionDetail[]>({
+    url: `/b/dashboard/staff/${staffId}/commission-details?start_date=${startDate}&end_date=${endDate}`,
   })
 }
 

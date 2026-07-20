@@ -30,13 +30,28 @@ import (
 var orderCareReportBaseImage []byte
 
 //go:embed assets/order-care-report/SourceHanSansSC-Regular.otf
-var orderCareReportFontFile []byte
+var orderCareReportRegularFontFile []byte
 
-var orderCareReportFontState struct {
+//go:embed assets/order-care-report/SourceHanSansSC-Bold.otf
+var orderCareReportBoldFontFile []byte
+
+type orderCareReportFontWeight uint8
+
+const (
+	orderCareReportFontRegular orderCareReportFontWeight = iota
+	orderCareReportFontBold
+)
+
+type orderCareReportFontCache struct {
 	once sync.Once
 	font *opentype.Font
 	err  error
 }
+
+var (
+	orderCareReportRegularFontState orderCareReportFontCache
+	orderCareReportBoldFontState    orderCareReportFontCache
+)
 
 type OrderCareReportSectionInput struct {
 	Checks []string `json:"checks"`
@@ -46,6 +61,10 @@ type OrderCareReportSectionInput struct {
 type CreateOrderCareReportInput struct {
 	PetID        uint                        `json:"pet_id"`
 	PortraitURL  string                      `json:"portrait_url"`
+	PetName      *string                     `json:"pet_name"`
+	Breed        *string                     `json:"breed"`
+	Gender       *string                     `json:"gender"`
+	Age          *string                     `json:"age"`
 	Weight       string                      `json:"weight"`
 	CareDate     string                      `json:"care_date"`
 	NextCareDate string                      `json:"next_care_date"`
@@ -179,6 +198,10 @@ func renderOrderCareReport(order *model.Order, pet *model.Pet, input CreateOrder
 	dc := gg.NewContextForImage(baseImage)
 	dc.SetRGB(0, 0, 0)
 
+	if err := drawOrderCareReportTemplateOverrides(dc); err != nil {
+		return nil, err
+	}
+
 	if err := drawOrderCareReportPortrait(dc, input.PortraitURL); err != nil {
 		return nil, err
 	}
@@ -237,21 +260,32 @@ type orderCareReportDrawData struct {
 func buildOrderCareReportDrawData(pet *model.Pet, input CreateOrderCareReportInput, bathDate time.Time) orderCareReportDrawData {
 	data := orderCareReportDrawData{
 		CareContent:  compactOrderCareReportText(input.CareContent),
-		CareDate:     bathDate.Format("2006-01-02"),
-		NextCareDate: compactOrderCareReportText(input.NextCareDate),
+		CareDate:     formatOrderCareReportDisplayDate(bathDate.Format("2006-01-02")),
+		NextCareDate: formatOrderCareReportDisplayDate(input.NextCareDate),
 		Weight:       normalizeOrderCareReportWeight(input.Weight),
 		BodyShape:    normalizeOrderCareReportKey(input.BodyShape),
 	}
 	if pet == nil {
+		data.PetName = resolveOrderCareReportDisplayValue(input.PetName, "")
+		data.Breed = resolveOrderCareReportDisplayValue(input.Breed, "")
+		data.Gender = resolveOrderCareReportDisplayValue(input.Gender, "")
+		data.Age = resolveOrderCareReportDisplayValue(input.Age, "")
 		return data
 	}
 
-	data.PetName = compactOrderCareReportText(pet.Name)
-	data.Breed = compactOrderCareReportText(pet.Breed)
-	data.Gender = orderCareReportGenderDisplay(pet.Gender)
-	data.Age = orderCareReportAgeDisplay(pet.BirthDate, bathDate)
+	data.PetName = resolveOrderCareReportDisplayValue(input.PetName, pet.Name)
+	data.Breed = resolveOrderCareReportDisplayValue(input.Breed, pet.Breed)
+	data.Gender = resolveOrderCareReportDisplayValue(input.Gender, orderCareReportGenderDisplay(pet.Gender))
+	data.Age = resolveOrderCareReportDisplayValue(input.Age, orderCareReportAgeDisplay(pet.BirthDate, bathDate))
 
 	return data
+}
+
+func resolveOrderCareReportDisplayValue(override *string, fallback string) string {
+	if override != nil {
+		return compactOrderCareReportText(*override)
+	}
+	return compactOrderCareReportText(fallback)
 }
 
 func drawOrderCareReportPortrait(dc *gg.Context, portraitURL string) error {
@@ -296,6 +330,28 @@ func drawOrderCareReportPortrait(dc *gg.Context, portraitURL string) error {
 	return nil
 }
 
+func drawOrderCareReportTemplateOverrides(dc *gg.Context) error {
+	dc.Push()
+	defer dc.Pop()
+
+	dc.SetRGB(1, 1, 1)
+	dc.DrawRectangle(88, 558, 184, 90)
+	dc.Fill()
+
+	dc.SetRGB(0.08, 0.08, 0.08)
+	if err := setOrderCareReportFontFace(dc, 34, orderCareReportFontRegular); err != nil {
+		return err
+	}
+	dc.DrawString("护理内容", 105, 605)
+
+	dc.SetRGB(0.45, 0.45, 0.45)
+	if err := setOrderCareReportFontFace(dc, 18, orderCareReportFontRegular); err != nil {
+		return err
+	}
+	dc.DrawString("Content of care", 105, 632)
+	return nil
+}
+
 func drawOrderCareReportPrimaryFields(dc *gg.Context, data orderCareReportDrawData) error {
 	fields := []struct {
 		Key     string
@@ -303,23 +359,30 @@ func drawOrderCareReportPrimaryFields(dc *gg.Context, data orderCareReportDrawDa
 		Size    float64
 		MinSize float64
 	}{
-		{Key: "pet_name", Value: data.PetName, Size: 38, MinSize: 24},
-		{Key: "breed", Value: data.Breed, Size: 34, MinSize: 22},
-		{Key: "gender", Value: data.Gender, Size: 30, MinSize: 22},
-		{Key: "age", Value: data.Age, Size: 30, MinSize: 22},
-		{Key: "care_content", Value: data.CareContent, Size: 32, MinSize: 20},
-		{Key: "care_date", Value: data.CareDate, Size: 28, MinSize: 20},
-		{Key: "next_care_date", Value: data.NextCareDate, Size: 28, MinSize: 20},
-		{Key: "weight", Value: data.Weight, Size: 30, MinSize: 20},
+		{Key: "pet_name", Value: data.PetName, Size: 42, MinSize: 24},
+		{Key: "breed", Value: data.Breed, Size: 38, MinSize: 22},
+		{Key: "gender", Value: data.Gender, Size: 40, MinSize: 22},
+		{Key: "age", Value: data.Age, Size: 40, MinSize: 22},
+		{Key: "care_content", Value: data.CareContent, Size: 36, MinSize: 20},
+		{Key: "care_date", Value: data.CareDate, Size: 38, MinSize: 20},
+		{Key: "next_care_date", Value: data.NextCareDate, Size: 34, MinSize: 20},
+		{Key: "weight", Value: data.Weight, Size: 36, MinSize: 20},
 	}
 
 	for _, field := range fields {
-		if err := drawCenteredOrderCareReportLineText(dc, orderCareReportPrimaryFieldBoxes[field.Key], field.Value, field.Size, field.MinSize, orderCareReportPrimaryFieldLimits[field.Key]); err != nil {
+		if err := drawCenteredOrderCareReportLineText(dc, orderCareReportPrimaryFieldBoxes[field.Key], field.Value, field.Size, field.MinSize, orderCareReportPrimaryFieldLimits[field.Key], orderCareReportPrimaryFieldWeight(field.Key)); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func orderCareReportPrimaryFieldWeight(key string) orderCareReportFontWeight {
+	if key == "next_care_date" {
+		return orderCareReportFontRegular
+	}
+	return orderCareReportFontBold
 }
 
 func drawOrderCareReportBodyShape(dc *gg.Context, bodyShape string) {
@@ -360,11 +423,11 @@ func drawOrderCareReportSections(dc *gg.Context, input CreateOrderCareReportInpu
 			}
 			drawOrderCareReportCheckmark(dc, anchor)
 		}
-		_ = drawLeftAlignedOrderCareReportLineText(dc, layout.NoteBox, section.Input.Note, 22, 18, layout.NoteLimit)
+		_ = drawOrderCareReportNote(dc, layout.NoteBox, section.Input.Note, layout.NoteLimit)
 	}
 }
 
-func drawCenteredOrderCareReportLineText(dc *gg.Context, box orderCareReportLineBox, text string, size, minSize float64, runeLimit int) error {
+func drawCenteredOrderCareReportLineText(dc *gg.Context, box orderCareReportLineBox, text string, size, minSize float64, runeLimit int, weight orderCareReportFontWeight) error {
 	text = compactOrderCareReportText(text)
 	if text == "" {
 		return nil
@@ -373,7 +436,7 @@ func drawCenteredOrderCareReportLineText(dc *gg.Context, box orderCareReportLine
 	widthLimit := box.Right - box.Left
 	text = truncateOrderCareReportText(text, runeLimit)
 	for currentSize := size; currentSize >= minSize; currentSize -= 2 {
-		if err := setOrderCareReportFontFace(dc, currentSize); err != nil {
+		if err := setOrderCareReportFontFace(dc, currentSize, weight); err != nil {
 			return err
 		}
 		if width, _ := dc.MeasureString(text); width <= widthLimit {
@@ -382,7 +445,7 @@ func drawCenteredOrderCareReportLineText(dc *gg.Context, box orderCareReportLine
 		}
 	}
 
-	if err := setOrderCareReportFontFace(dc, minSize); err != nil {
+	if err := setOrderCareReportFontFace(dc, minSize, weight); err != nil {
 		return err
 	}
 	text = ellipsizeOrderCareReportText(dc, text, widthLimit)
@@ -390,39 +453,79 @@ func drawCenteredOrderCareReportLineText(dc *gg.Context, box orderCareReportLine
 	return nil
 }
 
-func drawLeftAlignedOrderCareReportLineText(dc *gg.Context, box orderCareReportLineBox, text string, size, minSize float64, runeLimit int) error {
-	text = compactOrderCareReportText(text)
+func layoutOrderCareReportNote(dc *gg.Context, text string, box orderCareReportLineBox, runeLimit int) ([]string, float64, error) {
+	text = truncateOrderCareReportText(compactOrderCareReportText(text), runeLimit)
 	if text == "" {
-		return nil
+		return nil, 0, nil
 	}
 
 	widthLimit := box.Right - box.Left
-	text = truncateOrderCareReportText(text, runeLimit)
-	for currentSize := size; currentSize >= minSize; currentSize -= 2 {
-		if err := setOrderCareReportFontFace(dc, currentSize); err != nil {
-			return err
+	for size := 24.0; size >= 20; size -= 2 {
+		if err := setOrderCareReportFontFace(dc, size, orderCareReportFontBold); err != nil {
+			return nil, 0, err
 		}
 		if width, _ := dc.MeasureString(text); width <= widthLimit {
-			dc.DrawStringAnchored(text, box.Left, box.Baseline, 0, 0)
-			return nil
+			return []string{text}, size, nil
 		}
 	}
 
-	if err := setOrderCareReportFontFace(dc, minSize); err != nil {
+	if err := setOrderCareReportFontFace(dc, 20, orderCareReportFontBold); err != nil {
+		return nil, 0, err
+	}
+	first, second := splitOrderCareReportNote(dc, text, widthLimit)
+	if second == "" {
+		return []string{first}, 20, nil
+	}
+	return []string{first, second}, 20, nil
+}
+
+func splitOrderCareReportNote(dc *gg.Context, text string, widthLimit float64) (string, string) {
+	runes := []rune(text)
+	breakAt := len(runes)
+	for i := 1; i <= len(runes); i++ {
+		if width, _ := dc.MeasureString(string(runes[:i])); width > widthLimit {
+			breakAt = i - 1
+			break
+		}
+	}
+	if breakAt <= 0 {
+		breakAt = 1
+	}
+	first := strings.TrimSpace(string(runes[:breakAt]))
+	second := strings.TrimSpace(string(runes[breakAt:]))
+	if second != "" {
+		second = ellipsizeOrderCareReportText(dc, second, widthLimit)
+	}
+	return first, second
+}
+
+func drawOrderCareReportNote(dc *gg.Context, box orderCareReportLineBox, text string, runeLimit int) error {
+	lines, size, err := layoutOrderCareReportNote(dc, text, box, runeLimit)
+	if err != nil || len(lines) == 0 {
 		return err
 	}
-	text = ellipsizeOrderCareReportText(dc, text, widthLimit)
-	dc.DrawStringAnchored(text, box.Left, box.Baseline, 0, 0)
+	if err := setOrderCareReportFontFace(dc, size, orderCareReportFontBold); err != nil {
+		return err
+	}
+	centerX := (box.Left + box.Right) / 2
+	if len(lines) == 1 {
+		dc.DrawStringAnchored(lines[0], centerX, box.Baseline, 0.5, 0)
+		return nil
+	}
+	dc.DrawStringAnchored(lines[0], centerX, box.Baseline-10, 0.5, 0)
+	dc.DrawStringAnchored(lines[1], centerX, box.Baseline+14, 0.5, 0)
 	return nil
 }
 
 func drawOrderCareReportCheckmark(dc *gg.Context, point orderCareReportPoint) {
 	dc.Push()
 	dc.SetRGB(0, 0, 0)
-	dc.SetLineWidth(4.2)
-	dc.MoveTo(point.X-8, point.Y)
-	dc.LineTo(point.X-1, point.Y+8)
-	dc.LineTo(point.X+12, point.Y-8)
+	dc.SetLineWidth(orderCareReportCheckmarkStrokeWidth)
+	dc.SetLineCapRound()
+	dc.SetLineJoinRound()
+	dc.MoveTo(point.X+orderCareReportCheckmarkStartOffset.X, point.Y+orderCareReportCheckmarkStartOffset.Y)
+	dc.LineTo(point.X+orderCareReportCheckmarkKneeOffset.X, point.Y+orderCareReportCheckmarkKneeOffset.Y)
+	dc.LineTo(point.X+orderCareReportCheckmarkEndOffset.X, point.Y+orderCareReportCheckmarkEndOffset.Y)
 	dc.Stroke()
 	dc.Pop()
 }
@@ -541,8 +644,8 @@ func ellipsizeOrderCareReportText(dc *gg.Context, value string, maxWidth float64
 	return string(runes)
 }
 
-func setOrderCareReportFontFace(dc *gg.Context, size float64) error {
-	face, err := orderCareReportFontFace(size)
+func setOrderCareReportFontFace(dc *gg.Context, size float64, weight orderCareReportFontWeight) error {
+	face, err := orderCareReportFontFace(size, weight)
 	if err != nil {
 		return err
 	}
@@ -550,14 +653,20 @@ func setOrderCareReportFontFace(dc *gg.Context, size float64) error {
 	return nil
 }
 
-func orderCareReportFontFace(size float64) (font.Face, error) {
-	orderCareReportFontState.once.Do(func() {
-		orderCareReportFontState.font, orderCareReportFontState.err = opentype.Parse(orderCareReportFontFile)
-	})
-	if orderCareReportFontState.err != nil {
-		return nil, orderCareReportFontState.err
+func orderCareReportFontFace(size float64, weight orderCareReportFontWeight) (font.Face, error) {
+	state := &orderCareReportRegularFontState
+	fontFile := orderCareReportRegularFontFile
+	if weight == orderCareReportFontBold {
+		state = &orderCareReportBoldFontState
+		fontFile = orderCareReportBoldFontFile
 	}
-	face, err := opentype.NewFace(orderCareReportFontState.font, &opentype.FaceOptions{
+	state.once.Do(func() {
+		state.font, state.err = opentype.Parse(fontFile)
+	})
+	if state.err != nil {
+		return nil, state.err
+	}
+	face, err := opentype.NewFace(state.font, &opentype.FaceOptions{
 		Size: size,
 		DPI:  72,
 	})
@@ -565,6 +674,15 @@ func orderCareReportFontFace(size float64) (font.Face, error) {
 		return nil, err
 	}
 	return face, nil
+}
+
+func formatOrderCareReportDisplayDate(value string) string {
+	value = strings.TrimSpace(value)
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return compactOrderCareReportText(value)
+	}
+	return fmt.Sprintf("%d.%d.%d", parsed.Year(), parsed.Month(), parsed.Day())
 }
 
 func canonicalOrderCareReportSectionCheck(sectionName, raw string) (string, bool) {
@@ -601,6 +719,8 @@ var orderCareReportSectionCheckAliases = map[string]map[string]string{
 		"lump":     "scab",
 		"疙瘩":       "scab",
 		"结痂":       "scab",
+		"wound":    "wound",
+		"伤口":       "wound",
 	},
 	"hair": {
 		"shedding":       "shedding",
@@ -674,32 +794,49 @@ var orderCareReportSectionCheckAliases = map[string]map[string]string{
 		"black":           "black_earwax",
 		"dark":            "black_earwax",
 		"耳垢发黑":            "black_earwax",
+		"wound":           "wound",
+		"伤口":              "wound",
 	},
 	"oral": {
-		"normal":        "normal",
-		"正常":            "normal",
-		"tartar":        "tartar",
-		"牙结石":           "tartar",
-		"gum_red":       "gum_red",
-		"gums_red":      "gum_red",
-		"teeth_red":     "gum_red",
-		"牙龈发红":          "gum_red",
-		"gum_swollen":   "gum_swollen",
-		"gums_swollen":  "gum_swollen",
-		"teeth_swollen": "gum_swollen",
-		"牙龈肿胀":          "gum_swollen",
+		"normal":          "normal",
+		"正常":              "normal",
+		"touch_sensitive": "touch_sensitive",
+		"sensitive":       "touch_sensitive",
+		"讨厌被触摸":           "touch_sensitive",
+		"tartar":          "tartar",
+		"牙结石":             "tartar",
+		"gum_red":         "gum_red",
+		"gums_red":        "gum_red",
+		"teeth_red":       "gum_red",
+		"牙龈发红":            "gum_red",
+		"gum_swollen":     "gum_swollen",
+		"gums_swollen":    "gum_swollen",
+		"teeth_swollen":   "gum_swollen",
+		"牙龈肿胀":            "gum_swollen",
+		"oral_ulcer":      "oral_ulcer",
+		"ulcer":           "oral_ulcer",
+		"口腔溃疡":            "oral_ulcer",
+		"bad_breath":      "bad_breath",
+		"halitosis":       "bad_breath",
+		"强烈口臭":            "bad_breath",
+		"dental_abnormal": "dental_abnormal",
+		"teeth_abnormal":  "dental_abnormal",
+		"牙齿异常":            "dental_abnormal",
 	},
 	"anus": {
 		"normal":             "normal",
 		"正常":                 "normal",
+		"prolapse":           "prolapse",
+		"脱肛":                 "prolapse",
 		"red":                "red",
 		"redness":            "red",
 		"发红":                 "red",
 		"inflamed":           "inflamed",
 		"swollen":            "inflamed",
 		"鼓起肿胀":               "inflamed",
-		"anal_gland_swollen": "anal_gland_swollen",
-		"bulge":              "anal_gland_swollen",
-		"腺体肿胀":               "anal_gland_swollen",
+		"鼓起脓肿":               "inflamed",
+		"anal_gland_swollen": "inflamed",
+		"bulge":              "inflamed",
+		"腺体肿胀":               "inflamed",
 	},
 }

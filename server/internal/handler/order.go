@@ -82,6 +82,7 @@ type petOverride struct {
 
 type fromApptReq struct {
 	AppointmentID     uint          `json:"appointment_id" binding:"required"`
+	StaffID           *uint         `json:"staff_id"`
 	AppointmentIsLate bool          `json:"appointment_is_late"`
 	Overrides         []petOverride `json:"overrides"`
 }
@@ -92,7 +93,7 @@ func (h *OrderHandler) CreateFromAppointment(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
-	order, err := h.orderService.CreateFromAppointment(req.AppointmentID, req.AppointmentIsLate)
+	order, err := h.orderService.CreateFromAppointment(req.AppointmentID, req.AppointmentIsLate, req.StaffID)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -136,7 +137,7 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 		}
 	}
 
-	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, req.AppointmentIsLate, overrideMap)
+	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, req.AppointmentIsLate, req.StaffID, overrideMap)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -155,6 +156,10 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 
 type createOrderCareReportReq struct {
 	PetID        uint                                `json:"pet_id" binding:"required"`
+	PetName      *string                             `json:"pet_name"`
+	Breed        *string                             `json:"breed"`
+	Gender       *string                             `json:"gender"`
+	Age          *string                             `json:"age"`
 	PortraitURL  string                              `json:"portrait_url" binding:"required"`
 	Weight       string                              `json:"weight"`
 	CareDate     string                              `json:"care_date" binding:"required"`
@@ -185,6 +190,10 @@ func (h *OrderHandler) CreateCareReport(c *gin.Context) {
 
 	result, err := h.careReportService.Create(c.GetUint("shop_id"), uint(id), service.CreateOrderCareReportInput{
 		PetID:        req.PetID,
+		PetName:      req.PetName,
+		Breed:        req.Breed,
+		Gender:       req.Gender,
+		Age:          req.Age,
 		PortraitURL:  req.PortraitURL,
 		Weight:       req.Weight,
 		CareDate:     req.CareDate,
@@ -212,6 +221,7 @@ func (h *OrderHandler) CreateCareReport(c *gin.Context) {
 type createOrderReq struct {
 	PetID             uint             `json:"pet_id"`
 	CustomerID        *uint            `json:"customer_id"`
+	CustomerPhone     string           `json:"customer_phone"`
 	StaffID           *uint            `json:"staff_id"`
 	ServiceID         uint             `json:"service_id"`
 	AppointmentIsLate *bool            `json:"appointment_is_late"`
@@ -319,14 +329,18 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 
 	var addonTotal float64
 	for _, addon := range req.Addons {
-		if addon.Amount <= 0 {
+		if addon.Amount == 0 {
 			continue
+		}
+		name := strings.TrimSpace(addon.Name)
+		if name == "" {
+			name = "手动调价"
 		}
 		addonTotal += addon.Amount
 		items = append(items, model.OrderItem{
 			ItemType:  3,
 			ItemID:    0,
-			Name:      addon.Name,
+			Name:      name,
 			Quantity:  1,
 			UnitPrice: addon.Amount,
 			Amount:    addon.Amount,
@@ -376,14 +390,18 @@ func (h *OrderHandler) buildBatchOrderDraft(shopID uint, req createOrderReq, exi
 
 	var addonTotal float64
 	for _, addon := range req.Addons {
-		if addon.Amount <= 0 {
+		if addon.Amount == 0 {
 			continue
+		}
+		name := strings.TrimSpace(addon.Name)
+		if name == "" {
+			name = "手动调价"
 		}
 		addonTotal += addon.Amount
 		items = append(items, model.OrderItem{
 			ItemType:  3,
 			ItemID:    0,
-			Name:      addon.Name,
+			Name:      name,
 			Quantity:  1,
 			UnitPrice: addon.Amount,
 			Amount:    addon.Amount,
@@ -436,6 +454,20 @@ func roundDraftAmount(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
+func normalizeCustomerPhoneForOrder(phone string) string {
+	digits := strings.Builder{}
+	for _, r := range strings.TrimSpace(phone) {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	normalized := digits.String()
+	if len(normalized) >= 5 && len(normalized) <= 20 {
+		return normalized
+	}
+	return ""
+}
+
 func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, existing *model.Order, items []model.OrderItem, selectedPet *model.Pet, hasServiceItems bool, addonTotal float64) (*model.Order, []model.OrderItem, error) {
 
 	var customerID *uint
@@ -447,6 +479,14 @@ func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, exist
 	}
 	if selectedPet != nil && selectedPet.CustomerID != nil {
 		customerID = selectedPet.CustomerID
+	}
+	if (customerID == nil || *customerID == 0) && h.customerService != nil {
+		if phone := normalizeCustomerPhoneForOrder(req.CustomerPhone); phone != "" {
+			if customer, err := h.customerService.GetByPhone(phone, shopID); err == nil && customer != nil && customer.ID > 0 {
+				matchedCustomerID := customer.ID
+				customerID = &matchedCustomerID
+			}
+		}
 	}
 
 	serviceDiscountRate := 1.0
@@ -479,7 +519,7 @@ func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, exist
 	productPayAmount := math.Round(productTotal*productDiscountRate*100) / 100
 	serviceDiscountAmount := serviceTotal - servicePayAmount
 	productDiscountAmount := productTotal - productPayAmount
-	payAmount := math.Round((servicePayAmount+productPayAmount+addonTotal)*100) / 100
+	payAmount := math.Round(math.Max(servicePayAmount+productPayAmount+addonTotal, 0)*100) / 100
 	discountAmount := math.Round((serviceDiscountAmount+productDiscountAmount)*100) / 100
 
 	var staffID *uint
@@ -497,8 +537,8 @@ func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, exist
 	if staffID != nil && *staffID > 0 {
 		var staff model.Staff
 		if err := database.DB.First(&staff, *staffID).Error; err == nil {
-			commission += math.Round(serviceTotal*staff.CommissionRate) / 100
-			commission += math.Round(productTotal*staff.ProductCommissionRate) / 100
+			commission += math.Round(servicePayAmount*staff.CommissionRate) / 100
+			commission += math.Round(productPayAmount*staff.ProductCommissionRate) / 100
 		}
 	}
 
@@ -621,6 +661,9 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		case errDraftStaffRequired:
 			response.Error(c, http.StatusBadRequest, "请选择洗护师")
 			return
+		case errDraftBoardingOnlyProducts:
+			response.Error(c, http.StatusBadRequest, "寄养关联订单仅支持添加商品")
+			return
 		}
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -728,6 +771,7 @@ type payReq struct {
 	PayMethod     string `json:"pay_method" binding:"required"`
 	TransactionID string `json:"transaction_id"`
 	Remark        string `json:"remark"`
+	CashPayMethod string `json:"cash_pay_method"`
 }
 
 func (h *OrderHandler) Pay(c *gin.Context) {
@@ -754,6 +798,21 @@ func (h *OrderHandler) Pay(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
+	} else if req.PayMethod == "mixed_balance" {
+		order, err := h.orderService.GetByID(uint(id))
+		if err != nil {
+			response.Error(c, http.StatusNotFound, "订单不存在")
+			return
+		}
+		if order.CustomerID == nil {
+			response.Error(c, http.StatusBadRequest, "该订单无关联客户")
+			return
+		}
+		staffID := c.GetUint("staff_id")
+		if _, err := MixedBalancePayment(order.ShopID, *order.CustomerID, order.ID, req.CashPayMethod, staffID); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	if req.Remark != "" {
@@ -774,6 +833,11 @@ type updateOrderRemarkReq struct {
 	Remark string `json:"remark"`
 }
 
+type updateOrderCustomerPetReq struct {
+	CustomerID *uint `json:"customer_id"`
+	PetID      *uint `json:"pet_id"`
+}
+
 func (h *OrderHandler) UpdateRemark(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req updateOrderRemarkReq
@@ -786,6 +850,25 @@ func (h *OrderHandler) UpdateRemark(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+func (h *OrderHandler) UpdateCustomerPet(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req updateOrderCustomerPetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if err := h.orderService.UpdateCustomerPet(c.GetUint("shop_id"), uint(id), req.CustomerID, req.PetID); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.orderService.GetByID(uint(id))
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "订单不存在")
+		return
+	}
+	response.Success(c, result)
 }
 
 // PUT /b/orders/:id/refund

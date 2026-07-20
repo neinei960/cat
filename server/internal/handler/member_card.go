@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -453,34 +454,260 @@ func (h *MemberCardHandler) AdjustBalance(c *gin.Context) {
 
 // BalancePayment deducts from member card balance for order payment
 func BalancePayment(shopID, customerID, orderID uint, amount float64, staffID uint) error {
-	var card model.MemberCard
-	if err := database.DB.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
-		return fmt.Errorf("该客户没有会员卡")
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		var order model.Order
+		if err := tx.Where("id = ? AND shop_id = ?", orderID, shopID).First(&order).Error; err != nil {
+			return fmt.Errorf("订单不存在")
+		}
+		if order.PayStatus == 1 {
+			return fmt.Errorf("订单已支付")
+		}
+
+		var card model.MemberCard
+		if err := tx.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
+			return fmt.Errorf("该客户没有会员卡")
+		}
+
+		if card.Balance < amount {
+			return fmt.Errorf("会员余额不足（余额:%.2f 需付:%.2f）", card.Balance, amount)
+		}
+
+		balanceBefore := card.Balance
+		card.Balance = math.Round((card.Balance-amount)*100) / 100
+		card.TotalSpent = math.Round((card.TotalSpent+amount)*100) / 100
+		if err := tx.Save(&card).Error; err != nil {
+			return err
+		}
+
+		record := &model.RechargeRecord{
+			ShopID:       shopID,
+			CustomerID:   customerID,
+			CardID:       card.ID,
+			Type:         2,
+			Amount:       amount,
+			BalanceAfter: card.Balance,
+			OrderID:      &orderID,
+			Remark:       "订单消费",
+			OperatorID:   &staffID,
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance).Error; err != nil {
+			return err
+		}
+
+		return tx.Model(&model.Order{}).Where("id = ? AND shop_id = ?", orderID, shopID).Updates(map[string]any{
+			"member_balance_before": balanceBefore,
+			"member_balance_after":  card.Balance,
+			"commission":            calculateMemberPaymentCommission(tx, order, order.ServiceDiscountAmount, order.ProductDiscountAmount),
+		}).Error
+	})
+}
+
+type MixedBalancePaymentResult struct {
+	BalanceUsed    float64
+	CashPayAmount  float64
+	FinalPayAmount float64
+}
+
+func MixedBalancePayment(shopID, customerID, orderID uint, cashPayMethod string, staffID uint) (*MixedBalancePaymentResult, error) {
+	cashPayMethod = normalizeMixedCashPayMethod(cashPayMethod)
+	if cashPayMethod == "" {
+		return nil, fmt.Errorf("请选择补差收款方式")
 	}
 
-	if card.Balance < amount {
-		return fmt.Errorf("会员余额不足（余额:%.2f 需付:%.2f）", card.Balance, amount)
+	var result MixedBalancePaymentResult
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var order model.Order
+		if err := tx.Where("id = ? AND shop_id = ?", orderID, shopID).First(&order).Error; err != nil {
+			return fmt.Errorf("订单不存在")
+		}
+		if order.PayStatus == 1 {
+			return fmt.Errorf("订单已支付")
+		}
+
+		var card model.MemberCard
+		if err := tx.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
+			return fmt.Errorf("该客户没有会员卡")
+		}
+		if card.Balance <= 0 {
+			return fmt.Errorf("会员余额不足")
+		}
+		if card.Balance >= order.PayAmount {
+			return fmt.Errorf("会员余额足够支付，请使用会员余额全额支付")
+		}
+
+		var customer model.Customer
+		_ = tx.Select("id", "discount_rate").First(&customer, customerID).Error
+		breakdown := calculateMixedBalanceBreakdown(order, card, customer.DiscountRate)
+		if breakdown.BalanceUsed <= 0 || breakdown.CashPayAmount <= 0 {
+			return fmt.Errorf("无需补差支付")
+		}
+
+		balanceBefore := card.Balance
+		card.Balance = math.Round((card.Balance-breakdown.BalanceUsed)*100) / 100
+		card.TotalSpent = math.Round((card.TotalSpent+breakdown.BalanceUsed)*100) / 100
+		if err := tx.Save(&card).Error; err != nil {
+			return err
+		}
+
+		record := &model.RechargeRecord{
+			ShopID:       shopID,
+			CustomerID:   customerID,
+			CardID:       card.ID,
+			Type:         2,
+			Amount:       breakdown.BalanceUsed,
+			BalanceAfter: card.Balance,
+			OrderID:      &orderID,
+			Remark:       "订单消费-余额补差",
+			OperatorID:   &staffID,
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&model.Order{}).Where("id = ? AND shop_id = ?", orderID, shopID).Updates(map[string]any{
+			"total_amount":            breakdown.TotalAmount,
+			"service_discount_amount": breakdown.ServiceDiscountAmount,
+			"product_discount_amount": breakdown.ProductDiscountAmount,
+			"discount_amount":         breakdown.DiscountAmount,
+			"discount_rate":           breakdown.DiscountRate,
+			"commission":              calculateMemberPaymentCommission(tx, order, breakdown.ServiceDiscountAmount, breakdown.ProductDiscountAmount),
+			"pay_amount":              breakdown.FinalPayAmount,
+			"pay_method":              "mixed_balance",
+			"cash_pay_method":         cashPayMethod,
+			"cash_pay_amount":         breakdown.CashPayAmount,
+			"member_balance_used":     breakdown.BalanceUsed,
+			"member_balance_before":   balanceBefore,
+			"member_balance_after":    card.Balance,
+		}).Error; err != nil {
+			return err
+		}
+
+		result = MixedBalancePaymentResult{
+			BalanceUsed:    breakdown.BalanceUsed,
+			CashPayAmount:  breakdown.CashPayAmount,
+			FinalPayAmount: breakdown.FinalPayAmount,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func calculateMemberPaymentCommission(tx *gorm.DB, order model.Order, serviceDiscountAmount, productDiscountAmount float64) float64 {
+	if order.StaffID == nil || *order.StaffID == 0 {
+		return 0
 	}
 
-	card.Balance -= amount
-	card.TotalSpent += amount
-	database.DB.Save(&card)
-
-	record := &model.RechargeRecord{
-		ShopID:       shopID,
-		CustomerID:   customerID,
-		CardID:       card.ID,
-		Type:         2,
-		Amount:       amount,
-		BalanceAfter: card.Balance,
-		OrderID:      &orderID,
-		Remark:       "订单消费",
-		OperatorID:   &staffID,
+	var staff model.Staff
+	if err := tx.First(&staff, *order.StaffID).Error; err != nil {
+		return 0
 	}
-	database.DB.Create(record)
 
-	database.DB.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance)
-	return nil
+	serviceBase := roundMemberCardMoney(math.Max(order.ServiceTotal-serviceDiscountAmount, 0))
+	productBase := roundMemberCardMoney(math.Max(order.ProductTotal-productDiscountAmount, 0))
+	serviceCommission := serviceBase * staff.CommissionRate / 100
+	productCommission := productBase * staff.ProductCommissionRate / 100
+	return roundMemberCardMoney(serviceCommission + productCommission)
+}
+
+type mixedBalanceBreakdown struct {
+	TotalAmount           float64
+	ServiceDiscountAmount float64
+	ProductDiscountAmount float64
+	DiscountAmount        float64
+	DiscountRate          float64
+	BalanceUsed           float64
+	CashPayAmount         float64
+	FinalPayAmount        float64
+}
+
+func calculateMixedBalanceBreakdown(order model.Order, card model.MemberCard, customerDiscountRate float64) mixedBalanceBreakdown {
+	serviceTotal := roundMemberCardMoney(order.ServiceTotal)
+	productTotal := roundMemberCardMoney(order.ProductTotal)
+	addonTotal := roundMemberCardMoney(order.AddonTotal)
+	if serviceTotal == 0 && productTotal == 0 && addonTotal == 0 {
+		serviceTotal = roundMemberCardMoney(order.TotalAmount)
+	}
+
+	serviceRate := normalizeDiscountRate(customerDiscountRate)
+	if serviceRate == 1 {
+		serviceRate = normalizeDiscountRate(card.DiscountRate)
+	}
+	productRate := normalizeDiscountRate(card.ProductDiscountRate)
+
+	remainingBalance := roundMemberCardMoney(card.Balance)
+	serviceDiscount, serviceBalanceUsed := consumeDiscountBucket(serviceTotal, serviceRate, remainingBalance)
+	remainingBalance = roundMemberCardMoney(remainingBalance - serviceBalanceUsed)
+	productDiscount, _ := consumeDiscountBucket(productTotal, productRate, remainingBalance)
+
+	discountAmount := roundMemberCardMoney(serviceDiscount + productDiscount)
+	totalAmount := roundMemberCardMoney(serviceTotal + productTotal + addonTotal)
+	finalPayAmount := roundMemberCardMoney(math.Max(totalAmount-discountAmount-order.AppointmentDepositDeductionAmount, 0))
+	balanceUsed := roundMemberCardMoney(math.Min(card.Balance, finalPayAmount))
+	cashPayAmount := roundMemberCardMoney(math.Max(finalPayAmount-balanceUsed, 0))
+
+	return mixedBalanceBreakdown{
+		TotalAmount:           totalAmount,
+		ServiceDiscountAmount: serviceDiscount,
+		ProductDiscountAmount: productDiscount,
+		DiscountAmount:        discountAmount,
+		DiscountRate:          calculateMixedDiscountRate(totalAmount, finalPayAmount),
+		BalanceUsed:           balanceUsed,
+		CashPayAmount:         cashPayAmount,
+		FinalPayAmount:        finalPayAmount,
+	}
+}
+
+func consumeDiscountBucket(total, rate, availableBalance float64) (float64, float64) {
+	total = roundMemberCardMoney(total)
+	rate = normalizeDiscountRate(rate)
+	availableBalance = roundMemberCardMoney(availableBalance)
+	if total <= 0 || availableBalance <= 0 || rate >= 1 {
+		return 0, 0
+	}
+	fullDiscountedPay := roundMemberCardMoney(total * rate)
+	if availableBalance >= fullDiscountedPay {
+		return roundMemberCardMoney(total - fullDiscountedPay), fullDiscountedPay
+	}
+	coveredOriginal := roundMemberCardMoney(availableBalance / rate)
+	discount := roundMemberCardMoney(coveredOriginal * (1 - rate))
+	return discount, availableBalance
+}
+
+func normalizeDiscountRate(rate float64) float64 {
+	if rate > 0 && rate < 1 {
+		return rate
+	}
+	return 1
+}
+
+func calculateMixedDiscountRate(totalAmount, payAmount float64) float64 {
+	if totalAmount <= 0 {
+		return 1
+	}
+	return roundMemberCardMoney(payAmount / totalAmount)
+}
+
+func roundMemberCardMoney(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func normalizeMixedCashPayMethod(method string) string {
+	switch method {
+	case "qrcode", "wechat", "meituan", "other", "cash", "alipay":
+		return method
+	default:
+		return ""
+	}
 }
 
 // ========== Edit Recharge Record (admin only) ==========

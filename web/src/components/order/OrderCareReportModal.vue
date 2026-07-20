@@ -4,7 +4,7 @@
       <view class="care-report-header">
         <view class="care-report-copy">
           <text class="care-report-title">生成护理报告</text>
-          <text class="care-report-subtitle">{{ previewUrl ? '报告已生成，可直接保存图片' : '点击底图直接填写与勾选' }}</text>
+          <text class="care-report-subtitle">{{ previewUrl ? '报告已生成，可直接保存图片' : '填写护理信息后生成报告' }}</text>
         </view>
         <text class="care-report-close" @click="handleClose">✕</text>
       </view>
@@ -14,9 +14,9 @@
           <text class="care-report-preview-hint">护理报告生成完成</text>
           <image :src="previewImageUrl" mode="widthFix" class="care-report-preview-image" show-menu-by-longpress />
         </view>
-        <view class="care-report-actions">
+        <view class="care-report-actions generated">
           <view class="care-report-btn primary" @click="savePreview">{{ saving ? '处理中...' : '保存图片' }}</view>
-          <view class="care-report-btn ghost" @click="resetPreview">重新填写</view>
+          <view class="care-report-btn secondary" @click="resetPreview">重新填写</view>
           <view class="care-report-btn ghost" @click="handleClose">关闭</view>
         </view>
       </template>
@@ -51,82 +51,179 @@
             </view>
           </view>
 
-          <view class="care-report-stage-card editable">
-            <OrderCareReportStage
-              ref="stageRef"
-              :draft="draft"
-              editable
-              :active-editor-key="activeEditorMarker"
-              @edit-target="openEditor"
-              @toggle-body-shape="toggleBodyShape"
-              @toggle-section-check="handleStageSectionToggle"
-            />
-          </view>
-        </view>
+          <view class="care-report-form-section care-report-basic-section">
+            <text class="care-report-section-title">基本信息</text>
 
-        <view v-if="editorDescriptor" class="care-report-editor-dock">
-          <view class="care-report-editor-sheet">
-            <view class="care-report-editor-head">
-              <text class="care-report-editor-title">{{ editorDescriptor.title }}</text>
-              <text class="care-report-editor-close" @click="closeEditor">收起</text>
+            <view id="care-report-anchor-portrait" class="care-report-photo-row">
+              <image
+                v-if="draft.portraitUrl"
+                :src="resolveAbsoluteUrl(draft.portraitUrl)"
+                class="care-report-photo-preview"
+                mode="aspectFill"
+              />
+              <view v-else class="care-report-photo-placeholder">照片</view>
+              <view class="care-report-photo-copy">
+                <text class="care-report-field-label">护理照片</text>
+                <text class="care-report-field-hint">用于报告右上角展示</text>
+              </view>
+              <view class="care-report-photo-button" @click="choosePortrait">
+                {{ uploadingPortrait ? '上传中...' : (draft.portraitUrl ? '更换照片' : '上传照片') }}
+              </view>
             </view>
 
-            <template v-if="editorDescriptor.kind === 'choice'">
-              <view class="care-report-editor-options">
-                <view
-                  v-for="option in editorDescriptor.options"
-                  :key="option.value"
-                  :class="['care-report-editor-chip', getDraftFieldValue(editorDescriptor.key) === option.value ? 'active' : '']"
-                  @click="updateFieldValue(editorDescriptor.key, option.value)"
-                >
-                  {{ option.label }}
+            <view class="care-report-form-row">
+              <view class="care-report-field">
+                <text class="care-report-field-label">宝贝名字</text>
+                <input
+                  :value="draft.petName"
+                  class="care-report-input"
+                  maxlength="20"
+                  placeholder="填写宝贝名字"
+                  @input="updateDraftTextField('petName', $event)"
+                />
+              </view>
+
+              <view class="care-report-field">
+                <text class="care-report-field-label">品种</text>
+                <input
+                  :value="draft.breed"
+                  class="care-report-input"
+                  maxlength="30"
+                  placeholder="填写品种"
+                  @input="updateDraftTextField('breed', $event)"
+                />
+              </view>
+
+              <view class="care-report-field">
+                <text class="care-report-field-label">性别</text>
+                <view class="care-report-segmented">
+                  <view :class="['care-report-segment', draft.gender === 'GG' ? 'active' : '']" @click="setGender('GG')">GG</view>
+                  <view :class="['care-report-segment', draft.gender === 'MM' ? 'active' : '']" @click="setGender('MM')">MM</view>
                 </view>
               </view>
-            </template>
 
-            <template v-else-if="editorDescriptor.kind === 'date'">
-              <picker mode="date" :value="formatPickerDate(getDraftFieldValue(editorDescriptor.key))" @change="onEditorDateChange(editorDescriptor.key, $event)">
-                <view class="care-report-picker">{{ getDraftFieldValue(editorDescriptor.key) || '请选择日期' }}</view>
-              </picker>
-            </template>
+              <view class="care-report-field">
+                <text class="care-report-field-label">年龄</text>
+                <input
+                  :value="draft.age"
+                  class="care-report-input"
+                  maxlength="20"
+                  placeholder="例如 2岁1月"
+                  @input="updateDraftTextField('age', $event)"
+                />
+              </view>
 
-            <template v-else-if="editorDescriptor.kind === 'note'">
-              <textarea
-                :value="getSectionNote(editorDescriptor.sectionKey)"
-                class="care-report-textarea care-report-editor-textarea"
-                maxlength="120"
-                auto-height
-                placeholder="备注（选填）"
-                @input="updateSectionNote(editorDescriptor.sectionKey, $event)"
-              />
-            </template>
+              <view id="care-report-anchor-care-content" class="care-report-field">
+                <text class="care-report-field-label">护理内容</text>
+                <textarea
+                  :value="draft.careContent"
+                  class="care-report-textarea"
+                  maxlength="60"
+                  auto-height
+                  placeholder="填写本次护理项目"
+                  @input="updateDraftTextField('careContent', $event)"
+                />
+              </view>
 
-            <template v-else-if="editorDescriptor.kind === 'textarea'">
-              <textarea
-                :value="getDraftFieldValue(editorDescriptor.key)"
-                class="care-report-textarea care-report-editor-textarea"
-                :maxlength="editorDescriptor.maxLength"
-                auto-height
-                :placeholder="editorDescriptor.placeholder"
-                @input="onEditorInput(editorDescriptor.key, $event)"
-              />
-            </template>
+              <view id="care-report-anchor-weight" class="care-report-field">
+                <text class="care-report-field-label">体重</text>
+                <input
+                  :value="draft.weight"
+                  class="care-report-input"
+                  maxlength="20"
+                  inputmode="decimal"
+                  placeholder="例如 5.58 KG"
+                  @input="updateDraftTextField('weight', $event)"
+                />
+              </view>
 
-            <template v-else>
-              <input
-                :value="getDraftFieldValue(editorDescriptor.key)"
-                class="care-report-input"
-                :maxlength="editorDescriptor.maxLength"
-                :placeholder="editorDescriptor.placeholder"
-                @input="onEditorInput(editorDescriptor.key, $event)"
-              />
-            </template>
+              <view id="care-report-anchor-care-date" class="care-report-field">
+                <text class="care-report-field-label">护理日期</text>
+                <picker mode="date" :value="formatPickerDate(draft.careDate)" @change="updateDraftDate('careDate', $event)">
+                  <view class="care-report-picker">{{ draft.careDate || '请选择护理日期' }}</view>
+                </picker>
+              </view>
+
+              <view id="care-report-anchor-next-care-date" class="care-report-field">
+                <text class="care-report-field-label">建议下次护理日期</text>
+                <picker mode="date" :value="formatPickerDate(draft.nextCareDate)" @change="updateDraftDate('nextCareDate', $event)">
+                  <view class="care-report-picker">{{ draft.nextCareDate || '请选择下次护理日期' }}</view>
+                </picker>
+              </view>
+            </view>
+          </view>
+
+          <view id="care-report-anchor-body-shape" class="care-report-form-section">
+            <text class="care-report-section-title">体型</text>
+            <view class="care-report-choice-grid body-shape">
+              <view
+                v-for="option in bodyShapeOptions"
+                :key="option.value"
+                :class="['care-report-choice', draft.bodyShape === option.value ? 'active' : '']"
+                @click="setBodyShape(option.value)"
+              >
+                {{ option.label }}
+              </view>
+            </view>
+          </view>
+
+          <view class="care-report-inspection-list">
+            <view
+              v-for="section in sectionDefinitions"
+              :key="section.key"
+              class="care-report-inspection-section"
+            >
+              <view class="care-report-section-head" @click="toggleSectionPanel(section.key)">
+                <text class="care-report-section-title">{{ section.label }}</text>
+                <view class="care-report-section-summary">
+                  <text>{{ getSectionSelectedCount(section.key) }}项</text>
+                  <text class="care-report-section-toggle">{{ expandedSectionKey === section.key ? '−' : '+' }}</text>
+                </view>
+              </view>
+              <view v-if="expandedSectionKey === section.key" class="care-report-section-body">
+                <view class="care-report-choice-grid">
+                  <view
+                    v-for="option in section.options"
+                    :key="option.value"
+                    :class="['care-report-choice', isSectionCheckSelected(section.key, option.value) ? 'active' : '']"
+                    @click="toggleSectionCheck(section.key, option.value)"
+                  >
+                    {{ option.label }}
+                  </view>
+                </view>
+                <textarea
+                  :value="getSectionNote(section.key)"
+                  class="care-report-textarea care-report-section-note"
+                  maxlength="120"
+                  auto-height
+                  placeholder="备注（选填）"
+                  @input="updateSectionNote(section.key, $event)"
+                />
+              </view>
+            </view>
           </view>
         </view>
 
         <view class="care-report-actions">
+          <view class="care-report-btn secondary" @click="togglePreview">预览报告</view>
           <view class="care-report-btn primary" @click="submit">{{ submitting ? '生成中...' : '生成报告' }}</view>
-          <view class="care-report-btn ghost" @click="handleClose">关闭</view>
+        </view>
+
+        <view v-if="previewExpanded" class="care-report-draft-preview" @click.stop>
+          <view class="care-report-draft-preview-head">
+            <view class="care-report-copy">
+              <text class="care-report-title">报告预览</text>
+              <text class="care-report-subtitle">预览仅用于核对，返回后可继续填写</text>
+            </view>
+            <text class="care-report-preview-back" @click="togglePreview">返回填写</text>
+          </view>
+          <view class="care-report-draft-preview-scroll">
+            <OrderCareReportStage :draft="draft" />
+          </view>
+          <view class="care-report-actions care-report-draft-preview-actions">
+            <view class="care-report-btn secondary" @click="togglePreview">返回填写</view>
+            <view class="care-report-btn primary" @click="submit">{{ submitting ? '生成中...' : '生成报告' }}</view>
+          </view>
         </view>
       </template>
     </view>
@@ -144,12 +241,13 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import ImageCropper from '@/components/ImageCropper.vue'
 import OrderCareReportStage from '@/components/order/OrderCareReportStage.vue'
-import { createPetBathReport } from '@/api/pet-bath-report'
+import { createOrderCareReport } from '@/api/order-care-report'
 import { uploadH5File } from '@/api/upload'
 import {
   buildOrderCareReportDraft,
+  buildOrderCareReportPayload,
   buildOrderCareReportPetOptions,
-  normalizeOrderCareReportDate,
+  orderCareReportBodyShapeOptions,
   orderCareReportSectionDefinitions,
   type OrderCareReportDraft,
   type OrderCareReportPetOption,
@@ -159,19 +257,7 @@ import {
 import { createCropperPreviewUrl } from '@/utils/image-cropper'
 import { buildOrderCareReportFileName, saveImageByUrl } from '@/utils/web-image-save'
 
-type CareReportStageExpose = {
-  exportPngBlob: () => Promise<Blob>
-}
-
-type EditableFieldKey = 'petName' | 'breed' | 'gender' | 'age' | 'careContent' | 'careDate' | 'nextCareDate' | 'weight'
-type StageEditTarget =
-  | { type: 'field'; key: EditableFieldKey }
-  | { type: 'note'; sectionKey: OrderCareReportSectionKey }
-  | { type: 'portrait' }
-type ActiveEditor =
-  | { kind: 'field'; key: EditableFieldKey }
-  | { kind: 'note'; sectionKey: OrderCareReportSectionKey }
-  | null
+type TextDraftField = 'petName' | 'breed' | 'age' | 'careContent' | 'weight'
 
 const props = defineProps<{
   visible: boolean
@@ -185,15 +271,16 @@ const emit = defineEmits<{
 const selectedPetId = ref(0)
 const draft = ref<OrderCareReportDraft | null>(null)
 const previewUrl = ref('')
+const previewExpanded = ref(false)
+const expandedSectionKey = ref<OrderCareReportSectionKey | null>('skin')
 const submitting = ref(false)
 const saving = ref(false)
 const uploadingPortrait = ref(false)
 const cropperVisible = ref(false)
 const cropperSrc = ref('')
 const modalSessionToken = ref(0)
-const stageRef = ref<CareReportStageExpose | null>(null)
-const activeEditor = ref<ActiveEditor>(null)
 
+const bodyShapeOptions = orderCareReportBodyShapeOptions
 const sectionDefinitions: OrderCareReportSectionDefinition[] = orderCareReportSectionDefinitions
 
 const petOptions = computed<OrderCareReportPetOption[]>(() => {
@@ -202,78 +289,6 @@ const petOptions = computed<OrderCareReportPetOption[]>(() => {
 })
 
 const previewImageUrl = computed(() => resolveAbsoluteUrl(previewUrl.value))
-
-const activeEditorMarker = computed(() => {
-  if (!activeEditor.value) return ''
-  if (activeEditor.value.kind === 'field') {
-    return `field:${activeEditor.value.key}`
-  }
-  return `note:${activeEditor.value.sectionKey}`
-})
-
-const editorDescriptor = computed(() => {
-  if (!activeEditor.value || !draft.value) return null
-
-  if (activeEditor.value.kind === 'note') {
-    const section = sectionDefinitions.find((item) => item.key === activeEditor.value?.sectionKey)
-    return {
-      kind: 'note' as const,
-      marker: `note:${activeEditor.value.sectionKey}`,
-      title: `${section?.label || '当前项'}备注`,
-      sectionKey: activeEditor.value.sectionKey,
-    }
-  }
-
-  const fieldKey = activeEditor.value.key
-  if (fieldKey === 'careDate' || fieldKey === 'nextCareDate') {
-    return {
-      kind: 'date' as const,
-      marker: `field:${fieldKey}`,
-      key: fieldKey,
-      title: fieldKey === 'careDate' ? '护理日期' : '建议下次护理日期',
-    }
-  }
-
-  if (fieldKey === 'gender') {
-    return {
-      kind: 'choice' as const,
-      marker: 'field:gender',
-      key: fieldKey,
-      title: '性别',
-      options: [
-        { label: 'GG', value: 'GG' },
-        { label: 'MM', value: 'MM' },
-      ],
-    }
-  }
-
-  if (fieldKey === 'careContent') {
-    return {
-      kind: 'textarea' as const,
-      marker: 'field:careContent',
-      key: fieldKey,
-      title: '护理内容',
-      placeholder: '例如 Harmurry精致皮毛调理',
-      maxLength: 60,
-    }
-  }
-
-  const fieldConfigs: Record<Exclude<EditableFieldKey, 'gender' | 'careDate' | 'nextCareDate' | 'careContent'>, { title: string; placeholder: string; maxLength: number }> = {
-    petName: { title: '宝贝名字', placeholder: '填写宝贝名字', maxLength: 20 },
-    breed: { title: '我的品种', placeholder: '填写品种', maxLength: 30 },
-    age: { title: '年龄', placeholder: '例如 2岁1月', maxLength: 20 },
-    weight: { title: '体重', placeholder: '例如 5.55 KG', maxLength: 20 },
-  }
-
-  return {
-    kind: 'text' as const,
-    marker: `field:${fieldKey}`,
-    key: fieldKey as keyof typeof fieldConfigs,
-    title: fieldConfigs[fieldKey as keyof typeof fieldConfigs].title,
-    placeholder: fieldConfigs[fieldKey as keyof typeof fieldConfigs].placeholder,
-    maxLength: fieldConfigs[fieldKey as keyof typeof fieldConfigs].maxLength,
-  }
-})
 
 watch(
   () => [props.visible, props.order?.ID],
@@ -290,9 +305,10 @@ watch(
 function initializeDraft() {
   modalSessionToken.value += 1
   previewUrl.value = ''
+  previewExpanded.value = false
+  expandedSectionKey.value = 'skin'
   cropperVisible.value = false
   clearCropperSrc()
-  activeEditor.value = null
   const options = petOptions.value
   if (options.length === 1) {
     selectPet(options[0].petId)
@@ -307,9 +323,10 @@ function resetState() {
   selectedPetId.value = 0
   draft.value = null
   previewUrl.value = ''
+  previewExpanded.value = false
+  expandedSectionKey.value = 'skin'
   cropperVisible.value = false
   clearCropperSrc()
-  activeEditor.value = null
   submitting.value = false
   saving.value = false
   uploadingPortrait.value = false
@@ -328,7 +345,8 @@ function selectPet(petId: number) {
   selectedPetId.value = petId
   draft.value = buildOrderCareReportDraft(props.order, petId)
   previewUrl.value = ''
-  activeEditor.value = { kind: 'field', key: 'careContent' }
+  previewExpanded.value = false
+  expandedSectionKey.value = 'skin'
 }
 
 function handleClose() {
@@ -340,16 +358,40 @@ function onMaskClick() {
   handleClose()
 }
 
-function closeEditor() {
-  activeEditor.value = null
-}
-
 function formatPickerDate(value: string) {
   return String(value || '').replace(/\./g, '-')
 }
 
+function updateDraftTextField(key: TextDraftField, event: any) {
+  if (!draft.value) return
+  draft.value[key] = String(event?.detail?.value || '')
+}
+
+function updateDraftDate(field: 'careDate' | 'nextCareDate', event: any) {
+  if (!draft.value) return
+  draft.value[field] = String(event?.detail?.value || '').replace(/-/g, '.')
+}
+
+function setGender(value: 'GG' | 'MM') {
+  if (!draft.value) return
+  draft.value.gender = value
+}
+
+function setBodyShape(value: string) {
+  if (!draft.value) return
+  draft.value.bodyShape = value
+}
+
 function getSectionValue(sectionKey: OrderCareReportSectionKey) {
   return draft.value?.[sectionKey]
+}
+
+function getSectionSelectedCount(sectionKey: OrderCareReportSectionKey) {
+  return getSectionValue(sectionKey)?.checks.length || 0
+}
+
+function isSectionCheckSelected(sectionKey: OrderCareReportSectionKey, value: string) {
+  return Boolean(getSectionValue(sectionKey)?.checks.includes(value))
 }
 
 function getSectionNote(sectionKey: OrderCareReportSectionKey) {
@@ -371,43 +413,12 @@ function toggleSectionCheck(sectionKey: OrderCareReportSectionKey, code: string)
   section.checks = Array.from(values)
 }
 
-function handleStageSectionToggle(payload: { sectionKey: OrderCareReportSectionKey; value: string }) {
-  toggleSectionCheck(payload.sectionKey, payload.value)
+function toggleSectionPanel(sectionKey: OrderCareReportSectionKey) {
+  expandedSectionKey.value = expandedSectionKey.value === sectionKey ? null : sectionKey
 }
 
-function toggleBodyShape(value: string) {
-  if (!draft.value) return
-  draft.value.bodyShape = draft.value.bodyShape === value ? '' : value
-}
-
-function openEditor(target: StageEditTarget) {
-  if (target.type === 'portrait') {
-    activeEditor.value = null
-    choosePortrait()
-    return
-  }
-  if (target.type === 'field') {
-    activeEditor.value = { kind: 'field', key: target.key }
-    return
-  }
-  activeEditor.value = { kind: 'note', sectionKey: target.sectionKey }
-}
-
-function getDraftFieldValue(key: EditableFieldKey) {
-  return draft.value?.[key] || ''
-}
-
-function updateFieldValue(key: EditableFieldKey, value: string) {
-  if (!draft.value) return
-  draft.value[key] = value
-}
-
-function onEditorInput(key: EditableFieldKey, event: any) {
-  updateFieldValue(key, String(event?.detail?.value || ''))
-}
-
-function onEditorDateChange(field: 'careDate' | 'nextCareDate', event: any) {
-  updateFieldValue(field, String(event?.detail?.value || '').replace(/-/g, '.'))
+function togglePreview() {
+  previewExpanded.value = !previewExpanded.value
 }
 
 async function choosePortrait() {
@@ -472,33 +483,33 @@ async function onCropConfirm(blob: Blob) {
   }
 }
 
+function focusValidationTarget(anchorId: string) {
+  previewExpanded.value = false
+  nextTick(() => {
+    if (typeof document === 'undefined') return
+    document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+}
+
 function validateDraft() {
   if (!draft.value) {
     uni.showToast({ title: '请先选择猫咪', icon: 'none' })
     return false
   }
-  if (!draft.value.portraitUrl) {
-    uni.showToast({ title: '请先上传护理照片', icon: 'none' })
-    return false
-  }
-  if (!draft.value.careContent.trim()) {
-    uni.showToast({ title: '请填写护理内容', icon: 'none' })
-    return false
-  }
-  if (!draft.value.weight.trim()) {
-    uni.showToast({ title: '请填写体重', icon: 'none' })
-    return false
-  }
-  if (!draft.value.careDate) {
-    uni.showToast({ title: '请填写护理日期', icon: 'none' })
-    return false
-  }
-  if (!draft.value.nextCareDate) {
-    uni.showToast({ title: '请填写建议下次护理日期', icon: 'none' })
-    return false
-  }
-  if (!draft.value.bodyShape) {
-    uni.showToast({ title: '请选择体型', icon: 'none' })
+
+  const requiredChecks = [
+    { valid: () => Boolean(draft.value?.portraitUrl), anchor: 'care-report-anchor-portrait', message: '请先上传护理照片' },
+    { valid: () => Boolean(draft.value?.careContent.trim()), anchor: 'care-report-anchor-care-content', message: '请填写护理内容' },
+    { valid: () => Boolean(draft.value?.weight.trim()), anchor: 'care-report-anchor-weight', message: '请填写体重' },
+    { valid: () => Boolean(draft.value?.careDate), anchor: 'care-report-anchor-care-date', message: '请填写护理日期' },
+    { valid: () => Boolean(draft.value?.nextCareDate), anchor: 'care-report-anchor-next-care-date', message: '请填写建议下次护理日期' },
+    { valid: () => Boolean(draft.value?.bodyShape), anchor: 'care-report-anchor-body-shape', message: '请选择体型' },
+  ]
+
+  for (const check of requiredChecks) {
+    if (check.valid()) continue
+    focusValidationTarget(check.anchor)
+    uni.showToast({ title: check.message, icon: 'none' })
     return false
   }
   return true
@@ -509,25 +520,15 @@ async function submit() {
   if (!validateDraft()) return
   const currentDraft = draft.value
   const sessionToken = modalSessionToken.value
-  if (typeof File === 'undefined') {
-    uni.showToast({ title: '当前环境暂不支持导出图片', icon: 'none' })
-    return
-  }
   submitting.value = true
+  previewExpanded.value = false
   uni.showLoading({ title: '生成中...' })
   try {
-    await nextTick()
-    const stageBlob = await stageRef.value?.exportPngBlob()
-    if (!stageBlob) {
-      throw new Error('护理报告导出失败')
-    }
-    const fileName = buildOrderCareReportFileName(props.order.order_no || `NO${props.order.ID}`, draft.value.petName)
-    const file = new File([stageBlob], fileName, { type: 'image/png' })
-    const imageUrl = await uploadH5File(file, { preserveOriginal: true })
-    await createPetBathReport(draft.value.petId, imageUrl, normalizeOrderCareReportDate(draft.value.careDate) || undefined)
+    const response = await createOrderCareReport(Number(props.order.ID), buildOrderCareReportPayload(currentDraft))
+    const imageUrl = response.data?.image_url
+    if (!imageUrl) throw new Error('护理报告生成失败')
     if (modalSessionToken.value !== sessionToken || draft.value !== currentDraft || !props.visible) return
     previewUrl.value = imageUrl
-    activeEditor.value = null
     uni.showToast({ title: '护理报告已生成', icon: 'success' })
   } catch (error: any) {
     if (modalSessionToken.value !== sessionToken || !props.visible) return
@@ -542,9 +543,7 @@ async function submit() {
 
 function resetPreview() {
   previewUrl.value = ''
-  if (draft.value) {
-    activeEditor.value = { kind: 'field', key: 'careContent' }
-  }
+  previewExpanded.value = false
 }
 
 async function savePreview() {
@@ -576,26 +575,29 @@ function resolveAbsoluteUrl(value: string) {
 .care-report-mask {
   position: fixed;
   inset: 0;
-  background: rgba(17, 17, 17, 0.58);
+  background: rgba(17, 24, 39, 0.58);
   z-index: 1200;
 }
 
 .care-report-panel {
+  position: relative;
   width: 100vw;
   height: 100vh;
-  background: #FFF9F0;
+  background: #F5F6F8;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.care-report-header {
+.care-report-header,
+.care-report-draft-preview-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20rpx;
-  padding: 28rpx 28rpx 22rpx;
-  border-bottom: 2rpx solid rgba(210, 180, 120, 0.28);
+  padding: 28rpx;
+  border-bottom: 2rpx solid #E5E7EB;
+  background: #FFFFFF;
 }
 
 .care-report-copy {
@@ -607,19 +609,20 @@ function resolveAbsoluteUrl(value: string) {
 .care-report-title {
   font-size: 34rpx;
   font-weight: 700;
-  color: #2F2417;
+  color: #111827;
 }
 
 .care-report-subtitle {
   font-size: 24rpx;
-  color: #7B6242;
+  color: #6B7280;
 }
 
-.care-report-close {
-  font-size: 36rpx;
-  color: #8A6B2F;
-  line-height: 1;
-  padding: 4rpx;
+.care-report-close,
+.care-report-preview-back {
+  font-size: 28rpx;
+  color: #4F46E5;
+  line-height: 1.2;
+  padding: 8rpx;
 }
 
 .care-report-form,
@@ -627,17 +630,26 @@ function resolveAbsoluteUrl(value: string) {
 .care-report-preview {
   flex: 1;
   overflow-y: auto;
-  padding: 28rpx;
   box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.care-report-form {
+  padding-bottom: 24rpx;
+}
+
+.care-report-select,
+.care-report-preview {
+  padding: 28rpx;
 }
 
 .care-report-select-title,
 .care-report-preview-hint {
+  display: block;
+  margin-bottom: 20rpx;
   font-size: 28rpx;
   font-weight: 600;
-  color: #3D2D16;
-  margin-bottom: 20rpx;
-  display: block;
+  color: #1F2937;
 }
 
 .care-report-pet-list {
@@ -648,8 +660,8 @@ function resolveAbsoluteUrl(value: string) {
 
 .care-report-pet-card {
   background: #FFFFFF;
-  border: 2rpx solid #E9D6AE;
-  border-radius: 22rpx;
+  border: 2rpx solid #E5E7EB;
+  border-radius: 16rpx;
   padding: 24rpx;
   display: flex;
   flex-direction: column;
@@ -659,131 +671,153 @@ function resolveAbsoluteUrl(value: string) {
 .care-report-pet-name {
   font-size: 30rpx;
   font-weight: 700;
-  color: #2F2417;
+  color: #111827;
 }
 
-.care-report-pet-meta {
+.care-report-pet-meta,
+.care-report-field-hint {
   font-size: 24rpx;
-  color: #8A7452;
+  color: #6B7280;
 }
 
 .care-report-switcher {
   display: flex;
   flex-wrap: wrap;
   gap: 12rpx;
-  margin-bottom: 20rpx;
+  padding: 20rpx 28rpx;
+  background: #FFFFFF;
+  border-bottom: 2rpx solid #E5E7EB;
 }
 
 .care-report-switch-chip {
-  padding: 12rpx 20rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid #E3D0A4;
-  background: #FFFDF8;
-  color: #7A603A;
+  min-height: 64rpx;
+  padding: 0 20rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #D1D5DB;
+  background: #FFFFFF;
+  color: #4B5563;
   font-size: 24rpx;
-  line-height: 1.2;
+  display: flex;
+  align-items: center;
 }
 
 .care-report-switch-chip.active {
-  background: #F7E5B4;
-  border-color: #D7AF51;
-  color: #5E4617;
+  background: #EEF2FF;
+  border-color: #6366F1;
+  color: #4338CA;
   font-weight: 600;
 }
 
-.care-report-stage-card,
-.care-report-editor-sheet {
+.care-report-form-section,
+.care-report-inspection-section {
+  padding: 28rpx;
   background: #FFFFFF;
-  border-radius: 24rpx;
-  border: 2rpx solid rgba(220, 198, 151, 0.35);
-  box-sizing: border-box;
+  border-bottom: 2rpx solid #E5E7EB;
 }
 
-.care-report-stage-card {
-  padding: 16rpx;
+.care-report-section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #111827;
 }
 
-.care-report-stage-card.editable {
-  box-shadow: 0 10rpx 30rpx rgba(64, 42, 10, 0.06);
+.care-report-photo-row {
+  display: grid;
+  grid-template-columns: 112rpx minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18rpx;
+  margin-top: 24rpx;
+  padding-bottom: 24rpx;
+  border-bottom: 2rpx solid #F0F1F3;
 }
 
-.care-report-editor-dock {
-  padding: 0 28rpx 20rpx;
-  border-top: 2rpx solid rgba(210, 180, 120, 0.14);
-  background: #FFF9F0;
+.care-report-photo-preview,
+.care-report-photo-placeholder {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 56rpx;
 }
 
-.care-report-editor-sheet {
-  padding: 22rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-}
-
-.care-report-editor-head {
+.care-report-photo-placeholder {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-}
-
-.care-report-editor-title {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: #2F2417;
-}
-
-.care-report-editor-close {
+  justify-content: center;
+  background: #F3F4F6;
+  border: 2rpx dashed #C7CBD1;
+  color: #9CA3AF;
   font-size: 24rpx;
-  color: #8A6B2F;
 }
 
-.care-report-editor-options {
+.care-report-photo-copy {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.care-report-photo-button {
+  min-height: 72rpx;
+  padding: 0 20rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #C7D2FE;
+  color: #4338CA;
+  font-size: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.care-report-form-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22rpx;
+  margin-top: 24rpx;
+}
+
+.care-report-field {
+  display: flex;
+  flex-direction: column;
   gap: 12rpx;
 }
 
-.care-report-editor-chip {
-  padding: 14rpx 24rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid #E3D0A4;
-  background: #FFFDF8;
-  color: #7A603A;
-  font-size: 24rpx;
-  line-height: 1.2;
-}
-
-.care-report-editor-chip.active {
-  background: #F7E5B4;
-  border-color: #D7AF51;
-  color: #5E4617;
+.care-report-field-label {
+  font-size: 26rpx;
   font-weight: 600;
+  color: #374151;
 }
 
 .care-report-input,
 .care-report-picker,
 .care-report-textarea {
   width: 100%;
-  background: #FFFCF6;
-  border-radius: 16rpx;
-  border: 2rpx solid #F0E0BA;
+  background: #FFFFFF;
+  border-radius: 12rpx;
+  border: 2rpx solid #D1D5DB;
   box-sizing: border-box;
-  font-size: 26rpx;
-  color: #2F2417;
+  font-size: 28rpx;
+  color: #111827;
 }
 
 .care-report-input {
   display: flex;
   align-items: center;
-  min-height: 76rpx;
-  padding: 0 20rpx;
+  min-height: 88rpx;
+  padding: 0 22rpx;
   overflow: hidden;
 }
 
-.care-report-picker,
+.care-report-picker {
+  min-height: 88rpx;
+  padding: 0 22rpx;
+  display: flex;
+  align-items: center;
+}
+
 .care-report-textarea {
-  padding: 18rpx 20rpx;
+  min-height: 128rpx;
+  padding: 20rpx 22rpx;
+  line-height: 40rpx;
 }
 
 .care-report-input :deep(.uni-input-wrapper) {
@@ -796,68 +830,182 @@ function resolveAbsoluteUrl(value: string) {
 
 .care-report-input :deep(.uni-input-input) {
   width: 100%;
-  height: 40rpx;
-  line-height: 40rpx;
-  font-size: 26rpx;
-  color: #2F2417;
+  height: 44rpx;
+  line-height: 44rpx;
+  font-size: 28rpx;
+  color: #111827;
   text-align: left !important;
 }
 
 .care-report-input :deep(.uni-input-placeholder) {
   width: 100%;
-  line-height: 40rpx;
-  font-size: 26rpx;
-  color: #B79C6B;
+  line-height: 44rpx;
+  font-size: 28rpx;
+  color: #9CA3AF;
   text-align: left !important;
 }
 
-.care-report-picker {
-  min-height: 64rpx;
+.care-report-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+}
+
+.care-report-segment,
+.care-report-choice {
+  min-height: 88rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #D1D5DB;
+  background: #FFFFFF;
+  color: #4B5563;
   display: flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
 }
 
-.care-report-textarea {
-  min-height: 112rpx;
+.care-report-segment {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
-.care-report-editor-textarea {
+.care-report-segment.active,
+.care-report-choice.active {
+  border-color: #6366F1;
+  background: #EEF2FF;
+  color: #4338CA;
+  font-weight: 700;
+}
+
+.care-report-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 22rpx;
+}
+
+.care-report-choice {
+  padding: 12rpx;
+  font-size: 25rpx;
+  line-height: 34rpx;
+  word-break: break-word;
+}
+
+.care-report-inspection-list {
+  margin-top: 20rpx;
+  border-top: 2rpx solid #E5E7EB;
+}
+
+.care-report-inspection-section {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.care-report-section-head {
+  min-height: 100rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.care-report-section-summary {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-size: 24rpx;
+  color: #6B7280;
+}
+
+.care-report-section-toggle {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 24rpx;
+  background: #F3F4F6;
+  color: #4B5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  line-height: 1;
+}
+
+.care-report-section-body {
+  padding: 0 0 28rpx;
+}
+
+.care-report-section-body .care-report-choice-grid {
   margin-top: 0;
+}
+
+.care-report-section-note {
+  margin-top: 20rpx;
 }
 
 .care-report-preview-image {
   width: 100%;
-  border-radius: 20rpx;
+  border-radius: 16rpx;
   background: #FFFFFF;
-  box-shadow: 0 8rpx 30rpx rgba(24, 16, 7, 0.14);
 }
 
 .care-report-actions {
+  flex-shrink: 0;
   display: flex;
   gap: 16rpx;
-  padding: 22rpx 28rpx 28rpx;
-  border-top: 2rpx solid rgba(210, 180, 120, 0.24);
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  border-top: 2rpx solid #E5E7EB;
+  background: #FFFFFF;
+}
+
+.care-report-actions.generated {
+  flex-wrap: wrap;
 }
 
 .care-report-btn {
   flex: 1;
-  height: 84rpx;
-  border-radius: 20rpx;
+  min-width: 0;
+  height: 88rpx;
+  border-radius: 12rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
   font-weight: 600;
+  box-sizing: border-box;
 }
 
 .care-report-btn.primary {
-  background: linear-gradient(135deg, #E8C86E, #D7A843);
-  color: #5E4617;
+  background: #4F46E5;
+  color: #FFFFFF;
+}
+
+.care-report-btn.secondary {
+  background: #EEF2FF;
+  color: #4338CA;
+  border: 2rpx solid #C7D2FE;
 }
 
 .care-report-btn.ghost {
-  background: #FFF3D8;
-  color: #8A6B2F;
-  border: 2rpx solid #E7CB82;
+  background: #FFFFFF;
+  color: #4B5563;
+  border: 2rpx solid #D1D5DB;
+}
+
+.care-report-draft-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: #F5F6F8;
+}
+
+.care-report-draft-preview-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20rpx;
+  -webkit-overflow-scrolling: touch;
 }
 </style>

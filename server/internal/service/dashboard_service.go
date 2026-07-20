@@ -33,8 +33,16 @@ func (s *DashboardService) GetServiceRanking(shopID uint, startDate, endDate str
 	return s.statsRepo.GetServiceRanking(shopID, startDate, endDate)
 }
 
+func (s *DashboardService) GetProjectRevenueTree(shopID uint, startDate, endDate string) ([]repository.ProjectRevenueNode, error) {
+	return s.statsRepo.GetProjectRevenueTree(shopID, startDate, endDate)
+}
+
 func (s *DashboardService) GetStaffPerformance(shopID uint, startDate, endDate string) ([]repository.StaffPerformance, error) {
 	return s.statsRepo.GetStaffPerformance(shopID, startDate, endDate)
+}
+
+func (s *DashboardService) GetStaffCommissionDetails(shopID, staffID uint, startDate, endDate string) ([]repository.StaffCommissionDetail, error) {
+	return s.statsRepo.GetStaffCommissionDetails(shopID, staffID, startDate, endDate)
 }
 
 func (s *DashboardService) GetCategoryStats(shopID uint, startDate, endDate string) ([]repository.CategoryStat, error) {

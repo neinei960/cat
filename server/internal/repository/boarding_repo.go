@@ -135,6 +135,7 @@ func (r *BoardingRepository) ListActiveOrders(shopID uint) ([]model.BoardingOrde
 	var orders []model.BoardingOrder
 	err := database.DB.Preload("Customer").
 		Preload("Cabinet").
+		Preload("Order").
 		Preload("Rooms.Cabinet").
 		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").

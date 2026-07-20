@@ -94,6 +94,30 @@ func TestCustomerUpdateAllowsKeepingOwnPhone(t *testing.T) {
 	}
 }
 
+func TestCustomerCreateGeneratesPhoneWhenBlank(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setupCustomerTestDB(t)
+
+	handler := newCustomerTestHandler()
+	router := newCustomerTestRouter(handler)
+
+	rec := performCustomerRequest(t, router, http.MethodPost, "/customers", map[string]any{
+		"phone":    "",
+		"nickname": "无手机号客户",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var customer model.Customer
+	if err := database.DB.Where("nickname = ?", "无手机号客户").First(&customer).Error; err != nil {
+		t.Fatalf("find created customer: %v", err)
+	}
+	if customer.Phone == "" {
+		t.Fatalf("expected generated phone")
+	}
+}
+
 func newCustomerTestHandler() *CustomerHandler {
 	customerRepo := repository.NewCustomerRepository()
 	petRepo := repository.NewPetRepository()
@@ -149,6 +173,7 @@ func setupCustomerTestDB(t *testing.T) {
 	if err := database.DB.AutoMigrate(
 		&model.Customer{},
 		&model.Pet{},
+		&model.Order{},
 		&model.MemberCard{},
 		&model.MemberCardTemplate{},
 		&model.CustomerTag{},

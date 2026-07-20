@@ -49,6 +49,277 @@ func TestRestoreBalancePaidOrderReappliesMemberCardDeduction(t *testing.T) {
 	assertOrderDeleted(t, state.order.ID, false)
 }
 
+func TestMarkPaidSnapshotsMemberBalanceForCustomerWithActiveCard(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := model.Customer{
+		ShopID:        1,
+		Phone:         "13800138001",
+		Nickname:      "会员客户",
+		MemberBalance: 188.8,
+		DiscountRate:  1,
+	}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	template := model.MemberCardTemplate{
+		ShopID:       1,
+		Name:         "金卡",
+		MinRecharge:  100,
+		DiscountRate: 1,
+		Status:       1,
+	}
+	if err := database.DB.Create(&template).Error; err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+	card := model.MemberCard{
+		ShopID:              1,
+		CustomerID:          customer.ID,
+		TemplateID:          template.ID,
+		CardName:            "金卡",
+		Balance:             188.8,
+		DiscountRate:        1,
+		ProductDiscountRate: 1,
+		Status:              1,
+	}
+	if err := database.DB.Create(&card).Error; err != nil {
+		t.Fatalf("create card: %v", err)
+	}
+	if err := database.DB.Model(&customer).Updates(map[string]any{
+		"member_card_id": card.ID,
+		"member_balance": card.Balance,
+	}).Error; err != nil {
+		t.Fatalf("link card to customer: %v", err)
+	}
+
+	order := model.Order{
+		OrderNo:      "TEST-MARK-PAID-SNAPSHOT",
+		ShopID:       1,
+		CustomerID:   &customer.ID,
+		TotalAmount:  50,
+		ServiceTotal: 50,
+		PayAmount:    50,
+		PayStatus:    0,
+		Status:       0,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	if err := svc.MarkPaid(order.ID, "wechat", ""); err != nil {
+		t.Fatalf("mark paid: %v", err)
+	}
+
+	var saved model.Order
+	if err := database.DB.First(&saved, order.ID).Error; err != nil {
+		t.Fatalf("load order: %v", err)
+	}
+	if saved.MemberBalanceBefore == nil || *saved.MemberBalanceBefore != 188.8 {
+		t.Fatalf("expected member balance before snapshot 188.80, got %#v", saved.MemberBalanceBefore)
+	}
+	if saved.MemberBalanceAfter == nil || *saved.MemberBalanceAfter != 188.8 {
+		t.Fatalf("expected member balance after snapshot 188.80, got %#v", saved.MemberBalanceAfter)
+	}
+}
+
+func TestUpdateCustomerPetAllowsManualCustomerAndPetSelection(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := model.Customer{ShopID: 1, Phone: "024578", Nickname: "Nil"}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	pet := model.Pet{ShopID: 1, CustomerID: &customer.ID, Name: "奶盖", Species: "猫"}
+	if err := database.DB.Create(&pet).Error; err != nil {
+		t.Fatalf("create pet: %v", err)
+	}
+	order := model.Order{
+		OrderNo:      "TEST-ORDER-CUSTOMER-PET",
+		ShopID:       1,
+		TotalAmount:  20,
+		ProductTotal: 20,
+		PayAmount:    20,
+		Status:       1,
+		PayStatus:    1,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	if err := svc.UpdateCustomerPet(1, order.ID, &customer.ID, &pet.ID); err != nil {
+		t.Fatalf("update customer pet: %v", err)
+	}
+
+	var saved model.Order
+	if err := database.DB.First(&saved, order.ID).Error; err != nil {
+		t.Fatalf("load order: %v", err)
+	}
+	if saved.CustomerID == nil || *saved.CustomerID != customer.ID {
+		t.Fatalf("expected customer_id %d, got %v", customer.ID, saved.CustomerID)
+	}
+	if saved.PetID == nil || *saved.PetID != pet.ID {
+		t.Fatalf("expected pet_id %d, got %v", pet.ID, saved.PetID)
+	}
+}
+
+func TestUpdateCustomerPetRejectsPetFromAnotherCustomer(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := model.Customer{ShopID: 1, Phone: "024578", Nickname: "Nil"}
+	otherCustomer := model.Customer{ShopID: 1, Phone: "13900000000", Nickname: "Other"}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	if err := database.DB.Create(&otherCustomer).Error; err != nil {
+		t.Fatalf("create other customer: %v", err)
+	}
+	pet := model.Pet{ShopID: 1, CustomerID: &otherCustomer.ID, Name: "别人的猫", Species: "猫"}
+	if err := database.DB.Create(&pet).Error; err != nil {
+		t.Fatalf("create pet: %v", err)
+	}
+	order := model.Order{OrderNo: "TEST-ORDER-PET-OWNER", ShopID: 1, Status: 1, PayStatus: 1}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	err := svc.UpdateCustomerPet(1, order.ID, &customer.ID, &pet.ID)
+	if err == nil || err.Error() != "猫咪不属于所选客户" {
+		t.Fatalf("expected pet ownership error, got %v", err)
+	}
+}
+
+func TestUpdateCustomerPetCanClearPetWhileKeepingCustomer(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := model.Customer{ShopID: 1, Phone: "024578", Nickname: "Nil"}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	pet := model.Pet{ShopID: 1, CustomerID: &customer.ID, Name: "糊糊", Species: "猫"}
+	if err := database.DB.Create(&pet).Error; err != nil {
+		t.Fatalf("create pet: %v", err)
+	}
+	order := model.Order{
+		OrderNo:    "TEST-ORDER-CLEAR-PET",
+		ShopID:     1,
+		CustomerID: &customer.ID,
+		PetID:      &pet.ID,
+		Status:     1,
+		PayStatus:  1,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	if err := svc.UpdateCustomerPet(1, order.ID, &customer.ID, nil); err != nil {
+		t.Fatalf("clear pet: %v", err)
+	}
+
+	var saved model.Order
+	if err := database.DB.First(&saved, order.ID).Error; err != nil {
+		t.Fatalf("load order: %v", err)
+	}
+	if saved.CustomerID == nil || *saved.CustomerID != customer.ID {
+		t.Fatalf("expected customer_id %d, got %v", customer.ID, saved.CustomerID)
+	}
+	if saved.PetID != nil {
+		t.Fatalf("expected cleared pet_id, got %v", *saved.PetID)
+	}
+}
+
+func TestCancelFeedingOrderCancelsLinkedPlan(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	plan := seedOrderFilterFeedingPlan(t, customer.ID)
+	visit := model.FeedingVisit{
+		ShopID:        1,
+		FeedingPlanID: plan.ID,
+		ScheduledDate: "2026-05-02",
+		WindowCode:    model.FeedingWindowAllDay,
+		Status:        model.FeedingVisitStatusPending,
+		VisitPrice:    95,
+	}
+	if err := database.DB.Create(&visit).Error; err != nil {
+		t.Fatalf("create feeding visit: %v", err)
+	}
+	order := model.Order{
+		OrderNo:       "TEST-CANCEL-FEEDING-ORDER",
+		ShopID:        1,
+		CustomerID:    &customer.ID,
+		FeedingPlanID: &plan.ID,
+		TotalAmount:   95,
+		ServiceTotal:  95,
+		PayAmount:     95,
+		Status:        0,
+		PayStatus:     0,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create feeding order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	if err := svc.Cancel(order.ID); err != nil {
+		t.Fatalf("cancel feeding order: %v", err)
+	}
+
+	var savedPlan model.FeedingPlan
+	if err := database.DB.First(&savedPlan, plan.ID).Error; err != nil {
+		t.Fatalf("load feeding plan: %v", err)
+	}
+	if savedPlan.Status != model.FeedingPlanStatusCancelled {
+		t.Fatalf("expected linked feeding plan cancelled, got %q", savedPlan.Status)
+	}
+	if savedPlan.UnpaidAmount != 0 {
+		t.Fatalf("expected linked feeding plan unpaid amount 0, got %.2f", savedPlan.UnpaidAmount)
+	}
+	var savedVisit model.FeedingVisit
+	if err := database.DB.First(&savedVisit, visit.ID).Error; err != nil {
+		t.Fatalf("load feeding visit: %v", err)
+	}
+	if savedVisit.Status != model.FeedingVisitStatusCancelled {
+		t.Fatalf("expected pending feeding visit cancelled, got %q", savedVisit.Status)
+	}
+}
+
+func TestDeleteFeedingOrderCancelsLinkedPlan(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	plan := seedOrderFilterFeedingPlan(t, customer.ID)
+	order := model.Order{
+		OrderNo:       "TEST-DELETE-FEEDING-ORDER",
+		ShopID:        1,
+		CustomerID:    &customer.ID,
+		FeedingPlanID: &plan.ID,
+		TotalAmount:   95,
+		ServiceTotal:  95,
+		PayAmount:     95,
+		Status:        0,
+		PayStatus:     0,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create feeding order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	if err := svc.Delete(1, order.ID); err != nil {
+		t.Fatalf("delete feeding order: %v", err)
+	}
+
+	var savedPlan model.FeedingPlan
+	if err := database.DB.First(&savedPlan, plan.ID).Error; err != nil {
+		t.Fatalf("load feeding plan: %v", err)
+	}
+	if savedPlan.Status != model.FeedingPlanStatusCancelled {
+		t.Fatalf("expected linked feeding plan cancelled, got %q", savedPlan.Status)
+	}
+}
+
 func TestBuildOrderKindRecognizesBoardingOrders(t *testing.T) {
 	order := &model.Order{
 		ServiceTotal: 455,
@@ -260,6 +531,30 @@ func TestStatsRepositoryGetOverviewByRangeIncludesPaymentBreakdown(t *testing.T)
 		},
 	})
 	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-DASHBOARD-MIXED-BALANCE",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		ServiceTotal:  60,
+		PayAmount:     60,
+		PayMethod:     "mixed_balance",
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9006, Name: "补差服务", Quantity: 1, UnitPrice: 60, Amount: 60},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-DASHBOARD-QRCODE",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		ServiceTotal:  40,
+		PayAmount:     40,
+		PayMethod:     "qrcode",
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9005, Name: "年卡服务", Quantity: 1, UnitPrice: 40, Amount: 40},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
 		OrderNo:       "TEST-DASHBOARD-OTHER",
 		ShopID:        1,
 		CustomerID:    customer.ID,
@@ -277,13 +572,18 @@ func TestStatsRepositoryGetOverviewByRangeIncludesPaymentBreakdown(t *testing.T)
 		t.Fatalf("get overview by range: %v", err)
 	}
 
-	if got := roundOrderAmount(stats.TodayRevenue); got != 460 {
-		t.Fatalf("expected total revenue 460, got %.2f", got)
+	if got := roundOrderAmount(stats.TodayRevenue); got != 560 {
+		t.Fatalf("expected total revenue 560, got %.2f", got)
+	}
+	if got := roundOrderAmount(stats.MonthRevenue); got != 560 {
+		t.Fatalf("expected range revenue 560 in month_revenue field, got %.2f", got)
 	}
 
 	breakdown := make(map[string]float64)
+	breakdownLabels := make(map[string]string)
 	for _, item := range stats.PaymentBreakdown {
 		breakdown[item.Key] = item.Amount
+		breakdownLabels[item.Key] = item.Label
 	}
 	if got := roundOrderAmount(breakdown["wechat"]); got != 100 {
 		t.Fatalf("expected wechat 100, got %.2f", got)
@@ -294,9 +594,410 @@ func TestStatsRepositoryGetOverviewByRangeIncludesPaymentBreakdown(t *testing.T)
 	if got := roundOrderAmount(breakdown["balance"]); got != 80 {
 		t.Fatalf("expected balance 80, got %.2f", got)
 	}
+	if got := breakdownLabels["balance"]; got != "会员" {
+		t.Fatalf("expected balance label 会员, got %q", got)
+	}
+	if got := roundOrderAmount(breakdown["mixed_balance"]); got != 60 {
+		t.Fatalf("expected mixed_balance 60, got %.2f", got)
+	}
+	if got := breakdownLabels["mixed_balance"]; got != "会员+补差" {
+		t.Fatalf("expected mixed_balance label 会员+补差, got %q", got)
+	}
+	if got := roundOrderAmount(breakdown["qrcode"]); got != 40 {
+		t.Fatalf("expected qrcode 40, got %.2f", got)
+	}
 	if got := roundOrderAmount(breakdown["other"]); got != 50 {
 		t.Fatalf("expected other 50, got %.2f", got)
 	}
+}
+
+func TestStatsRepositoryGetStaffPerformanceUsesStoredOrderCommission(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	staff := model.Staff{
+		ShopID:                1,
+		Phone:                 "13800139200",
+		PasswordHash:          "hash",
+		Name:                  "乐乐",
+		Role:                  model.StaffRoleStaff,
+		Status:                1,
+		CommissionRate:        20,
+		ProductCommissionRate: 0,
+	}
+	if err := database.DB.Create(&staff).Error; err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+	appointment := model.Appointment{
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PetID:      1,
+		StaffID:    &staff.ID,
+		Date:       "2026-04-20",
+		StartTime:  "10:00",
+		EndTime:    "11:00",
+		Status:     3,
+		Source:     2,
+	}
+	if err := database.DB.Create(&appointment).Error; err != nil {
+		t.Fatalf("create appointment: %v", err)
+	}
+
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-STAFF-PERF-ZERO-COMMISSION",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		StaffID:       &staff.ID,
+		ServiceTotal:  100,
+		PayAmount:     100,
+		PayMethod:     "wechat",
+		Commission:    0,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9001, Name: "洗护", Quantity: 1, UnitPrice: 100, Amount: 100},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-STAFF-PERF-STORED-COMMISSION",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		StaffID:       &staff.ID,
+		ServiceTotal:  80,
+		ProductTotal:  20,
+		PayAmount:     100,
+		PayMethod:     "wechat",
+		Commission:    12,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9002, Name: "刷牙", Quantity: 1, UnitPrice: 80, Amount: 80},
+			{ItemType: 2, ItemID: 9102, Name: "商品", Quantity: 1, UnitPrice: 20, Amount: 20},
+		},
+	})
+
+	perfs, err := repository.NewStatsRepository().GetStaffPerformance(1, "2026-04-20", "2026-04-20")
+	if err != nil {
+		t.Fatalf("get staff performance: %v", err)
+	}
+	if len(perfs) != 1 {
+		t.Fatalf("expected one staff performance row, got %d: %+v", len(perfs), perfs)
+	}
+	if got := roundOrderAmount(perfs[0].Commission); got != 12 {
+		t.Fatalf("expected stored commission sum 12.00, got %.2f", got)
+	}
+}
+
+func TestStatsRepositoryGetStaffCommissionDetailsIncludesFormula(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	staff := model.Staff{
+		ShopID:                1,
+		Phone:                 "13800139201",
+		PasswordHash:          "hash",
+		Name:                  "乐乐",
+		Role:                  model.StaffRoleStaff,
+		Status:                1,
+		CommissionRate:        20,
+		ProductCommissionRate: 0,
+	}
+	if err := database.DB.Create(&staff).Error; err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+	appointment := model.Appointment{
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PetID:      1,
+		StaffID:    &staff.ID,
+		Date:       "2026-04-20",
+		StartTime:  "10:00",
+		EndTime:    "11:00",
+		Status:     3,
+		Source:     2,
+	}
+	if err := database.DB.Create(&appointment).Error; err != nil {
+		t.Fatalf("create appointment: %v", err)
+	}
+
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-STAFF-COMMISSION-MEITUAN",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		StaffID:       &staff.ID,
+		ServiceTotal:  100,
+		PayAmount:     100,
+		PayMethod:     "meituan",
+		Commission:    18,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9001, Name: "洗护", Quantity: 1, UnitPrice: 100, Amount: 100},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-STAFF-COMMISSION-PRODUCT",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		StaffID:       &staff.ID,
+		ServiceTotal:  100,
+		ProductTotal:  75,
+		PayAmount:     175,
+		PayMethod:     "wechat",
+		Commission:    20,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9002, Name: "洗护", Quantity: 1, UnitPrice: 100, Amount: 100},
+			{ItemType: 2, ItemID: 9102, Name: "商品", Quantity: 1, UnitPrice: 75, Amount: 75},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-STAFF-COMMISSION-ZERO",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		StaffID:       &staff.ID,
+		ServiceTotal:  80,
+		PayAmount:     80,
+		PayMethod:     "wechat",
+		Commission:    0,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9003, Name: "洗护", Quantity: 1, UnitPrice: 80, Amount: 80},
+		},
+	})
+
+	details, err := repository.NewStatsRepository().GetStaffCommissionDetails(1, staff.ID, "2026-04-20", "2026-04-20")
+	if err != nil {
+		t.Fatalf("get staff commission details: %v", err)
+	}
+	if len(details) != 2 {
+		t.Fatalf("expected two detail rows, got %d: %+v", len(details), details)
+	}
+	if details[0].Formula != "¥100.00 × 0.9 × 20% = ¥18.00" {
+		t.Fatalf("unexpected meituan formula: %s", details[0].Formula)
+	}
+	if details[1].Formula != "(¥175.00 - 商品¥75.00) × 20% = ¥20.00" {
+		t.Fatalf("unexpected product formula: %s", details[1].Formula)
+	}
+}
+
+func TestStatsRepositoryGetOverviewByRangeUsesRangeCollectionStats(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customer := seedOrderFilterCustomer(t, 1)
+	appointment := model.Appointment{
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PetID:      1,
+		Date:       "2026-04-20",
+		StartTime:  "10:00",
+		EndTime:    "11:00",
+		Status:     3,
+		Source:     2,
+	}
+	if err := database.DB.Create(&appointment).Error; err != nil {
+		t.Fatalf("create appointment: %v", err)
+	}
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-DASHBOARD-RANGE-ORDER",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		AppointmentID: &appointment.ID,
+		ServiceTotal:  120,
+		PayAmount:     120,
+		PayMethod:     "wechat",
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9101, Name: "洗护", Quantity: 1, UnitPrice: 120, Amount: 120},
+		},
+	})
+	if err := database.DB.Create(&model.RechargeRecord{
+		ShopID: 1, CustomerID: customer.ID, CardID: 1, Type: 1, Amount: 300,
+		Model: gorm.Model{CreatedAt: time.Date(2026, 4, 20, 12, 0, 0, 0, time.Local)},
+	}).Error; err != nil {
+		t.Fatalf("create in-range recharge: %v", err)
+	}
+	if err := database.DB.Create(&model.RechargeRecord{
+		ShopID: 1, CustomerID: customer.ID, CardID: 1, Type: 1, Amount: 900,
+		Model: gorm.Model{CreatedAt: time.Date(2026, 5, 2, 12, 0, 0, 0, time.Local)},
+	}).Error; err != nil {
+		t.Fatalf("create outside recharge: %v", err)
+	}
+
+	stats, err := repository.NewStatsRepository().GetOverviewByRange(1, "2026-04-20", "2026-04-20")
+	if err != nil {
+		t.Fatalf("get overview by range: %v", err)
+	}
+
+	if got := roundOrderAmount(stats.MonthRevenue); got != 120 {
+		t.Fatalf("expected range revenue 120, got %.2f", got)
+	}
+	if got := roundOrderAmount(stats.MonthRecharge); got != 300 {
+		t.Fatalf("expected range recharge 300, got %.2f", got)
+	}
+	if got := roundOrderAmount(stats.MonthCollection); got != 420 {
+		t.Fatalf("expected range collection 420, got %.2f", got)
+	}
+}
+
+func TestStatsRepositoryGetOverviewByRangeCountsServedCustomers(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	customers := []model.Customer{
+		{ShopID: 1, Phone: "13800139001", Nickname: "本月服务客户A", DiscountRate: 1},
+		{ShopID: 1, Phone: "13800139002", Nickname: "本月服务客户B", DiscountRate: 1},
+		{ShopID: 1, Phone: "13800139003", Nickname: "取消客户", DiscountRate: 1},
+		{ShopID: 1, Phone: "13800139004", Nickname: "未服务客户", DiscountRate: 1},
+	}
+	if err := database.DB.Create(&customers).Error; err != nil {
+		t.Fatalf("create customers: %v", err)
+	}
+
+	appointments := []model.Appointment{
+		{ShopID: 1, CustomerID: customers[0].ID, PetID: 1, Date: "2026-04-03", StartTime: "10:00", EndTime: "11:00", Status: 3, Source: 2},
+		{ShopID: 1, CustomerID: customers[0].ID, PetID: 1, Date: "2026-04-08", StartTime: "10:00", EndTime: "11:00", Status: 7, Source: 2},
+		{ShopID: 1, CustomerID: customers[1].ID, PetID: 1, Date: "2026-04-12", StartTime: "10:00", EndTime: "11:00", Status: 1, Source: 2},
+		{ShopID: 1, CustomerID: customers[2].ID, PetID: 1, Date: "2026-04-13", StartTime: "10:00", EndTime: "11:00", Status: 4, Source: 2},
+		{ShopID: 1, CustomerID: customers[2].ID, PetID: 1, Date: "2026-04-14", StartTime: "10:00", EndTime: "11:00", Status: 5, Source: 2},
+	}
+	if err := database.DB.Create(&appointments).Error; err != nil {
+		t.Fatalf("create appointments: %v", err)
+	}
+
+	stats, err := repository.NewStatsRepository().GetOverviewByRange(1, "2026-04-01", "2026-04-30")
+	if err != nil {
+		t.Fatalf("get overview by range: %v", err)
+	}
+	if stats.TotalCustomers != 2 {
+		t.Fatalf("expected 2 served customers, got %d", stats.TotalCustomers)
+	}
+}
+
+func TestStatsRepositoryGetProjectRevenueTreeGroupsAllBusinessLines(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	today := time.Now().Format("2006-01-02")
+	customer := seedOrderFilterCustomer(t, 1)
+	rootCategory := model.ServiceCategory{ShopID: 1, Name: "洗护", Status: 1}
+	if err := database.DB.Create(&rootCategory).Error; err != nil {
+		t.Fatalf("create service root category: %v", err)
+	}
+	childCategory := model.ServiceCategory{ShopID: 1, ParentID: &rootCategory.ID, Name: "基础护理", Status: 1}
+	if err := database.DB.Create(&childCategory).Error; err != nil {
+		t.Fatalf("create service child category: %v", err)
+	}
+	bathService := model.Service{ShopID: 1, Name: "日常护理", CategoryID: &childCategory.ID, BasePrice: 100, Duration: 60, Status: 1}
+	if err := database.DB.Create(&bathService).Error; err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+	productCategory := model.ProductCategory{ShopID: 1, Name: "驱虫", Status: 1}
+	if err := database.DB.Create(&productCategory).Error; err != nil {
+		t.Fatalf("create product category: %v", err)
+	}
+	product := model.Product{ShopID: 1, CategoryID: productCategory.ID, Name: "大宠爱", Status: 1}
+	if err := database.DB.Create(&product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	feedingPlan := seedOrderFilterFeedingPlan(t, customer.ID)
+	feedingID := feedingPlan.ID
+
+	serviceOrder := seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:    "TEST-PROJECT-SERVICE",
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PayAmount:  90,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: bathService.ID, Name: "日常护理", Quantity: 1, UnitPrice: 100, Amount: 100},
+		},
+	})
+	if err := database.DB.Model(&model.Order{}).Where("id = ?", serviceOrder.ID).Updates(map[string]interface{}{
+		"total_amount":               100,
+		"service_total":              100,
+		"discount_amount":            10,
+		"service_discount_amount":    10,
+		"product_discount_amount":    0,
+		"pay_amount":                 90,
+		"appointment_deposit_amount": 0,
+	}).Error; err != nil {
+		t.Fatalf("update service discount: %v", err)
+	}
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:    "TEST-PROJECT-PRODUCT",
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PayAmount:  136,
+		Items: []model.OrderItem{
+			{ItemType: 2, ItemID: product.ID, Name: "大宠爱", Quantity: 2, UnitPrice: 68, Amount: 136},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-PROJECT-FEEDING",
+		ShopID:        1,
+		CustomerID:    customer.ID,
+		FeedingPlanID: &feedingID,
+		PayAmount:     120,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 0, Name: "花花 · 上门喂养 × 1天", Quantity: 1, UnitPrice: 120, Amount: 120},
+		},
+	})
+	seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:    "TEST-PROJECT-BOARDING",
+		ShopID:     1,
+		CustomerID: customer.ID,
+		PayAmount:  240,
+		Items: []model.OrderItem{
+			{ItemType: 4, ItemID: 301, Name: "房间1 · 寄养住宿", Quantity: 2, UnitPrice: 120, Amount: 240},
+			{ItemType: 6, ItemID: 301, Name: "定金抵扣", Quantity: 1, UnitPrice: -200, Amount: -200},
+		},
+	})
+
+	tree, err := repository.NewStatsRepository().GetProjectRevenueTree(1, today, today)
+	if err != nil {
+		t.Fatalf("get project revenue tree: %v", err)
+	}
+
+	roots := make(map[string]repository.ProjectRevenueNode)
+	for _, node := range tree {
+		roots[node.Name] = node
+	}
+	if got := roundOrderAmount(roots["服务"].Revenue); got != 90 {
+		t.Fatalf("expected service root revenue 90 after discount, got %.2f", got)
+	}
+	if got := roundOrderAmount(roots["商品"].Revenue); got != 136 {
+		t.Fatalf("expected product root revenue 136, got %.2f", got)
+	}
+	if got := roundOrderAmount(roots["上门喂养"].Revenue); got != 120 {
+		t.Fatalf("expected feeding root revenue 120, got %.2f", got)
+	}
+	if got := roundOrderAmount(roots["寄养"].Revenue); got != 40 {
+		t.Fatalf("expected boarding root revenue 40 after deposit deduction, got %.2f", got)
+	}
+	if !projectTreeContainsPath(roots["服务"], "洗护", "基础护理", "日常护理") {
+		t.Fatalf("expected service category path in tree: %+v", roots["服务"])
+	}
+	if !projectTreeContainsPath(roots["商品"], "驱虫", "大宠爱") {
+		t.Fatalf("expected product category path in tree: %+v", roots["商品"])
+	}
+	if !projectTreeContainsPath(roots["寄养"], "住宿", "寄养住宿") {
+		t.Fatalf("expected boarding path in tree: %+v", roots["寄养"])
+	}
+	if projectTreeContainsPath(roots["寄养"], "优惠/抵扣") {
+		t.Fatalf("expected boarding deductions to be excluded from project revenue tree: %+v", roots["寄养"])
+	}
+}
+
+func projectTreeContainsPath(node repository.ProjectRevenueNode, names ...string) bool {
+	current := node
+	for _, name := range names {
+		found := false
+		for _, child := range current.Children {
+			if child.Name == name {
+				current = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func TestOrderRepositoryFiltersByServiceCategory(t *testing.T) {
@@ -426,6 +1127,89 @@ func TestCreateFromAppointmentAppliesDepositDeductionForNonMember(t *testing.T) 
 	}
 }
 
+func TestCreateFromAppointmentStoresCommissionForAssignedStaff(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:            1,
+		CustomerPhone:     "13800138116",
+		CustomerNickname:  "提成预约客户",
+		AppointmentAmount: 128,
+	})
+	staff := model.Staff{
+		ShopID:                1,
+		Phone:                 "13800139116",
+		PasswordHash:          "hash",
+		Name:                  "乐乐",
+		Role:                  model.StaffRoleStaff,
+		Status:                1,
+		CommissionRate:        20,
+		ProductCommissionRate: 0,
+	}
+	if err := database.DB.Create(&staff).Error; err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+	if err := database.DB.Model(&model.Appointment{}).Where("id = ?", state.appointment.ID).Update("staff_id", staff.ID).Error; err != nil {
+		t.Fatalf("assign appointment staff: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	order, err := svc.CreateFromAppointment(state.appointment.ID, false)
+	if err != nil {
+		t.Fatalf("create order from appointment: %v", err)
+	}
+
+	if order.StaffID == nil || *order.StaffID != staff.ID {
+		t.Fatalf("expected order staff %d, got %+v", staff.ID, order.StaffID)
+	}
+	if got := roundOrderAmount(order.Commission); got != 25.6 {
+		t.Fatalf("expected commission 25.60, got %.2f", got)
+	}
+}
+
+func TestCreateFromAppointmentCalculatesCommissionFromDiscountedServiceAmount(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:            1,
+		CustomerPhone:     "13800138117",
+		CustomerNickname:  "会员提成预约客户",
+		AppointmentAmount: 100,
+	})
+	staff := model.Staff{
+		ShopID:                1,
+		Phone:                 "13800139117",
+		PasswordHash:          "hash",
+		Name:                  "乐乐",
+		Role:                  model.StaffRoleStaff,
+		Status:                1,
+		CommissionRate:        20,
+		ProductCommissionRate: 0,
+	}
+	if err := database.DB.Create(&staff).Error; err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+	if err := database.DB.Model(&model.Customer{}).Where("id = ?", state.customer.ID).Update("discount_rate", 0.9).Error; err != nil {
+		t.Fatalf("update customer discount: %v", err)
+	}
+	if err := database.DB.Model(&model.Appointment{}).Where("id = ?", state.appointment.ID).Update("staff_id", staff.ID).Error; err != nil {
+		t.Fatalf("assign appointment staff: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	order, err := svc.CreateFromAppointment(state.appointment.ID, false)
+	if err != nil {
+		t.Fatalf("create order from appointment: %v", err)
+	}
+
+	if got := roundOrderAmount(order.PayAmount); got != 90 {
+		t.Fatalf("expected discounted pay amount 90.00, got %.2f", got)
+	}
+	if got := roundOrderAmount(order.Commission); got != 18 {
+		t.Fatalf("expected discounted commission 18.00, got %.2f", got)
+	}
+}
+
 func TestCreateFromAppointmentAppliesReducedDepositDeductionWhenLate(t *testing.T) {
 	setupOrderServiceTestDB(t)
 
@@ -539,6 +1323,297 @@ func TestUpdateDraftReappliesAppointmentDepositDeduction(t *testing.T) {
 	if got := roundOrderAmount(updated.AppointmentDepositDeductionAmount); got != 20 {
 		t.Fatalf("expected updated appointment deposit deduction 20, got %.2f", got)
 	}
+}
+
+func TestUpdateDraftPersistsChangedStaffIDWithPreloadedStaff(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	originalStaff := model.Staff{
+		ShopID: 1,
+		Phone:  "13800138190",
+		Name:   "原员工",
+		Role:   model.StaffRoleStaff,
+		Status: 1,
+	}
+	if err := database.DB.Create(&originalStaff).Error; err != nil {
+		t.Fatalf("create original staff: %v", err)
+	}
+	nextStaff := model.Staff{
+		ShopID: 1,
+		Phone:  "13800138191",
+		Name:   "新员工",
+		Role:   model.StaffRoleStaff,
+		Status: 1,
+	}
+	if err := database.DB.Create(&nextStaff).Error; err != nil {
+		t.Fatalf("create next staff: %v", err)
+	}
+
+	order := model.Order{
+		OrderNo:      "TEST-UPDATE-DRAFT-STAFF",
+		ShopID:       1,
+		StaffID:      &originalStaff.ID,
+		TotalAmount:  99,
+		ProductTotal: 99,
+		PayAmount:    99,
+		Status:       1,
+		PayStatus:    1,
+	}
+	if err := database.DB.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	items := []model.OrderItem{
+		{OrderID: order.ID, ItemType: 2, ItemID: 287, Name: "商品", Quantity: 1, UnitPrice: 99, Amount: 99},
+	}
+	if err := database.DB.Create(&items).Error; err != nil {
+		t.Fatalf("create order items: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), nil)
+	patch := &model.Order{
+		StaffID:      &nextStaff.ID,
+		TotalAmount:  99,
+		ProductTotal: 99,
+		DiscountRate: 1,
+		PayAmount:    99,
+	}
+	patchItems := []model.OrderItem{
+		{ItemType: 2, ItemID: 287, Name: "商品", Quantity: 1, UnitPrice: 99, Amount: 99},
+	}
+	if err := svc.UpdateDraft(1, model.StaffRoleManager, order.ID, patch, patchItems); err != nil {
+		t.Fatalf("update draft staff: %v", err)
+	}
+
+	updated, err := svc.GetByID(order.ID)
+	if err != nil {
+		t.Fatalf("reload updated order: %v", err)
+	}
+	if updated.StaffID == nil || *updated.StaffID != nextStaff.ID {
+		t.Fatalf("expected staff id %d, got %#v", nextStaff.ID, updated.StaffID)
+	}
+	if updated.Staff == nil || updated.Staff.Name != nextStaff.Name {
+		t.Fatalf("expected preloaded staff %q, got %#v", nextStaff.Name, updated.Staff)
+	}
+}
+
+func TestCreateSplitFromAppointmentSyncsOverriddenServicesToAppointment(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:             1,
+		CustomerPhone:      "13800138118",
+		CustomerNickname:   "同步预约项目客户",
+		AppointmentAmount:  120,
+		AppointmentDeposit: 0,
+	})
+	changedService := model.Service{
+		ShopID:    1,
+		Name:      "实际洗护项目",
+		BasePrice: 168,
+		Duration:  75,
+		Status:    1,
+	}
+	if err := database.DB.Create(&changedService).Error; err != nil {
+		t.Fatalf("create changed service: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	_, err := svc.CreateSplitFromAppointment(state.appointment.ID, false, nil, map[uint]PetOverrideData{
+		state.pet.ID: {
+			Services: []ServiceOverride{{
+				ServiceID:   changedService.ID,
+				ServiceName: changedService.Name,
+				Price:       168,
+				Duration:    75,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create split order from appointment: %v", err)
+	}
+
+	assertAppointmentPetServices(t, state.appointment.ID, state.pet.ID, []wantAppointmentService{{
+		ServiceID:   changedService.ID,
+		ServiceName: changedService.Name,
+		Price:       168,
+		Duration:    75,
+	}})
+}
+
+func TestCreateSplitFromAppointmentUsesStaffOverride(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:             1,
+		CustomerPhone:      "13800138121",
+		CustomerNickname:   "合单员工客户",
+		AppointmentAmount:  120,
+		AppointmentDeposit: 0,
+	})
+	overrideStaff := model.Staff{
+		ShopID: 1,
+		Name:   "改后员工",
+		Phone:  "13900138121",
+		Role:   model.StaffRoleStaff,
+		Status: 1,
+	}
+	if err := database.DB.Create(&overrideStaff).Error; err != nil {
+		t.Fatalf("create override staff: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	orders, err := svc.CreateSplitFromAppointment(state.appointment.ID, false, &overrideStaff.ID, nil)
+	if err != nil {
+		t.Fatalf("create split order from appointment: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Fatalf("expected one order, got %d", len(orders))
+	}
+	if orders[0].StaffID == nil || *orders[0].StaffID != overrideStaff.ID {
+		t.Fatalf("expected staff override %d, got %#v", overrideStaff.ID, orders[0].StaffID)
+	}
+}
+
+func TestCreateSplitFromAppointmentAllowsOnePetWithoutServicesWhenAnotherHasServices(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:             1,
+		CustomerPhone:      "13800138122",
+		CustomerNickname:   "多猫部分服务客户",
+		AppointmentAmount:  120,
+		AppointmentDeposit: 0,
+	})
+	secondPet := model.Pet{
+		ShopID:     1,
+		CustomerID: &state.customer.ID,
+		Name:       "实际洗护猫",
+		Species:    "猫",
+	}
+	if err := database.DB.Create(&secondPet).Error; err != nil {
+		t.Fatalf("create second pet: %v", err)
+	}
+	secondApptPet := model.AppointmentPet{
+		AppointmentID: state.appointment.ID,
+		PetID:         secondPet.ID,
+		SortOrder:     2,
+		TotalAmount:   168,
+		TotalDuration: 75,
+	}
+	if err := database.DB.Create(&secondApptPet).Error; err != nil {
+		t.Fatalf("create second appointment pet: %v", err)
+	}
+	secondService := model.AppointmentPetService{
+		AppointmentPetID: secondApptPet.ID,
+		ServiceID:        9002,
+		ServiceName:      "实际完成服务",
+		Price:            168,
+		Duration:         75,
+	}
+	if err := database.DB.Create(&secondService).Error; err != nil {
+		t.Fatalf("create second appointment pet service: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	orders, err := svc.CreateSplitFromAppointment(state.appointment.ID, false, nil, map[uint]PetOverrideData{
+		state.pet.ID: {
+			Services: []ServiceOverride{},
+		},
+		secondPet.ID: {
+			Services: []ServiceOverride{{
+				ServiceID:   secondService.ServiceID,
+				ServiceName: secondService.ServiceName,
+				Price:       secondService.Price,
+				Duration:    secondService.Duration,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create split order from appointment: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Fatalf("expected one order, got %d", len(orders))
+	}
+
+	var items []model.OrderItem
+	if err := database.DB.Where("order_id = ?", orders[0].ID).Order("id ASC").Find(&items).Error; err != nil {
+		t.Fatalf("load order items: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one item for the pet that had service, got %d: %+v", len(items), items)
+	}
+	if items[0].Name != "实际洗护猫 · 实际完成服务" {
+		t.Fatalf("unexpected item name: %q", items[0].Name)
+	}
+}
+
+func TestUpdateDraftSyncsServiceItemsToAppointment(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:             1,
+		CustomerPhone:      "13800138119",
+		CustomerNickname:   "改单同步预约项目客户",
+		AppointmentAmount:  120,
+		AppointmentDeposit: 0,
+	})
+	changedService := model.Service{
+		ShopID:    1,
+		Name:      "改单后项目",
+		BasePrice: 188,
+		Duration:  80,
+		Status:    1,
+	}
+	if err := database.DB.Create(&changedService).Error; err != nil {
+		t.Fatalf("create update changed service: %v", err)
+	}
+	order := seedOrderFilterOrder(t, seedOrderFilterOrderInput{
+		OrderNo:       "TEST-APPOINTMENT-SERVICE-SYNC",
+		ShopID:        1,
+		CustomerID:    state.customer.ID,
+		AppointmentID: &state.appointment.ID,
+		ServiceTotal:  120,
+		PayAmount:     120,
+		Items: []model.OrderItem{
+			{ItemType: 1, ItemID: 9001, Name: "预约服务", Quantity: 1, UnitPrice: 120, Amount: 120},
+		},
+	})
+	if err := database.DB.Model(&model.Order{}).Where("id = ?", order.ID).Updates(map[string]any{
+		"pet_id":     state.pet.ID,
+		"pay_status": 0,
+		"status":     0,
+	}).Error; err != nil {
+		t.Fatalf("prepare appointment order: %v", err)
+	}
+
+	svc := NewOrderService(repository.NewOrderRepository(), repository.NewAppointmentRepository())
+	patch := &model.Order{
+		CustomerID:            &state.customer.ID,
+		PetID:                 &state.pet.ID,
+		AppointmentID:         &state.appointment.ID,
+		AppointmentIsLate:     false,
+		TotalAmount:           188,
+		ServiceTotal:          188,
+		DiscountRate:          1,
+		DiscountAmount:        0,
+		ServiceDiscountAmount: 0,
+		ProductDiscountAmount: 0,
+		PayAmount:             188,
+	}
+	items := []model.OrderItem{
+		{ItemType: 1, ItemID: changedService.ID, Name: changedService.Name, Quantity: 1, UnitPrice: 188, Amount: 188},
+	}
+
+	if err := svc.UpdateDraft(1, model.StaffRoleManager, order.ID, patch, items); err != nil {
+		t.Fatalf("update appointment order draft: %v", err)
+	}
+
+	assertAppointmentPetServices(t, state.appointment.ID, state.pet.ID, []wantAppointmentService{{
+		ServiceID:   changedService.ID,
+		ServiceName: changedService.Name,
+		Price:       188,
+		Duration:    80,
+	}})
 }
 
 func TestUpdateDraftReappliesReducedAppointmentDepositDeductionWhenLate(t *testing.T) {
@@ -695,12 +1770,16 @@ func setupOrderServiceTestDB(t *testing.T) {
 		&model.AppointmentPetService{},
 		&model.FeedingPlan{},
 		&model.FeedingPlanPet{},
+		&model.FeedingVisit{},
 		&model.BoardingCabinet{},
 		&model.BoardingOrder{},
 		&model.BoardingOrderRoom{},
 		&model.BoardingOrderPet{},
 		&model.ServiceCategory{},
 		&model.Service{},
+		&model.ProductCategory{},
+		&model.Product{},
+		&model.ProductSKU{},
 	); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
@@ -712,9 +1791,12 @@ type seedOrderFilterOrderInput struct {
 	CustomerID    uint
 	AppointmentID *uint
 	FeedingPlanID *uint
+	StaffID       *uint
 	ServiceTotal  float64
+	ProductTotal  float64
 	PayAmount     float64
 	PayMethod     string
+	Commission    float64
 	Items         []model.OrderItem
 }
 
@@ -763,10 +1845,13 @@ func seedOrderFilterOrder(t *testing.T, input seedOrderFilterOrderInput) model.O
 		CustomerID:    &input.CustomerID,
 		AppointmentID: input.AppointmentID,
 		FeedingPlanID: input.FeedingPlanID,
+		StaffID:       input.StaffID,
 		TotalAmount:   input.PayAmount,
 		ServiceTotal:  input.ServiceTotal,
+		ProductTotal:  input.ProductTotal,
 		PayAmount:     input.PayAmount,
 		PayMethod:     input.PayMethod,
+		Commission:    input.Commission,
 		Status:        1,
 		PayStatus:     1,
 	}
@@ -800,6 +1885,86 @@ type seedAppointmentOrderState struct {
 	customer    model.Customer
 	pet         model.Pet
 	appointment model.Appointment
+}
+
+type wantAppointmentService struct {
+	ServiceID   uint
+	ServiceName string
+	Price       float64
+	Duration    int
+}
+
+func assertAppointmentPetServices(t *testing.T, appointmentID, petID uint, want []wantAppointmentService) {
+	t.Helper()
+
+	var apptPet model.AppointmentPet
+	if err := database.DB.Where("appointment_id = ? AND pet_id = ?", appointmentID, petID).First(&apptPet).Error; err != nil {
+		t.Fatalf("load appointment pet: %v", err)
+	}
+	var services []model.AppointmentPetService
+	if err := database.DB.Where("appointment_pet_id = ?", apptPet.ID).Order("id ASC").Find(&services).Error; err != nil {
+		t.Fatalf("load appointment pet services: %v", err)
+	}
+	if len(services) != len(want) {
+		t.Fatalf("expected %d appointment services, got %d: %+v", len(want), len(services), services)
+	}
+	for i := range want {
+		if services[i].ServiceID != want[i].ServiceID {
+			t.Fatalf("service %d: expected id %d, got %d", i, want[i].ServiceID, services[i].ServiceID)
+		}
+		if services[i].ServiceName != want[i].ServiceName {
+			t.Fatalf("service %d: expected name %q, got %q", i, want[i].ServiceName, services[i].ServiceName)
+		}
+		if got := roundOrderAmount(services[i].Price); got != roundOrderAmount(want[i].Price) {
+			t.Fatalf("service %d: expected price %.2f, got %.2f", i, want[i].Price, got)
+		}
+		if services[i].Duration != want[i].Duration {
+			t.Fatalf("service %d: expected duration %d, got %d", i, want[i].Duration, services[i].Duration)
+		}
+	}
+
+	var activeCount int64
+	petSubQuery := database.DB.Model(&model.AppointmentPet{}).Select("id").Where("appointment_id = ?", appointmentID)
+	if err := database.DB.Model(&model.AppointmentPetService{}).Where("appointment_pet_id IN (?)", petSubQuery).Count(&activeCount).Error; err != nil {
+		t.Fatalf("count appointment pet services: %v", err)
+	}
+	if activeCount != int64(len(want)) {
+		t.Fatalf("expected %d active appointment pet service rows, got %d", len(want), activeCount)
+	}
+}
+
+func TestSyncAppointmentServicesPreservesOrderItemPriceRuleName(t *testing.T) {
+	setupOrderServiceTestDB(t)
+
+	state := seedAppointmentOrderFixture(t, seedAppointmentOrderStateInput{
+		ShopID:            1,
+		CustomerPhone:     "13800138088",
+		CustomerNickname:  "规格客户",
+		AppointmentAmount: 108,
+	})
+	baseService := model.Service{
+		ShopID:    1,
+		Name:      "基础洗护",
+		BasePrice: 108,
+		Duration:  60,
+		Status:    1,
+	}
+	if err := database.DB.Create(&baseService).Error; err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+
+	items := []model.OrderItem{
+		{ItemType: 1, ItemID: baseService.ID, Name: state.pet.Name + " · 基础洗护(长毛猫)", Quantity: 1, UnitPrice: 108, Amount: 108},
+		{ItemType: 1, ItemID: baseService.ID, Name: state.pet.Name + " · 基础洗护(超重)", Quantity: 1, UnitPrice: 10, Amount: 10},
+	}
+	if err := syncAppointmentServicesFromOrderItems(database.DB, state.appointment.ID, nil, items); err != nil {
+		t.Fatalf("sync appointment services: %v", err)
+	}
+
+	assertAppointmentPetServices(t, state.appointment.ID, state.pet.ID, []wantAppointmentService{
+		{ServiceID: baseService.ID, ServiceName: "基础洗护(长毛猫)", Price: 108, Duration: 60},
+		{ServiceID: baseService.ID, ServiceName: "基础洗护(超重)", Price: 10, Duration: 60},
+	})
 }
 
 func seedAppointmentOrderFixture(t *testing.T, input seedAppointmentOrderStateInput) seedAppointmentOrderState {

@@ -230,6 +230,7 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/feeding/plans", feedingHandler.ListPlans)
 		b.GET("/feeding/plans/:id", feedingHandler.GetPlan)
 		b.PUT("/feeding/plans/:id", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.UpdatePlan)
+		b.DELETE("/feeding/plans/:id", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.DeletePlan)
 		b.PUT("/feeding/plans/:id/pause", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.PausePlan)
 		b.PUT("/feeding/plans/:id/resume", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.ResumePlan)
 		b.PUT("/feeding/plans/:id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.CancelPlan)
@@ -252,6 +253,7 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/boarding/cabinets/availability", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.GetAvailableCabinets)
 		b.GET("/boarding/holidays", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListHolidays)
 		b.POST("/boarding/holidays", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreateHoliday)
+		b.PUT("/boarding/holidays/range", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdateHolidayRange)
 		b.DELETE("/boarding/holidays/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.DeleteHoliday)
 		b.GET("/boarding/policies", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListPolicies)
 		b.POST("/boarding/policies", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreatePolicy)
@@ -264,6 +266,7 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/boarding/orders", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreateOrder)
 		b.GET("/boarding/orders", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListOrders)
 		b.GET("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.GetOrder)
+		b.DELETE("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.DeleteOrder)
 		b.PUT("/boarding/orders/:id/deworming", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdateDeworming)
 		b.GET("/boarding/dashboard", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Dashboard)
 		b.PUT("/boarding/orders/:id/check-in", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckIn)
@@ -284,30 +287,75 @@ func Setup(mode string) *gin.Engine {
 		petBathReportRepo := repository.NewPetBathReportRepository()
 		b.POST("/service-records", func(c *gin.Context) {
 			var req struct {
-				AppointmentID uint   `json:"appointment_id" binding:"required"`
-				PetID         uint   `json:"pet_id" binding:"required"`
-				Notes         string `json:"notes"`
-				Photos        string `json:"photos"`
-				SkinIssues    string `json:"skin_issues"`
-				FurCondition  string `json:"fur_condition"`
-				Weight        string `json:"weight"`
+				AppointmentID   uint   `json:"appointment_id" binding:"required"`
+				PetID           uint   `json:"pet_id" binding:"required"`
+				Notes           string `json:"notes"`
+				Photos          string `json:"photos"`
+				SkinIssues      string `json:"skin_issues"`
+				DentalCondition string `json:"dental_condition"`
+				OtherIssues     string `json:"other_issues"`
+				FurCondition    string `json:"fur_condition"`
+				Weight          string `json:"weight"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
 				response.Error(c, 400, "参数错误")
 				return
 			}
 			record := &model.ServiceRecord{
-				ShopID:        c.GetUint("shop_id"),
-				AppointmentID: req.AppointmentID,
-				PetID:         req.PetID,
-				StaffID:       c.GetUint("staff_id"),
-				Notes:         req.Notes,
-				Photos:        req.Photos,
-				SkinIssues:    req.SkinIssues,
-				FurCondition:  req.FurCondition,
-				Weight:        req.Weight,
+				ShopID:          c.GetUint("shop_id"),
+				AppointmentID:   req.AppointmentID,
+				PetID:           req.PetID,
+				StaffID:         c.GetUint("staff_id"),
+				Notes:           req.Notes,
+				Photos:          req.Photos,
+				SkinIssues:      req.SkinIssues,
+				DentalCondition: req.DentalCondition,
+				OtherIssues:     req.OtherIssues,
+				FurCondition:    req.FurCondition,
+				Weight:          req.Weight,
 			}
 			if err := svcRecordRepo.Create(record); err != nil {
+				response.Error(c, 500, "保存失败")
+				return
+			}
+			response.Success(c, record)
+		})
+		b.PUT("/service-records/:id", func(c *gin.Context) {
+			recordID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || recordID == 0 {
+				response.Error(c, 400, "记录不存在")
+				return
+			}
+			var req struct {
+				AppointmentID   uint   `json:"appointment_id" binding:"required"`
+				PetID           uint   `json:"pet_id" binding:"required"`
+				Notes           string `json:"notes"`
+				Photos          string `json:"photos"`
+				SkinIssues      string `json:"skin_issues"`
+				DentalCondition string `json:"dental_condition"`
+				OtherIssues     string `json:"other_issues"`
+				FurCondition    string `json:"fur_condition"`
+				Weight          string `json:"weight"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			record, err := svcRecordRepo.FindByID(c.GetUint("shop_id"), uint(recordID))
+			if err != nil {
+				response.Error(c, 404, "记录不存在")
+				return
+			}
+			record.AppointmentID = req.AppointmentID
+			record.PetID = req.PetID
+			record.Notes = req.Notes
+			record.Photos = req.Photos
+			record.SkinIssues = req.SkinIssues
+			record.DentalCondition = req.DentalCondition
+			record.OtherIssues = req.OtherIssues
+			record.FurCondition = req.FurCondition
+			record.Weight = req.Weight
+			if err := svcRecordRepo.Update(record); err != nil {
 				response.Error(c, 500, "保存失败")
 				return
 			}
@@ -476,6 +524,7 @@ func Setup(mode string) *gin.Engine {
 		b.PUT("/orders/:id", orderHandler.Update)
 		b.PUT("/orders/:id/pay", orderHandler.Pay)
 		b.PUT("/orders/:id/remark", orderHandler.UpdateRemark)
+		b.PUT("/orders/:id/customer-pet", orderHandler.UpdateCustomerPet)
 		b.PUT("/orders/:id/refund", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Refund)
 		b.PUT("/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Cancel)
 		b.DELETE("/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Delete)
@@ -485,7 +534,9 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/dashboard/overview", dashHandler.Overview)
 		b.GET("/dashboard/revenue", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Revenue)
 		b.GET("/dashboard/services", dashHandler.ServiceRanking)
+		b.GET("/dashboard/project-revenue", dashHandler.ProjectRevenueTree)
 		b.GET("/dashboard/staff", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.StaffPerformance)
+		b.GET("/dashboard/staff/:staff_id/commission-details", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.StaffCommissionDetails)
 		b.GET("/dashboard/category", dashHandler.CategoryStats)
 		b.GET("/dashboard/members", dashHandler.MemberStats)
 		b.POST("/dashboard/aggregate", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Aggregate)

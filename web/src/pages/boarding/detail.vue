@@ -27,11 +27,17 @@
               <text class="summary-fact-label">离店</text>
               <text class="summary-fact-value">{{ order.check_out_at }}</text>
             </view>
-            <view :class="['summary-fact', 'action', updatingDeworming ? 'disabled' : '']" @click="handleUpdateDeworming">
+            <view :class="['summary-fact', 'action', 'switch-action', updatingDeworming ? 'disabled' : '']">
               <text class="summary-fact-label">驱虫</text>
               <view class="summary-fact-main">
                 <text class="summary-fact-value">{{ dewormingLabel(order.has_deworming) }}</text>
-                <text class="summary-fact-hint">{{ updatingDeworming ? '保存中' : '修改' }}</text>
+                <switch
+                  class="summary-switch"
+                  color="#4f46e5"
+                  :disabled="updatingDeworming"
+                  :checked="order.has_deworming === true"
+                  @change="handleDewormingSwitchChange"
+                />
               </view>
             </view>
             <view class="summary-fact accent">
@@ -151,7 +157,7 @@
                 <view v-if="room.status === 'pending_checkin'" class="action-btn" @click="openAdjustPrice(room)">调整价格</view>
                 <view v-if="room.status === 'pending_checkin'" class="action-btn danger" @click="handleCancel(room)">取消</view>
                 <view v-if="room.status === 'checked_in'" class="action-btn" @click="openAdjustPrice(room)">调整价格</view>
-                <view v-if="room.status === 'checked_in'" class="action-btn" @click="handleExtend(room)">续住</view>
+                <view v-if="canExtendRoom(room)" class="action-btn" @click="handleExtend(room)">续住</view>
                 <view v-if="room.status === 'checked_in'" class="action-btn" @click="handleChangeCabinet(room)">换房型</view>
                 <view v-if="room.status === 'checked_in'" class="action-btn primary" @click="handleCheckOut(room)">办理离店</view>
               </view>
@@ -165,13 +171,13 @@
               <text class="section-title">更多信息</text>
               <text class="section-subtitle">金额和日志放在同一个区域里切换查看。</text>
             </view>
-            <view v-if="logs.length > 0" class="tab-switch">
+            <view v-if="displayLogs.length > 0" class="tab-switch">
               <view :class="['tab-pill', detailTab === 'amount' ? 'active' : '']" @click="detailTab = 'amount'">金额</view>
               <view :class="['tab-pill', detailTab === 'logs' ? 'active' : '']" @click="detailTab = 'logs'">日志</view>
             </view>
           </view>
 
-          <template v-if="detailTab === 'amount' || logs.length === 0">
+          <template v-if="detailTab === 'amount' || displayLogs.length === 0">
             <view class="total-strip">
               <view>
                 <text class="total-label">整单应收</text>
@@ -189,9 +195,9 @@
           </template>
 
           <view v-else class="log-list">
-            <view v-for="log in logs" :key="log.ID" class="log-row">
-              <text class="log-title">{{ actionLabel(log.action) }}</text>
-              <text class="log-meta">{{ log.operator?.name || '-' }} · {{ formatTime(log.CreatedAt) }}</text>
+            <view v-for="log in displayLogs" :key="log.id" class="log-row">
+              <text class="log-title">{{ log.title }}</text>
+              <text class="log-meta">{{ log.meta }}</text>
               <text class="log-content">{{ log.content }}</text>
             </view>
           </view>
@@ -214,41 +220,48 @@
                   <view
                     v-for="item in editableSpecialItems"
                     :key="item.ID"
-                    :class="['special-option', isSheetSpecialItemSelected(item.ID) ? 'active' : '']"
-                    @click="toggleSheetSpecialItem(item)"
+                    class="special-option-wrap"
                   >
-                    <view>
-                      <text class="special-option-name">{{ item.name }}</text>
-                      <text class="special-option-meta">默认 ¥{{ Number(item.default_daily_price || 0).toFixed(2) }}/天</text>
+                    <view
+                      :class="['special-option', isSheetSpecialItemSelected(item.ID) ? 'active' : '']"
+                      @click="toggleSheetSpecialItem(item)"
+                    >
+                      <view>
+                        <text class="special-option-name">{{ item.name }}</text>
+                        <text class="special-option-meta">默认 ¥{{ Number(item.default_daily_price || 0).toFixed(2) }}/天</text>
+                      </view>
+                      <text class="special-option-mark">{{ isSheetSpecialItemSelected(item.ID) ? '已选' : '选择' }}</text>
                     </view>
-                    <text class="special-option-mark">{{ isSheetSpecialItemSelected(item.ID) ? '已选' : '选择' }}</text>
+                    <view
+                      v-if="sheetSpecialItemSelection(item.ID)"
+                      class="special-input-grid"
+                    >
+                      <view class="field-card compact">
+                        <text class="field-label">特殊日价</text>
+                        <input
+                          :value="sheetSpecialItemSelection(item.ID)?.dailyPrice"
+                          class="sheet-input"
+                          type="digit"
+                          placeholder="例如：30"
+                          @input="updateSheetSpecialItem(item.ID, 'dailyPrice', $event)"
+                        />
+                      </view>
+                      <view class="field-card compact">
+                        <text class="field-label">特殊天数</text>
+                        <input
+                          :value="sheetSpecialItemSelection(item.ID)?.days"
+                          class="sheet-input"
+                          type="number"
+                          placeholder="例如：2"
+                          @input="updateSheetSpecialItem(item.ID, 'days', $event)"
+                        />
+                      </view>
+                      <view class="special-day-actions">
+                        <view class="special-day-fill" @click.stop="fillSheetSpecialItemEveryDay(item.ID)">每天</view>
+                        <text class="field-tip">按全部寄养晚数自动填写，也可以手动改天数。</text>
+                      </view>
+                    </view>
                   </view>
-                </view>
-              </view>
-              <view v-for="selection in specialItemSelectionsInput" :key="selection.id" class="sheet-grid">
-                <view class="field-card special-title-card">
-                  <text class="field-label">项目</text>
-                  <text class="special-selected-name">{{ specialItemLabel(selection.id) }}</text>
-                </view>
-                <view class="field-card">
-                  <text class="field-label">特殊日价</text>
-                  <input
-                    :value="selection.dailyPrice"
-                    class="sheet-input"
-                    type="digit"
-                    placeholder="请输入特殊寄养日价"
-                    @input="updateSheetSpecialItem(selection.id, 'dailyPrice', $event)"
-                  />
-                </view>
-                <view class="field-card">
-                  <text class="field-label">特殊天数</text>
-                  <input
-                    :value="selection.days"
-                    class="sheet-input"
-                    type="number"
-                    placeholder="请输入特殊天数"
-                    @input="updateSheetSpecialItem(selection.id, 'days', $event)"
-                  />
                 </view>
               </view>
               <view class="check-row" @click="toggleDiscount">
@@ -434,6 +447,45 @@ const linkedOrderRetailLines = computed(() => {
 })
 const aggregateLines = computed(() => [...(aggregatePreview.value?.lines || []), ...linkedOrderRetailLines.value])
 const logs = computed(() => order.value?.logs || [])
+const displayLogs = computed(() => {
+  const rows = logs.value
+    .filter((log) => !['check_in', 'check_out'].includes(log.action))
+    .map((log) => ({
+      id: `log-${log.ID}`,
+      title: actionLabel(log.action),
+      meta: `${log.operator?.name || '-'} · ${formatTime(log.CreatedAt)}`,
+      content: log.content,
+      sortTime: log.CreatedAt || '',
+    }))
+
+  const paymentLogs = order.value?.payment_logs || []
+  if (paymentLogs.length > 0) {
+    paymentLogs.forEach((payment) => {
+      rows.push({
+        id: `payment-${payment.order_id}`,
+        title: '支付',
+        meta: `收款 · ${formatTime(payment.pay_time)}`,
+        content: `支付金额 ¥${Number(payment.pay_amount || 0).toFixed(2)}`,
+        sortTime: payment.pay_time || '',
+      })
+    })
+  } else {
+    const linkedOrder = order.value?.order
+    if (!linkedOrder || Number(linkedOrder.pay_status || 0) !== 1) {
+      return rows.sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''))
+    }
+    const payTime = linkedOrder.pay_time || linkedOrder.CreatedAt || ''
+    rows.push({
+      id: `payment-${linkedOrder.ID}`,
+      title: '支付',
+      meta: `收款 · ${formatTime(payTime)}`,
+      content: `支付金额 ¥${Number(linkedOrder.pay_amount || 0).toFixed(2)}`,
+      sortTime: payTime,
+    })
+  }
+
+  return rows.sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''))
+})
 const allPetNames = computed(() => order.value?.pets?.map((item) => item.pet?.name || item.pet_name_snapshot).filter(Boolean).join('、') || '-')
 const canCancelWholeOrder = computed(() => displayRooms.value.length > 1 && displayRooms.value.every((room) => room.status === 'pending_checkin'))
 const isHistoryOrder = computed(() => order.value?.status === 'checked_out')
@@ -501,12 +553,15 @@ function actionLabel(action: string) {
 
 function dewormingLabel(value?: boolean | null) {
   if (value === true) return '已驱虫'
-  if (value === false) return '未驱虫'
-  return '未填写'
+  return '未驱虫'
 }
 
 function roomLabel(room: BoardingOrderRoom) {
   return `房间${room.room_index || 1}`
+}
+
+function canExtendRoom(room: BoardingOrderRoom) {
+  return room.status === 'checked_in' || room.status === 'checked_out'
 }
 
 function roomPetNames(room: BoardingOrderRoom) {
@@ -562,10 +617,11 @@ function specialSelectionsFromRoom(room: BoardingOrderRoom): SpecialItemSelectio
   }
   const legacyID = Number(preview?.special_item_id || room.special_item_id || 0)
   if (!legacyID) return []
+  const days = String(preview?.special_item_days || room.special_item_days || '')
   return [{
     id: legacyID,
     dailyPrice: String(preview?.special_item_daily_price || room.special_item_daily_price || ''),
-    days: String(preview?.special_item_days || room.special_item_days || ''),
+    days,
   }]
 }
 
@@ -619,6 +675,10 @@ function isSheetSpecialItemSelected(itemId: number) {
   return specialItemSelectionsInput.value.some((item) => item.id === itemId)
 }
 
+function sheetSpecialItemSelection(itemId: number) {
+  return specialItemSelectionsInput.value.find((item) => item.id === itemId)
+}
+
 function toggleSheetSpecialItem(item: BoardingSpecialItem) {
   if (isSheetSpecialItemSelected(item.ID)) {
     specialItemSelectionsInput.value = specialItemSelectionsInput.value.filter((selection) => selection.id !== item.ID)
@@ -635,6 +695,17 @@ function updateSheetSpecialItem(itemId: number, field: 'dailyPrice' | 'days', ev
   const value = event?.detail?.value ?? ''
   specialItemSelectionsInput.value = specialItemSelectionsInput.value.map((item) => (
     item.id === itemId ? { ...item, [field]: value } : item
+  ))
+}
+
+function fillSheetSpecialItemEveryDay(itemId: number) {
+  const nights = Number(roomPreview(activeRoom.value)?.nights || activeRoom.value?.nights || 0)
+  if (nights <= 0) {
+    uni.showToast({ title: '当前房间没有可用寄养晚数', icon: 'none' })
+    return
+  }
+  specialItemSelectionsInput.value = specialItemSelectionsInput.value.map((item) => (
+    item.id === itemId ? { ...item, days: String(nights) } : item
   ))
 }
 
@@ -665,35 +736,25 @@ function goAddProduct() {
   uni.navigateTo({ url: `/pages/order/create?order_id=${order.value.order_id}` })
 }
 
-async function handleUpdateDeworming() {
+async function handleDewormingSwitchChange(e: any) {
   if (!order.value || updatingDeworming.value) return
-  const current = order.value.has_deworming ?? null
-  const options: Array<{ label: string; value: boolean | null }> = [
-    { label: '已驱虫', value: true },
-    { label: '未驱虫', value: false },
-    { label: '暂不填写', value: null },
-  ]
-  uni.showActionSheet({
-    itemList: options.map((item) => `${current === item.value ? '当前 · ' : ''}${item.label}`),
-    success: async ({ tapIndex }) => {
-      const target = options[tapIndex]
-      if (!target || current === target.value) return
-      updatingDeworming.value = true
-      uni.showLoading({ title: '保存中', mask: true })
-      let updated = false
-      try {
-        await updateBoardingOrderDeworming(order.value!.ID, target.value)
-        await loadData()
-        updated = true
-      } finally {
-        updatingDeworming.value = false
-        uni.hideLoading()
-      }
-      if (updated) {
-        uni.showToast({ title: '驱虫状态已更新', icon: 'success' })
-      }
-    },
-  })
+  const target = Boolean(e?.detail?.value)
+  const current = order.value.has_deworming === true
+  if (current === target) return
+  updatingDeworming.value = true
+  uni.showLoading({ title: '保存中', mask: true })
+  let updated = false
+  try {
+    await updateBoardingOrderDeworming(order.value.ID, target)
+    await loadData()
+    updated = true
+  } finally {
+    updatingDeworming.value = false
+    uni.hideLoading()
+  }
+  if (updated) {
+    uni.showToast({ title: '驱虫状态已更新', icon: 'success' })
+  }
 }
 
 async function loadData() {
@@ -1028,15 +1089,21 @@ onShow(loadData)
 }
 .summary-fact.action {
   justify-content: space-between;
-  min-width: 220rpx;
+  min-width: 260rpx;
 }
 .summary-fact.action.disabled {
   opacity: 0.72;
+}
+.summary-fact.switch-action {
+  padding-right: 14rpx;
 }
 .summary-fact-main {
   display: inline-flex;
   align-items: center;
   gap: 10rpx;
+}
+.summary-switch {
+  flex: 0 0 auto;
 }
 .summary-fact.accent {
   background: linear-gradient(135deg, #eef2ff, #f8faff);
@@ -1464,6 +1531,11 @@ onShow(loadData)
   gap: 12rpx;
   margin-top: 14rpx;
 }
+.special-option-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
 .special-option {
   display: flex;
   align-items: center;
@@ -1503,8 +1575,33 @@ onShow(loadData)
   background: #4f46e5;
   color: #fff;
 }
-.special-title-card {
-  justify-content: center;
+.special-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+  padding: 12rpx;
+  border-radius: 18rpx;
+  background: #f8faff;
+  border: 1rpx solid #e0e7ff;
+}
+.special-input-grid .field-card {
+  margin-top: 0;
+}
+.special-day-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 4rpx 2rpx 2rpx;
+}
+.special-day-fill {
+  flex-shrink: 0;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 23rpx;
+  font-weight: 600;
 }
 .sheet-grid {
   display: grid;

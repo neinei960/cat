@@ -183,6 +183,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea,
 .form-input-sm,
 .form-textarea,
+.notes-textarea,
 .notes-input {
   text-align: left !important;
 }
@@ -202,6 +203,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea::placeholder,
 .form-input-sm::placeholder,
 .form-textarea::placeholder,
+.notes-textarea::placeholder,
 .notes-input::placeholder,
 .search-input::-webkit-input-placeholder,
 .input::-webkit-input-placeholder,
@@ -218,6 +220,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea::-webkit-input-placeholder,
 .form-input-sm::-webkit-input-placeholder,
 .form-textarea::-webkit-input-placeholder,
+.notes-textarea::-webkit-input-placeholder,
 .notes-input::-webkit-input-placeholder {
   text-align: left !important;
 }
@@ -240,6 +243,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea .uni-textarea-textarea,
 .form-input-sm .uni-input-input,
 .form-textarea .uni-textarea-textarea,
+.notes-textarea .uni-textarea-textarea,
 .notes-input .uni-textarea-textarea {
   text-align: left !important;
 }
@@ -259,6 +263,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea .uni-textarea-placeholder,
 .form-input-sm .uni-input-placeholder,
 .form-textarea .uni-textarea-placeholder,
+.notes-textarea .uni-textarea-placeholder,
 .notes-input .uni-textarea-placeholder {
   text-align: left !important;
 }
@@ -392,6 +397,7 @@ textarea::-webkit-input-placeholder {
 
 .field-textarea .uni-textarea-textarea,
 .form-textarea .uni-textarea-textarea,
+.notes-textarea .uni-textarea-textarea,
 .notes-input .uni-textarea-textarea {
   width: 100%;
   min-height: 100%;

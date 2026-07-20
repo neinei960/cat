@@ -55,21 +55,23 @@ type BoardingPricePreview struct {
 }
 
 type BoardingPreviewInput struct {
-	CustomerID            uint
-	PetIDs                []uint
-	PetCount              int
-	CabinetID             uint
-	CheckInAt             string
-	CheckOutAt            string
-	DepositEnabled        bool
-	PolicyIDs             []uint
-	RoomGroups            []BoardingRoomGroupInput
-	SpecialItemID         uint
-	SpecialItemDailyPrice float64
-	SpecialItemDays       int
-	SpecialItems          []BoardingSpecialItemSelection
-	ExcludeOrderID        uint
-	ExcludeRoomID         uint
+	CustomerID             uint
+	PetIDs                 []uint
+	PetCount               int
+	CabinetID              uint
+	CheckInAt              string
+	CheckOutAt             string
+	AvailabilityCheckInAt  string
+	AvailabilityCheckOutAt string
+	DepositEnabled         bool
+	PolicyIDs              []uint
+	RoomGroups             []BoardingRoomGroupInput
+	SpecialItemID          uint
+	SpecialItemDailyPrice  float64
+	SpecialItemDays        int
+	SpecialItems           []BoardingSpecialItemSelection
+	ExcludeOrderID         uint
+	ExcludeRoomID          uint
 }
 
 type BoardingCreateInput struct {
@@ -357,6 +359,10 @@ func (s *BoardingService) CreateHoliday(holiday *model.BoardingHoliday) error {
 	if holiday.Name == "" {
 		holiday.Name = "节假日"
 	}
+	holiday.SurchargeAmount = roundMoney(holiday.SurchargeAmount)
+	if holiday.SurchargeAmount < 0 {
+		return errors.New("节假日加收金额不能小于0")
+	}
 	return database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(holiday).Error; err != nil {
 			return err
@@ -365,7 +371,7 @@ func (s *BoardingService) CreateHoliday(holiday *model.BoardingHoliday) error {
 	})
 }
 
-func (s *BoardingService) CreateHolidayRange(shopID uint, startDate, endDate, name string) ([]model.BoardingHoliday, error) {
+func (s *BoardingService) CreateHolidayRange(shopID uint, startDate, endDate, name string, surchargeAmount float64) ([]model.BoardingHoliday, error) {
 	startText, err := normalizeDate(startDate)
 	if err != nil {
 		return nil, errors.New("开始日期格式错误")
@@ -379,6 +385,10 @@ func (s *BoardingService) CreateHolidayRange(shopID uint, startDate, endDate, na
 	}
 	if name == "" {
 		name = "节假日"
+	}
+	surchargeAmount = roundMoney(surchargeAmount)
+	if surchargeAmount < 0 {
+		return nil, errors.New("节假日加收金额不能小于0")
 	}
 
 	existing, err := s.repo.ListHolidaysInRange(shopID, startText, addDays(endText, 1))
@@ -396,13 +406,92 @@ func (s *BoardingService) CreateHolidayRange(shopID uint, startDate, endDate, na
 			continue
 		}
 		created = append(created, model.BoardingHoliday{
-			ShopID:      shopID,
-			HolidayDate: cursor,
-			Name:        name,
+			ShopID:          shopID,
+			HolidayDate:     cursor,
+			Name:            name,
+			SurchargeAmount: surchargeAmount,
 		})
 	}
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if len(created) > 0 {
+			if err := tx.Create(&created).Error; err != nil {
+				return err
+			}
+		}
+		return s.ensureDefaultHolidaySurchargePolicy(tx, shopID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *BoardingService) UpdateHolidayRange(shopID uint, ids []uint, startDate, endDate, name string, surchargeAmount float64) ([]model.BoardingHoliday, error) {
+	if len(ids) == 0 {
+		return nil, errors.New("请选择要修改的节假日范围")
+	}
+	startText, err := normalizeDate(startDate)
+	if err != nil {
+		return nil, errors.New("开始日期格式错误")
+	}
+	endText, err := normalizeDate(endDate)
+	if err != nil {
+		return nil, errors.New("结束日期格式错误")
+	}
+	if endText < startText {
+		return nil, errors.New("结束日期不能早于开始日期")
+	}
+	if name == "" {
+		name = "节假日"
+	}
+	surchargeAmount = roundMoney(surchargeAmount)
+	if surchargeAmount < 0 {
+		return nil, errors.New("节假日加收金额不能小于0")
+	}
+
+	idSet := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			idSet[id] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return nil, errors.New("请选择要修改的节假日范围")
+	}
+
+	created := make([]model.BoardingHoliday, 0)
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		var ownedCount int64
+		if err := tx.Model(&model.BoardingHoliday{}).Where("shop_id = ? AND id IN ?", shopID, ids).Count(&ownedCount).Error; err != nil {
+			return err
+		}
+		if int(ownedCount) != len(idSet) {
+			return errors.New("节假日范围不存在")
+		}
+
+		var conflicts []model.BoardingHoliday
+		if err := tx.Where("shop_id = ? AND holiday_date >= ? AND holiday_date <= ?", shopID, startText, endText).
+			Find(&conflicts).Error; err != nil {
+			return err
+		}
+		for _, holiday := range conflicts {
+			if _, ok := idSet[holiday.ID]; !ok {
+				return errors.New("所选日期已存在其他节假日配置")
+			}
+		}
+
+		if err := tx.Where("shop_id = ? AND id IN ?", shopID, ids).Delete(&model.BoardingHoliday{}).Error; err != nil {
+			return err
+		}
+		for cursor := startText; cursor <= endText; cursor = addDays(cursor, 1) {
+			created = append(created, model.BoardingHoliday{
+				ShopID:          shopID,
+				HolidayDate:     cursor,
+				Name:            name,
+				SurchargeAmount: surchargeAmount,
+			})
+		}
 		if len(created) > 0 {
 			if err := tx.Create(&created).Error; err != nil {
 				return err
@@ -550,14 +639,28 @@ func (s *BoardingService) listOverlappingCabinetUsage(shopID uint, startDate, en
 		return nil, nil, err
 	}
 	counts := make(map[uint]int)
+	dailyCounts := make(map[uint]map[string]int)
 	rooms := make([]model.BoardingOrderRoom, 0)
+	addUsage := func(cabinetID uint, checkInAt, checkOutAt string) {
+		overlapStart := maxDateText(startDate, checkInAt)
+		overlapEnd := minDateText(endDate, checkOutAt)
+		for cursor := overlapStart; cursor < overlapEnd; cursor = addDays(cursor, 1) {
+			if _, ok := dailyCounts[cabinetID]; !ok {
+				dailyCounts[cabinetID] = make(map[string]int)
+			}
+			dailyCounts[cabinetID][cursor]++
+			if dailyCounts[cabinetID][cursor] > counts[cabinetID] {
+				counts[cabinetID] = dailyCounts[cabinetID][cursor]
+			}
+		}
+	}
 	for _, order := range activeOrders {
 		if len(order.Rooms) == 0 {
 			if excludeOrderID > 0 && order.ID == excludeOrderID {
 				continue
 			}
 			if order.CheckInAt < endDate && order.CheckOutAt > startDate && activeBoardingRoomStatus(order.Status) {
-				counts[order.CabinetID]++
+				addUsage(order.CabinetID, order.CheckInAt, order.CheckOutAt)
 				rooms = append(rooms, legacyBoardingRoom(&order))
 			}
 			continue
@@ -570,12 +673,26 @@ func (s *BoardingService) listOverlappingCabinetUsage(shopID uint, startDate, en
 				continue
 			}
 			if room.CheckInAt < endDate && room.CheckOutAt > startDate {
-				counts[room.CabinetID]++
+				addUsage(room.CabinetID, room.CheckInAt, room.CheckOutAt)
 				rooms = append(rooms, room)
 			}
 		}
 	}
 	return counts, rooms, nil
+}
+
+func maxDateText(a, b string) string {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minDateText(a, b string) string {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *BoardingService) Preview(shopID uint, input BoardingPreviewInput) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
@@ -609,7 +726,13 @@ func (s *BoardingService) Preview(shopID uint, input BoardingPreviewInput) (*Boa
 	if cabinet.Capacity < petCount {
 		return nil, nil, nil, errors.New("所选猫咪数量超出该房型单间容量")
 	}
-	availableCabinets, err := s.GetAvailableCabinets(shopID, input.CheckInAt, input.CheckOutAt, petCount, input.ExcludeOrderID, input.ExcludeRoomID)
+	availabilityCheckInAt := input.CheckInAt
+	availabilityCheckOutAt := input.CheckOutAt
+	if strings.TrimSpace(input.AvailabilityCheckInAt) != "" && strings.TrimSpace(input.AvailabilityCheckOutAt) != "" && input.AvailabilityCheckInAt < input.AvailabilityCheckOutAt {
+		availabilityCheckInAt = input.AvailabilityCheckInAt
+		availabilityCheckOutAt = input.AvailabilityCheckOutAt
+	}
+	availableCabinets, err := s.GetAvailableCabinets(shopID, availabilityCheckInAt, availabilityCheckOutAt, petCount, input.ExcludeOrderID, input.ExcludeRoomID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -934,7 +1057,100 @@ func (s *BoardingService) GetOrder(shopID, id uint) (*model.BoardingOrder, error
 		return nil, err
 	}
 	normalizeLoadedBoardingOrder(order)
+	s.attachBoardingPaymentLogs(order)
 	return order, nil
+}
+
+func (s *BoardingService) attachBoardingPaymentLogs(order *model.BoardingOrder) {
+	if order == nil {
+		return
+	}
+	paymentLogs := make([]model.BoardingPaymentLog, 0, 2)
+	seenOrderIDs := map[uint]bool{}
+	appendPaidOrder := func(payOrder *model.Order) {
+		if payOrder == nil || payOrder.PayStatus != 1 || seenOrderIDs[payOrder.ID] {
+			return
+		}
+		amount := paidBoardingAmountFromPayOrder(payOrder)
+		if amount <= 0 {
+			amount = roundMoney(payOrder.PayAmount)
+		}
+		paymentLogs = append(paymentLogs, model.BoardingPaymentLog{
+			OrderID:   payOrder.ID,
+			OrderNo:   payOrder.OrderNo,
+			PayAmount: amount,
+			PayMethod: payOrder.PayMethod,
+			PayTime:   payOrder.PayTime,
+		})
+		seenOrderIDs[payOrder.ID] = true
+	}
+
+	appendPaidOrder(order.Order)
+	if sourceOrderNo := sourceBoardingPaidOrderNo(order.Order); sourceOrderNo != "" {
+		var sourceOrder model.Order
+		if err := database.DB.Preload("Items").
+			Where("shop_id = ? AND order_no = ?", order.ShopID, sourceOrderNo).
+			First(&sourceOrder).Error; err == nil {
+			appendPaidOrder(&sourceOrder)
+		}
+	}
+
+	sort.Slice(paymentLogs, func(i, j int) bool {
+		if paymentLogs[i].PayTime == nil {
+			return false
+		}
+		if paymentLogs[j].PayTime == nil {
+			return true
+		}
+		return paymentLogs[i].PayTime.Before(*paymentLogs[j].PayTime)
+	})
+	order.PaymentLogs = paymentLogs
+}
+
+func sourceBoardingPaidOrderNo(payOrder *model.Order) string {
+	if payOrder == nil || payOrder.Remark == "" {
+		return ""
+	}
+	const prefix = "原订单 "
+	start := strings.Index(payOrder.Remark, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := payOrder.Remark[start+len(prefix):]
+	end := strings.Index(rest, " ")
+	if end < 0 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+func (s *BoardingService) DeleteOrder(shopID, id uint, role string) error {
+	if !model.HasStaffRoleAtLeast(role, model.StaffRoleManager) {
+		return errors.New("仅店长可删除历史寄养订单")
+	}
+	order, err := s.repo.FindBoardingOrderByID(shopID, id)
+	if err != nil {
+		return errors.New("寄养订单不存在")
+	}
+	if !isHistoricalBoardingOrder(order) {
+		return errors.New("仅历史寄养订单可删除")
+	}
+
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := deleteLinkedPayOrders(tx, shopID, order.OrderID, nil); err != nil {
+			return err
+		}
+		if err := tx.Where("boarding_order_id = ?", order.ID).Delete(&model.BoardingOrderLog{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("boarding_order_id = ?", order.ID).Delete(&model.BoardingOrderPet{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("boarding_order_id = ?", order.ID).Delete(&model.BoardingOrderRoom{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.BoardingOrder{}, order.ID).Error
+	})
 }
 
 func (s *BoardingService) UpdateDeworming(shopID, id, operatorID uint, hasDeworming *bool) (*model.BoardingOrder, error) {
@@ -1297,10 +1513,10 @@ func (s *BoardingService) ExtendRoom(shopID, id, roomID, operatorID uint, newChe
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureEditableRoom(order, room); err != nil {
+	if err := s.ensureExtendableRoom(order, room, newCheckOutAt); err != nil {
 		return nil, err
 	}
-	preview, _, _, err := s.previewExistingRoom(shopID, order, room, room.CabinetID, newCheckOutAt, nil)
+	preview, _, _, err := s.previewExistingRoomForExtend(shopID, order, room, room.CabinetID, newCheckOutAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1310,6 +1526,10 @@ func (s *BoardingService) ExtendRoom(shopID, id, roomID, operatorID uint, newChe
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		room.CheckOutAt = preview.CheckOutAt
+		room.ActualCheckOutAt = ""
+		if room.Status == model.BoardingOrderStatusCheckedOut {
+			room.Status = model.BoardingOrderStatusCheckedIn
+		}
 		applyPreviewToBoardingRoom(room, preview, manualDiscount, string(policySnapshot), string(priceSnapshot))
 		if err := tx.Save(room).Error; err != nil {
 			return err
@@ -1318,7 +1538,7 @@ func (s *BoardingService) ExtendRoom(shopID, id, roomID, operatorID uint, newChe
 		if err != nil {
 			return err
 		}
-		return syncBoardingPayOrder(tx, order, aggregatePreview, false)
+		return s.syncBoardingPayOrderAfterExtend(tx, order, aggregatePreview, operatorID)
 	})
 	if err != nil {
 		return nil, err
@@ -1645,7 +1865,7 @@ func (s *BoardingService) checkOutLegacy(shopID uint, order *model.BoardingOrder
 }
 
 func (s *BoardingService) extendLegacy(shopID uint, order *model.BoardingOrder, operatorID uint, newCheckOutAt string) (*model.BoardingOrder, error) {
-	if err := s.ensureEditableOrder(order); err != nil {
+	if err := s.ensureExtendableOrder(order, newCheckOutAt); err != nil {
 		return nil, err
 	}
 	selectedPolicies := parsePolicySnapshot(order.PolicySnapshotJSON)
@@ -1662,18 +1882,22 @@ func (s *BoardingService) extendLegacy(shopID uint, order *model.BoardingOrder, 
 	adjustedPreview, _ = applyBoardingDepositToPreview(adjustedPreview, boardingDepositAmountForOrder(order))
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		order.CheckOutAt = adjustedPreview.CheckOutAt
+		order.ActualCheckOutAt = ""
 		order.Nights = adjustedPreview.Nights
 		order.BaseAmount = adjustedPreview.BaseAmount
 		order.HolidaySurchargeAmount = adjustedPreview.HolidaySurchargeAmount
 		order.DiscountAmount = adjustedPreview.DiscountAmount
 		order.ManualDiscountAmount = appliedManualDiscount
 		order.PayAmount = adjustedPreview.PayAmount
+		if order.Status == model.BoardingOrderStatusCheckedOut {
+			order.Status = model.BoardingOrderStatusCheckedIn
+		}
 		priceSnapshot, _ := json.Marshal(adjustedPreview)
 		order.PriceSnapshotJSON = string(priceSnapshot)
 		if err := tx.Save(order).Error; err != nil {
 			return err
 		}
-		return s.syncOrder(tx, order, cabinet, adjustedPreview, petIDs, false)
+		return s.syncLegacyPayOrderAfterExtend(tx, order, cabinet, adjustedPreview, petIDs, operatorID)
 	})
 	if err != nil {
 		return nil, err
@@ -1699,7 +1923,7 @@ func (s *BoardingService) changeCabinetLegacy(shopID uint, order *model.Boarding
 		CabinetID:  cabinetID,
 		CheckInAt:  order.CheckInAt,
 		CheckOutAt: order.CheckOutAt,
-		PolicyIDs:  policyIDsFromPolicies(selectedPolicies),
+		PolicyIDs:  s.policyIDsForExistingReprice(shopID, selectedPolicies),
 	})
 	if err != nil {
 		return nil, err
@@ -1775,12 +1999,15 @@ func (s *BoardingService) cancelLegacy(shopID uint, order *model.BoardingOrder, 
 func (s *BoardingService) computePreviewFromExisting(shopID uint, order *model.BoardingOrder, targetCheckOutAt string, policies []model.BoardingDiscountPolicy) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
 	petIDs := collectBoardingPetIDs(order)
 	return s.Preview(shopID, BoardingPreviewInput{
-		CustomerID: order.CustomerID,
-		PetIDs:     petIDs,
-		CabinetID:  order.CabinetID,
-		CheckInAt:  order.CheckInAt,
-		CheckOutAt: targetCheckOutAt,
-		PolicyIDs:  policyIDsFromPolicies(policies),
+		CustomerID:             order.CustomerID,
+		PetIDs:                 petIDs,
+		CabinetID:              order.CabinetID,
+		CheckInAt:              order.CheckInAt,
+		CheckOutAt:             targetCheckOutAt,
+		AvailabilityCheckInAt:  order.CheckOutAt,
+		AvailabilityCheckOutAt: targetCheckOutAt,
+		PolicyIDs:              s.policyIDsForExistingReprice(shopID, policies),
+		ExcludeOrderID:         order.ID,
 	})
 }
 
@@ -1845,6 +2072,14 @@ func applyPreviewToBoardingRoom(room *model.BoardingOrderRoom, preview *Boarding
 }
 
 func (s *BoardingService) previewExistingRoom(shopID uint, order *model.BoardingOrder, room *model.BoardingOrderRoom, cabinetID uint, targetCheckOutAt string, input *BoardingCheckInInput) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
+	return s.previewExistingRoomWithAvailability(shopID, order, room, cabinetID, targetCheckOutAt, "", "", input)
+}
+
+func (s *BoardingService) previewExistingRoomForExtend(shopID uint, order *model.BoardingOrder, room *model.BoardingOrderRoom, cabinetID uint, targetCheckOutAt string) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
+	return s.previewExistingRoomWithAvailability(shopID, order, room, cabinetID, targetCheckOutAt, room.CheckOutAt, targetCheckOutAt, nil)
+}
+
+func (s *BoardingService) previewExistingRoomWithAvailability(shopID uint, order *model.BoardingOrder, room *model.BoardingOrderRoom, cabinetID uint, targetCheckOutAt string, availabilityCheckInAt string, availabilityCheckOutAt string, input *BoardingCheckInInput) (*BoardingPricePreview, *model.BoardingCabinet, []uint, error) {
 	if cabinetID == 0 {
 		cabinetID = room.CabinetID
 	}
@@ -1853,17 +2088,20 @@ func (s *BoardingService) previewExistingRoom(shopID uint, order *model.Boarding
 	}
 	petIDs := petIDsFromRoom(*room)
 	specialItems := previewInputSpecialSelection(room, input)
+	policies := parsePolicySnapshot(room.PolicySnapshotJSON)
 	return s.Preview(shopID, BoardingPreviewInput{
-		CustomerID:     order.CustomerID,
-		PetIDs:         petIDs,
-		PetCount:       maxInt(len(petIDs), 1),
-		CabinetID:      cabinetID,
-		CheckInAt:      room.CheckInAt,
-		CheckOutAt:     targetCheckOutAt,
-		SpecialItems:   specialItems,
-		PolicyIDs:      policyIDsFromPolicies(parsePolicySnapshot(room.PolicySnapshotJSON)),
-		ExcludeOrderID: order.ID,
-		ExcludeRoomID:  room.ID,
+		CustomerID:             order.CustomerID,
+		PetIDs:                 petIDs,
+		PetCount:               maxInt(len(petIDs), 1),
+		CabinetID:              cabinetID,
+		CheckInAt:              room.CheckInAt,
+		CheckOutAt:             targetCheckOutAt,
+		AvailabilityCheckInAt:  availabilityCheckInAt,
+		AvailabilityCheckOutAt: availabilityCheckOutAt,
+		SpecialItems:           specialItems,
+		PolicyIDs:              s.policyIDsForExistingReprice(shopID, policies),
+		ExcludeOrderID:         order.ID,
+		ExcludeRoomID:          room.ID,
 	})
 }
 
@@ -1885,7 +2123,9 @@ func (s *BoardingService) syncOrder(tx *gorm.DB, boardingOrder *model.BoardingOr
 		return nil
 	}
 	preservedProductItems := clonePayOrderProductItems(payOrder.ID, payOrder.Items)
+	paidCredit := boardingPaidCreditFromItems(payOrder.Items)
 	syncBoardingPreviewToPayOrder(payOrder, preview, preservedProductItems)
+	paidCredit = applyBoardingPaidCreditToPayOrder(payOrder, paidCredit)
 	if err := tx.Save(&payOrder).Error; err != nil {
 		return err
 	}
@@ -1893,11 +2133,101 @@ func (s *BoardingService) syncOrder(tx *gorm.DB, boardingOrder *model.BoardingOr
 		return err
 	}
 	items := buildBoardingOrderItems(payOrder.ID, cabinet, preview)
+	items = appendBoardingPaidCreditItem(items, payOrder.ID, paidCredit)
 	items = append(items, preservedProductItems...)
 	if len(items) > 0 {
 		if err := tx.Create(&items).Error; err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (s *BoardingService) syncBoardingPayOrderAfterExtend(tx *gorm.DB, order *model.BoardingOrder, preview *BoardingPricePreview, operatorID uint) error {
+	if order == nil || order.OrderID == nil || *order.OrderID == 0 {
+		return nil
+	}
+	payOrder, ok, err := loadLinkedBoardingPayOrder(tx, order)
+	if err != nil || !ok {
+		return err
+	}
+	if payOrder.PayStatus != 1 {
+		return syncBoardingPayOrder(tx, order, preview, false)
+	}
+	paidCredit := paidBoardingAmountFromPayOrder(payOrder)
+	if paidCredit <= 0 {
+		return syncBoardingPayOrder(tx, order, preview, false)
+	}
+	if paidCredit >= roundMoney(preview.PayAmount) {
+		return nil
+	}
+	return s.createBoardingExtensionBalanceOrder(tx, order, nil, preview, paidCredit, operatorID, payOrder.OrderNo)
+}
+
+func (s *BoardingService) syncLegacyPayOrderAfterExtend(tx *gorm.DB, order *model.BoardingOrder, cabinet *model.BoardingCabinet, preview *BoardingPricePreview, petIDs []uint, operatorID uint) error {
+	if order == nil || order.OrderID == nil || *order.OrderID == 0 {
+		return nil
+	}
+	payOrder, ok, err := loadLinkedBoardingPayOrder(tx, order)
+	if err != nil || !ok {
+		return err
+	}
+	if payOrder.PayStatus != 1 {
+		return s.syncOrder(tx, order, cabinet, preview, petIDs, false)
+	}
+	paidCredit := paidBoardingAmountFromPayOrder(payOrder)
+	if paidCredit <= 0 {
+		return s.syncOrder(tx, order, cabinet, preview, petIDs, false)
+	}
+	if paidCredit >= roundMoney(preview.PayAmount) {
+		return nil
+	}
+	return s.createBoardingExtensionBalanceOrder(tx, order, cabinet, preview, paidCredit, operatorID, payOrder.OrderNo)
+}
+
+func (s *BoardingService) createBoardingExtensionBalanceOrder(tx *gorm.DB, boardingOrder *model.BoardingOrder, cabinet *model.BoardingCabinet, preview *BoardingPricePreview, paidCredit float64, operatorID uint, sourceOrderNo string) error {
+	if boardingOrder == nil || preview == nil {
+		return nil
+	}
+	petIDs := collectBoardingPetIDs(boardingOrder)
+	var orderPetID *uint
+	if len(petIDs) == 1 {
+		orderPetID = &petIDs[0]
+	}
+	payOrder := &model.Order{
+		OrderNo:      utils.GenerateOrderNo(),
+		ShopID:       boardingOrder.ShopID,
+		CustomerID:   &boardingOrder.CustomerID,
+		PetID:        orderPetID,
+		StaffID:      uintPtr(operatorID),
+		PayStatus:    0,
+		Status:       0,
+		Remark:       strings.TrimSpace(fmt.Sprintf("寄养续住差额，原订单 %s 已支付 ¥%.2f", sourceOrderNo, paidCredit)),
+		DiscountRate: 1,
+	}
+	applyBoardingDepositFields(payOrder, boardingDepositAmountForOrder(boardingOrder), boardingDepositDeductionFromPreview(preview))
+	syncBoardingPreviewToPayOrder(payOrder, preview, nil)
+	appliedCredit := applyBoardingPaidCreditToPayOrder(payOrder, paidCredit)
+	if appliedCredit <= 0 || payOrder.PayAmount <= 0 {
+		return nil
+	}
+	if err := tx.Create(payOrder).Error; err != nil {
+		return err
+	}
+	boardingOrder.OrderID = &payOrder.ID
+	boardingOrder.Order = payOrder
+	if err := tx.Model(boardingOrder).Update("order_id", payOrder.ID).Error; err != nil {
+		return err
+	}
+	var items []model.OrderItem
+	if len(boardingOrder.Rooms) > 0 {
+		items = buildBoardingOrderItemsFromAggregate(payOrder.ID, preview)
+	} else {
+		items = buildBoardingOrderItems(payOrder.ID, cabinet, preview)
+	}
+	items = appendBoardingPaidCreditItem(items, payOrder.ID, appliedCredit)
+	if len(items) > 0 {
+		return tx.Create(&items).Error
 	}
 	return nil
 }
@@ -1912,12 +2242,38 @@ func (s *BoardingService) ensureEditableOrder(order *model.BoardingOrder) error 
 	return nil
 }
 
+func (s *BoardingService) ensureExtendableOrder(order *model.BoardingOrder, newCheckOutAt string) error {
+	if order.Status == model.BoardingOrderStatusCancelled {
+		return errors.New("当前状态不可续住")
+	}
+	if order.Status != model.BoardingOrderStatusPendingCheckin && order.Status != model.BoardingOrderStatusCheckedIn && order.Status != model.BoardingOrderStatusCheckedOut {
+		return errors.New("当前状态不可续住")
+	}
+	if strings.TrimSpace(newCheckOutAt) <= order.CheckOutAt {
+		return errors.New("续住日期需晚于当前离店日期")
+	}
+	return nil
+}
+
 func (s *BoardingService) ensureEditableRoom(order *model.BoardingOrder, room *model.BoardingOrderRoom) error {
 	if room.Status == model.BoardingOrderStatusCancelled || room.Status == model.BoardingOrderStatusCheckedOut {
 		return errors.New("当前房间状态不可修改")
 	}
 	if order.Order != nil && order.Order.PayStatus == 1 {
 		return errors.New("已支付订单不可修改")
+	}
+	return nil
+}
+
+func (s *BoardingService) ensureExtendableRoom(order *model.BoardingOrder, room *model.BoardingOrderRoom, newCheckOutAt string) error {
+	if room.Status == model.BoardingOrderStatusCancelled {
+		return errors.New("当前房间状态不可续住")
+	}
+	if room.Status != model.BoardingOrderStatusPendingCheckin && room.Status != model.BoardingOrderStatusCheckedIn && room.Status != model.BoardingOrderStatusCheckedOut {
+		return errors.New("当前房间状态不可续住")
+	}
+	if strings.TrimSpace(newCheckOutAt) <= room.CheckOutAt {
+		return errors.New("续住日期需晚于当前离店日期")
 	}
 	return nil
 }
@@ -2153,12 +2509,12 @@ func (s *BoardingService) computePreview(shopID uint, cabinet *model.BoardingCab
 		case model.BoardingPolicyTypeHolidaySurcharge:
 			var rule surchargeRule
 			if err := json.Unmarshal([]byte(policy.RuleJSON), &rule); err == nil && rule.Surcharge > 0 && holidayNights > 0 {
-				holidaySurchargeAmount = roundMoney(float64(holidayNights) * rule.Surcharge)
+				holidaySurchargeAmount = roundMoney(resolveHolidaySurchargeAmount(startDate, endDate, holidayMap, rule.Surcharge))
 				lines = append(lines, BoardingPriceLine{
 					Type:      "holiday_surcharge",
 					Label:     policy.Name,
 					Quantity:  holidayNights,
-					UnitPrice: rule.Surcharge,
+					UnitPrice: resolveHolidaySurchargeUnitPrice(holidaySurchargeAmount, holidayNights, rule.Surcharge),
 					Amount:    holidaySurchargeAmount,
 				})
 			}
@@ -2292,6 +2648,33 @@ func validateBoardingSpecialItem(item *model.BoardingSpecialItem) error {
 	return nil
 }
 
+func resolveHolidaySurchargeAmount(startDate, endDate string, holidayMap map[string]model.BoardingHoliday, defaultSurcharge float64) float64 {
+	var amount float64
+	for cursor := startDate; cursor < endDate; cursor = addDays(cursor, 1) {
+		holiday, ok := holidayMap[cursor]
+		if !ok {
+			continue
+		}
+		surcharge := roundMoney(holiday.SurchargeAmount)
+		if surcharge <= 0 {
+			surcharge = defaultSurcharge
+		}
+		amount += surcharge
+	}
+	return roundMoney(amount)
+}
+
+func resolveHolidaySurchargeUnitPrice(total float64, holidayNights int, defaultSurcharge float64) float64 {
+	if holidayNights <= 0 {
+		return 0
+	}
+	average := roundMoney(total / float64(holidayNights))
+	if average > 0 {
+		return average
+	}
+	return roundMoney(defaultSurcharge)
+}
+
 func boardingServiceAmount(preview *BoardingPricePreview) float64 {
 	if preview == nil {
 		return 0
@@ -2329,6 +2712,43 @@ func policyIDsFromPolicies(policies []model.BoardingDiscountPolicy) []uint {
 		if policy.ID > 0 {
 			ids = append(ids, policy.ID)
 		}
+	}
+	return ids
+}
+
+func (s *BoardingService) policyIDsForExistingReprice(shopID uint, policies []model.BoardingDiscountPolicy) []uint {
+	ids := make([]uint, 0, len(policies)+1)
+	seen := map[uint]struct{}{}
+	hasHolidaySurcharge := false
+	for _, policy := range policies {
+		if policy.PolicyType == model.BoardingPolicyTypeHolidaySurcharge {
+			hasHolidaySurcharge = true
+		}
+		if policy.ID == 0 {
+			continue
+		}
+		if _, ok := seen[policy.ID]; ok {
+			continue
+		}
+		ids = append(ids, policy.ID)
+		seen[policy.ID] = struct{}{}
+	}
+	if hasHolidaySurcharge {
+		return ids
+	}
+	currentPolicies, err := s.repo.ListPolicies(shopID)
+	if err != nil {
+		return ids
+	}
+	for _, policy := range currentPolicies {
+		if policy.ID == 0 || policy.Status != 1 || policy.PolicyType != model.BoardingPolicyTypeHolidaySurcharge {
+			continue
+		}
+		if _, ok := seen[policy.ID]; ok {
+			continue
+		}
+		ids = append(ids, policy.ID)
+		seen[policy.ID] = struct{}{}
 	}
 	return ids
 }
@@ -2464,6 +2884,25 @@ func uintPtr(v uint) *uint {
 		return nil
 	}
 	return &v
+}
+
+func isHistoricalBoardingOrder(order *model.BoardingOrder) bool {
+	if order == nil {
+		return false
+	}
+	if order.Status == model.BoardingOrderStatusCheckedOut || order.Status == model.BoardingOrderStatusCancelled {
+		return true
+	}
+	checkOutAt := strings.TrimSpace(order.ActualCheckOutAt)
+	if checkOutAt == "" {
+		checkOutAt = strings.TrimSpace(order.CheckOutAt)
+	}
+	date, err := time.Parse("2006-01-02", checkOutAt)
+	if err != nil {
+		return false
+	}
+	today, _ := time.Parse("2006-01-02", time.Now().Format("2006-01-02"))
+	return date.Before(today)
 }
 
 func boardingDewormingEqual(left, right *bool) bool {

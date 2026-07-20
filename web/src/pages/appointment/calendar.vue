@@ -162,10 +162,18 @@
                 <text class="appt-new-tag-lg" v-if="index === 0 && isNewCustomer(appt)">新客</text>
               </view>
               <text class="appt-pet-detail">{{ petInfo.meta }}</text>
-              <view class="appt-tag-row" v-if="petInfo.tags.length > 0">
+              <view class="appt-tag-row" v-if="petInfo.petTags.length > 0">
                 <text
-                  v-for="tag in petInfo.tags"
-                  :key="`${appt.ID}-${petInfo.id}-${tag.text}`"
+                  v-for="tag in petInfo.petTags"
+                  :key="`${appt.ID}-${petInfo.id}-pet-${tag.text}`"
+                  :class="['appt-tag', tag.className]"
+                  :style="tag.style"
+                >{{ tag.text }}</text>
+              </view>
+              <view class="appt-tag-row appt-owner-tag-row" v-if="petInfo.ownerTags.length > 0">
+                <text
+                  v-for="tag in petInfo.ownerTags"
+                  :key="`${appt.ID}-${petInfo.id}-owner-${tag.text}`"
                   :class="['appt-tag', tag.className]"
                   :style="tag.style"
                 >{{ tag.text }}</text>
@@ -246,10 +254,18 @@
                   >
                     <text class="appt-pet">{{ petInfo.name }} <text class="appt-new-tag" v-if="index === 0 && isNewCustomer(appt)">新客</text></text>
                     <text class="appt-pet-info">{{ petInfo.meta }}</text>
-                    <view class="appt-tag-row compact" v-if="petInfo.tags.length > 0">
+                    <view class="appt-tag-row compact" v-if="petInfo.petTags.length > 0">
                       <text
-                        v-for="tag in petInfo.tags"
-                        :key="`${appt.ID}-grid-${petInfo.id}-${tag.text}`"
+                        v-for="tag in petInfo.petTags"
+                        :key="`${appt.ID}-grid-${petInfo.id}-pet-${tag.text}`"
+                        :class="['appt-tag', 'compact', tag.className]"
+                        :style="tag.style"
+                      >{{ tag.text }}</text>
+                    </view>
+                    <view class="appt-tag-row appt-owner-tag-row compact" v-if="petInfo.ownerTags.length > 0">
+                      <text
+                        v-for="tag in petInfo.ownerTags"
+                        :key="`${appt.ID}-grid-${petInfo.id}-owner-${tag.text}`"
                         :class="['appt-tag', 'compact', tag.className]"
                         :style="tag.style"
                       >{{ tag.text }}</text>
@@ -814,7 +830,8 @@ function estimateApptContentRpx(appt: any): number {
   let h = 50
   for (const pet of pets) {
     h += 42 + 30
-    if (pet.tags.length > 0) h += 40
+    if (pet.petTags.length > 0) h += 40
+    if (pet.ownerTags.length > 0) h += 36
     if (pet.services.length > 0) h += 44
     if (pet.noteText) h += 18 + estimateWrappedLineCount(pet.noteText) * 28
     h += 16
@@ -1017,20 +1034,64 @@ function getPetTagItems(pet: any) {
   return tags
 }
 
+function getCustomerTagItems(appt: any) {
+  const customer = appt?.customer || {}
+  const tags: Array<{ text: string; className: string; style?: string }> = []
+  const seen = new Set<string>()
+  const addTag = (name?: string) => {
+    const text = String(name || '').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    tags.push({ text, className: 'tag-owner' })
+  }
+
+  if (Array.isArray(customer.customer_tags)) {
+    customer.customer_tags.forEach((tag: any) => addTag(tag?.name))
+  }
+  if (typeof customer.tags === 'string') {
+    customer.tags.split(/[，,]/).forEach(addTag)
+  }
+  return tags
+}
+
 function formatPetTags(pet: any) {
   return getPetTagItems(pet).map((tag) => tag.text).join(' · ')
+}
+
+function isPricingRuleLabel(label: string) {
+  return ['短毛猫', '长毛猫', 'A', 'B', 'C', 'D'].includes(label)
+}
+
+function formatAppointmentServiceLabel(serviceName?: string) {
+  const name = String(serviceName || '').trim()
+  const match = name.match(/^(.+?)\((.+)\)$/)
+  if (!match) return name
+  const baseName = match[1].trim()
+  const ruleName = match[2].trim()
+  if (baseName === '基础洗护' && ruleName === '超重') return '超重'
+  if (isPricingRuleLabel(ruleName)) return baseName
+  if (baseName === '基础洗护') return baseName
+  return ruleName || name
 }
 
 function getPetDisplayItems(appt: any) {
   const petItems = getAppointmentPets(appt)
   if (petItems.length === 0) {
-    return [{ id: 'empty', name: '-', meta: '未填写宠物信息', tags: [] as Array<{ text: string; className: string; style?: string }>, services: [] as string[], noteText: '' }]
+    return [{
+      id: 'empty',
+      name: '-',
+      meta: '未填写宠物信息',
+      petTags: [] as Array<{ text: string; className: string; style?: string }>,
+      ownerTags: getCustomerTagItems(appt),
+      services: [] as string[],
+      noteText: '',
+    }]
   }
   const petNoteMap = getAppointmentPetNoteMap(appt)
   return petItems.map((petItem: any, index: number) => {
     const pet = petItem?.pet
     const serviceNames = (petItem.services || [])
-      .map((s: any) => s.service_name)
+      .map((s: any) => formatAppointmentServiceLabel(s.service_name))
       .filter(Boolean)
     const petName = pet?.name || `猫咪${index + 1}`
     const noteLines = [petNoteMap[petName], getRegularCustomerPetProfileNotes(appt, pet)].filter(Boolean)
@@ -1038,7 +1099,8 @@ function getPetDisplayItems(appt: any) {
       id: pet?.ID || index,
       name: petName,
       meta: pet ? formatPetMeta(pet) : '未填写宠物信息',
-      tags: pet ? getPetTagItems(pet) : [],
+      petTags: pet ? getPetTagItems(pet) : [],
+      ownerTags: index === 0 ? getCustomerTagItems(appt) : [],
       services: serviceNames,
       noteText: noteLines.join('\n'),
     }
@@ -1414,6 +1476,7 @@ onShow(() => { loadData(); loadPendingCount() })
 .appt-tag.tag-fur { background: #EEF2FF; color: #4F46E5; }
 .appt-tag.tag-neutered { background: #ECFDF5; color: #047857; }
 .appt-tag.tag-aggression { background: #FEF2F2; color: #DC2626; }
+.appt-tag.tag-owner { background: #FFF7ED; color: #C2410C; border: 1rpx solid rgba(251, 146, 60, 0.32); font-weight: 700; }
 .appt-new-tag { font-size: 18rpx; color: #F59E0B; font-weight: 600; }
 .appt-new-tag-lg { font-size: 20rpx; color: #fff; background: #F59E0B; padding: 2rpx 12rpx; border-radius: 8rpx; margin-left: 8rpx; }
 .appt-pet-row { display: flex; align-items: center; }

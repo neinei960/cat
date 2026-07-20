@@ -1,6 +1,11 @@
 package repository
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 )
@@ -46,12 +51,16 @@ func (r *StatsRepository) GetRevenueTrendRealtime(shopID uint, startDate, endDat
 
 type OverviewStats struct {
 	TodayRevenue            float64                `json:"today_revenue"`
+	MonthRevenue            float64                `json:"month_revenue"`
+	MonthRecharge           float64                `json:"month_recharge"`
+	MonthCollection         float64                `json:"month_collection"`
 	TodayOrderCount         int                    `json:"today_order_count"`
 	TodayAppointmentCount   int                    `json:"today_appointment_count"`
 	TodayServiceCompleted   int                    `json:"today_service_completed_count"`
 	TodayPendingSettlement  int                    `json:"today_pending_settlement_count"`
 	TodayRefundedOrderCount int                    `json:"today_refunded_order_count"`
 	TodayNewCustomers       int                    `json:"today_new_customers"`
+	RegularCustomerCount    int                    `json:"regular_customer_count"`
 	PendingAppointments     int64                  `json:"pending_appointments"`
 	TotalCustomers          int64                  `json:"total_customers"`
 	AvgOrderValue           float64                `json:"avg_order_value"`
@@ -98,6 +107,7 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 		Scan(&revenueResult)
 	stats.TodayRevenue = revenueResult.Total
 	stats.TodayOrderCount = int(revenueResult.Count)
+	r.fillMonthCollectionStats(shopID, &stats)
 
 	// Today's appointment count
 	var apptCount int64
@@ -130,13 +140,17 @@ func (r *StatsRepository) GetOverview(shopID uint, today string) (*OverviewStats
 		Where("shop_id = ? AND DATE(created_at) = ?", shopID, today).Count(&newCustCount)
 	stats.TodayNewCustomers = int(newCustCount)
 
+	var regularCustomerCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date = ? AND customer_type = ?", shopID, today, model.AppointmentCustomerTypeRegular).
+		Count(&regularCustomerCount)
+	stats.RegularCustomerCount = int(regularCustomerCount)
+
 	// Pending appointments count
 	database.DB.Model(&model.Appointment{}).
 		Where("shop_id = ? AND status IN (0,1,6)", shopID).Count(&stats.PendingAppointments)
 
-	// Total customers
-	database.DB.Model(&model.Customer{}).
-		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
+	stats.TotalCustomers = r.countServedCustomers(shopID, today, today)
 
 	// 客单价 (AOV) - 近30天已完成订单
 	var aovResult struct{ Avg float64 }
@@ -177,6 +191,7 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		Scan(&revenueResult)
 	stats.TodayRevenue = revenueResult.Total
 	stats.TodayOrderCount = int(revenueResult.Count)
+	r.fillCollectionStatsByRange(shopID, startDate, endDate, &stats)
 
 	var apptCount int64
 	database.DB.Model(&model.Appointment{}).
@@ -207,10 +222,15 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 		Where("shop_id = ? AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).Count(&newCustCount)
 	stats.TodayNewCustomers = int(newCustCount)
 
+	var regularCustomerCount int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= ? AND date <= ? AND customer_type = ?", shopID, startDate, endDate, model.AppointmentCustomerTypeRegular).
+		Count(&regularCustomerCount)
+	stats.RegularCustomerCount = int(regularCustomerCount)
+
 	database.DB.Model(&model.Appointment{}).
 		Where("shop_id = ? AND status IN (0,1,6)", shopID).Count(&stats.PendingAppointments)
-	database.DB.Model(&model.Customer{}).
-		Where("shop_id = ?", shopID).Count(&stats.TotalCustomers)
+	stats.TotalCustomers = r.countServedCustomers(shopID, startDate, endDate)
 
 	// AOV for range
 	var aovResult struct{ Avg float64 }
@@ -237,6 +257,37 @@ func (r *StatsRepository) GetOverviewByRange(shopID uint, startDate, endDate str
 	return &stats, nil
 }
 
+func (r *StatsRepository) countServedCustomers(shopID uint, startDate, endDate string) int64 {
+	var count int64
+	database.DB.Model(&model.Appointment{}).
+		Where("shop_id = ? AND date >= ? AND date <= ? AND status NOT IN ?", shopID, startDate, endDate, []int{4, 5}).
+		Distinct("customer_id").
+		Count(&count)
+	return count
+}
+
+func (r *StatsRepository) fillMonthCollectionStats(shopID uint, stats *OverviewStats) {
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+	monthEnd := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
+	r.fillCollectionStatsByRange(shopID, monthStart, monthEnd, stats)
+}
+
+func (r *StatsRepository) fillCollectionStatsByRange(shopID uint, startDate, endDate string, stats *OverviewStats) {
+	database.DB.Model(&model.Order{}).
+		Select("COALESCE(SUM(orders.pay_amount), 0)").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND orders.status = 1 AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ?", shopID, startDate, endDate).
+		Scan(&stats.MonthRevenue)
+
+	database.DB.Model(&model.RechargeRecord{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("shop_id = ? AND type = 1 AND DATE(created_at) >= ? AND DATE(created_at) <= ?", shopID, startDate, endDate).
+		Scan(&stats.MonthRecharge)
+
+	stats.MonthCollection = stats.MonthRevenue + stats.MonthRecharge
+}
+
 func (r *StatsRepository) getPaymentBreakdown(shopID uint, startDate, endDate string) []PaymentBreakdownItem {
 	type paymentBreakdownRow struct {
 		PayGroup string  `gorm:"column:pay_group" json:"pay_group"`
@@ -247,11 +298,13 @@ func (r *StatsRepository) getPaymentBreakdown(shopID uint, startDate, endDate st
 	payMethodGroupExpr := `
 		CASE
 			WHEN orders.pay_method = 'wechat' THEN 'wechat'
-			WHEN orders.pay_method = 'meituan' THEN 'meituan'
-			WHEN orders.pay_method IN ('balance', 'card') THEN 'balance'
-			ELSE 'other'
-		END
-	`
+				WHEN orders.pay_method IN ('qrcode', 'alipay') THEN 'qrcode'
+				WHEN orders.pay_method = 'meituan' THEN 'meituan'
+				WHEN orders.pay_method IN ('balance', 'card') THEN 'balance'
+				WHEN orders.pay_method = 'mixed_balance' THEN 'mixed_balance'
+				ELSE 'other'
+			END
+		`
 	if err := database.DB.Model(&model.Order{}).
 		Select(payMethodGroupExpr+" as pay_group, COALESCE(SUM(orders.pay_amount), 0) as amount").
 		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
@@ -280,10 +333,14 @@ func paymentBreakdownLabel(key string) string {
 	switch key {
 	case "wechat":
 		return "微信"
+	case "qrcode":
+		return "扫码"
 	case "meituan":
 		return "美团"
 	case "balance":
-		return "会员卡/余额"
+		return "会员"
+	case "mixed_balance":
+		return "会员+补差"
 	default:
 		return "其他"
 	}
@@ -337,6 +394,22 @@ type ServiceRanking struct {
 	Revenue     float64 `json:"revenue"`
 }
 
+type ProjectRevenueNode struct {
+	Key      string               `json:"key"`
+	Name     string               `json:"name"`
+	Kind     string               `json:"kind"`
+	Count    int                  `json:"count"`
+	Revenue  float64              `json:"revenue"`
+	Children []ProjectRevenueNode `json:"children,omitempty"`
+}
+
+type projectRevenueOrderMix struct {
+	Service  float64
+	Product  float64
+	Feeding  float64
+	Boarding float64
+}
+
 func (r *StatsRepository) GetServiceRanking(shopID uint, startDate, endDate string) ([]ServiceRanking, error) {
 	var rankings []ServiceRanking
 	serviceNameExpr := `
@@ -360,6 +433,175 @@ func (r *StatsRepository) GetServiceRanking(shopID uint, startDate, endDate stri
 		Limit(10).
 		Find(&rankings).Error
 	return rankings, err
+}
+
+func (r *StatsRepository) GetProjectRevenueTree(shopID uint, startDate, endDate string) ([]ProjectRevenueNode, error) {
+	type itemRevenueRow struct {
+		OrderID       uint
+		ItemType      int
+		ItemID        uint
+		Name          string
+		Quantity      int
+		Amount        float64
+		FeedingPlanID *uint
+	}
+	type orderAdjustmentRow struct {
+		ID                                uint
+		DiscountAmount                    float64
+		ServiceDiscountAmount             float64
+		ProductDiscountAmount             float64
+		AppointmentDepositDeductionAmount float64
+	}
+	var rows []itemRevenueRow
+	if err := database.DB.Table("order_items").
+		Select("order_items.order_id, order_items.item_type, order_items.item_id, order_items.name, order_items.quantity, order_items.amount, orders.feeding_plan_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND orders.deleted_at IS NULL AND order_items.deleted_at IS NULL",
+			shopID, startDate, endDate).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	serviceByID, serviceCategoryPath, err := r.projectRevenueServiceLookups(shopID)
+	if err != nil {
+		return nil, err
+	}
+	productByID, productCategoryByID, skuProductIDByID, err := r.projectRevenueProductLookups(shopID)
+	if err != nil {
+		return nil, err
+	}
+
+	roots := []ProjectRevenueNode{
+		{Key: "service", Name: "服务", Kind: "root"},
+		{Key: "product", Name: "商品", Kind: "root"},
+		{Key: "feeding", Name: "上门喂养", Kind: "root"},
+		{Key: "boarding", Name: "寄养", Kind: "root"},
+	}
+	rootIndexes := map[string]int{"service": 0, "product": 1, "feeding": 2, "boarding": 3}
+
+	boardingOrderIDs := make(map[uint]struct{})
+	for _, row := range rows {
+		if row.ItemType == 4 || row.ItemType == 5 {
+			boardingOrderIDs[row.OrderID] = struct{}{}
+		}
+	}
+
+	revenueMixByOrderID := make(map[uint]*projectRevenueOrderMix)
+	for _, row := range rows {
+		mix := revenueMixByOrderID[row.OrderID]
+		if mix == nil {
+			mix = &projectRevenueOrderMix{}
+			revenueMixByOrderID[row.OrderID] = mix
+		}
+		switch {
+		case row.FeedingPlanID != nil:
+			mix.Feeding += row.Amount
+		case row.ItemType == 1:
+			mix.Service += row.Amount
+		case row.ItemType == 2:
+			mix.Product += row.Amount
+		case row.ItemType == 4 || row.ItemType == 5:
+			mix.Boarding += row.Amount
+		case row.ItemType == 3:
+			if _, ok := boardingOrderIDs[row.OrderID]; ok {
+				mix.Boarding += row.Amount
+			}
+		}
+	}
+
+	for _, row := range rows {
+		count := row.Quantity
+		if count < 1 {
+			count = 1
+		}
+		name := cleanProjectItemName(row.Name)
+		if name == "" {
+			name = "未命名项目"
+		}
+
+		switch {
+		case row.FeedingPlanID != nil:
+			kind := "feeding"
+			addProjectRevenuePath(&roots[rootIndexes[kind]], []string{name}, kind, count, row.Amount)
+		case row.ItemType == 1:
+			kind := "service"
+			serviceName := name
+			path := []string{"未分类服务"}
+			if service, ok := serviceByID[row.ItemID]; ok {
+				if strings.TrimSpace(service.Name) != "" {
+					serviceName = service.Name
+				}
+				if service.CategoryID != nil {
+					if categoryPath := serviceCategoryPath[*service.CategoryID]; len(categoryPath) > 0 {
+						path = categoryPath
+					}
+				}
+			}
+			addProjectRevenuePath(&roots[rootIndexes[kind]], append(path, serviceName), kind, count, row.Amount)
+		case row.ItemType == 2:
+			kind := "product"
+			productID := row.ItemID
+			if mappedProductID, ok := skuProductIDByID[row.ItemID]; ok {
+				productID = mappedProductID
+			}
+			productName := name
+			categoryName := "未分类商品"
+			if product, ok := productByID[productID]; ok {
+				if strings.TrimSpace(product.Name) != "" {
+					productName = product.Name
+				}
+				if category, ok := productCategoryByID[product.CategoryID]; ok && strings.TrimSpace(category.Name) != "" {
+					categoryName = category.Name
+				}
+			}
+			addProjectRevenuePath(&roots[rootIndexes[kind]], []string{categoryName, productName}, kind, count, row.Amount)
+		case row.ItemType == 4 || row.ItemType == 5:
+			kind := "boarding"
+			addProjectRevenuePath(&roots[rootIndexes[kind]], []string{boardingItemGroup(row.ItemType), name}, kind, count, row.Amount)
+		case row.ItemType == 6:
+			if _, ok := boardingOrderIDs[row.OrderID]; ok {
+				addProjectRevenueRootAdjustment(&roots[rootIndexes["boarding"]], row.Amount)
+			}
+		case row.ItemType == 3:
+			if _, ok := boardingOrderIDs[row.OrderID]; ok {
+				kind := "boarding"
+				addProjectRevenuePath(&roots[rootIndexes[kind]], []string{"增值服务", name}, kind, count, row.Amount)
+			}
+		}
+	}
+
+	var adjustments []orderAdjustmentRow
+	if err := database.DB.Table("orders").
+		Select("orders.id, orders.discount_amount, orders.service_discount_amount, orders.product_discount_amount, orders.appointment_deposit_deduction_amount").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND orders.deleted_at IS NULL",
+			shopID, startDate, endDate).
+		Find(&adjustments).Error; err != nil {
+		return nil, err
+	}
+	for _, adjustment := range adjustments {
+		mix := revenueMixByOrderID[adjustment.ID]
+		if mix == nil || mix.Boarding > 0 {
+			continue
+		}
+		if adjustment.ServiceDiscountAmount > 0 {
+			addProjectRevenueRootAdjustment(&roots[rootIndexes["service"]], -adjustment.ServiceDiscountAmount)
+		}
+		if adjustment.ProductDiscountAmount > 0 {
+			addProjectRevenueRootAdjustment(&roots[rootIndexes["product"]], -adjustment.ProductDiscountAmount)
+		}
+		unallocatedDiscount := adjustment.DiscountAmount - adjustment.ServiceDiscountAmount - adjustment.ProductDiscountAmount
+		if unallocatedDiscount < 0 {
+			unallocatedDiscount = 0
+		}
+		applyProjectRevenueUnallocatedDiscount(roots, rootIndexes, mix, unallocatedDiscount+adjustment.AppointmentDepositDeductionAmount)
+	}
+
+	for i := range roots {
+		sortProjectRevenueChildren(&roots[i])
+	}
+	return roots, nil
 }
 
 type CategoryStat struct {
@@ -416,29 +658,320 @@ func (r *StatsRepository) GetCategoryStats(shopID uint, startDate, endDate strin
 	return stats, err
 }
 
+func addProjectRevenuePath(root *ProjectRevenueNode, path []string, kind string, count int, revenue float64) {
+	root.Count += count
+	root.Revenue += revenue
+	current := root
+	for depth, name := range path {
+		cleanName := strings.TrimSpace(name)
+		if cleanName == "" {
+			cleanName = "未分类"
+		}
+		key := fmt.Sprintf("%s:%d:%s", current.Key, depth, cleanName)
+		childIndex := -1
+		for i := range current.Children {
+			if current.Children[i].Key == key {
+				childIndex = i
+				break
+			}
+		}
+		if childIndex < 0 {
+			current.Children = append(current.Children, ProjectRevenueNode{
+				Key:  key,
+				Name: cleanName,
+				Kind: kind,
+			})
+			childIndex = len(current.Children) - 1
+		}
+		current = &current.Children[childIndex]
+		current.Count += count
+		current.Revenue += revenue
+	}
+}
+
+func addProjectRevenueRootAdjustment(root *ProjectRevenueNode, revenue float64) {
+	root.Revenue += revenue
+}
+
+func applyProjectRevenueUnallocatedDiscount(roots []ProjectRevenueNode, rootIndexes map[string]int, mix *projectRevenueOrderMix, discount float64) {
+	if mix == nil || discount <= 0 {
+		return
+	}
+	total := mix.Service + mix.Product + mix.Feeding
+	if total <= 0 {
+		return
+	}
+	if mix.Service > 0 {
+		addProjectRevenueRootAdjustment(&roots[rootIndexes["service"]], -discount*mix.Service/total)
+	}
+	if mix.Product > 0 {
+		addProjectRevenueRootAdjustment(&roots[rootIndexes["product"]], -discount*mix.Product/total)
+	}
+	if mix.Feeding > 0 {
+		addProjectRevenueRootAdjustment(&roots[rootIndexes["feeding"]], -discount*mix.Feeding/total)
+	}
+}
+
+func sortProjectRevenueChildren(node *ProjectRevenueNode) {
+	sort.SliceStable(node.Children, func(i, j int) bool {
+		if node.Children[i].Revenue != node.Children[j].Revenue {
+			return node.Children[i].Revenue > node.Children[j].Revenue
+		}
+		if node.Children[i].Count != node.Children[j].Count {
+			return node.Children[i].Count > node.Children[j].Count
+		}
+		return node.Children[i].Name < node.Children[j].Name
+	})
+	for i := range node.Children {
+		sortProjectRevenueChildren(&node.Children[i])
+	}
+}
+
+func cleanProjectItemName(name string) string {
+	cleaned := strings.TrimSpace(name)
+	if parts := strings.Split(cleaned, " · "); len(parts) > 1 {
+		cleaned = strings.TrimSpace(parts[len(parts)-1])
+	}
+	return cleaned
+}
+
+func boardingItemGroup(itemType int) string {
+	switch itemType {
+	case 4:
+		return "住宿"
+	case 5:
+		return "节假日加收"
+	default:
+		return "其他"
+	}
+}
+
+func (r *StatsRepository) projectRevenueServiceLookups(shopID uint) (map[uint]model.Service, map[uint][]string, error) {
+	var services []model.Service
+	if err := database.DB.Where("shop_id = ?", shopID).Find(&services).Error; err != nil {
+		return nil, nil, err
+	}
+	serviceByID := make(map[uint]model.Service, len(services))
+	for _, service := range services {
+		serviceByID[service.ID] = service
+	}
+
+	var categories []model.ServiceCategory
+	if err := database.DB.Where("shop_id = ?", shopID).Find(&categories).Error; err != nil {
+		return nil, nil, err
+	}
+	categoryByID := make(map[uint]model.ServiceCategory, len(categories))
+	for _, category := range categories {
+		categoryByID[category.ID] = category
+	}
+	pathCache := make(map[uint][]string, len(categories))
+	var buildPath func(id uint) []string
+	buildPath = func(id uint) []string {
+		if path, ok := pathCache[id]; ok {
+			return path
+		}
+		category, ok := categoryByID[id]
+		if !ok {
+			return nil
+		}
+		path := []string{}
+		if category.ParentID != nil && *category.ParentID > 0 && *category.ParentID != category.ID {
+			path = append(path, buildPath(*category.ParentID)...)
+		}
+		path = append(path, category.Name)
+		pathCache[id] = path
+		return path
+	}
+	for id := range categoryByID {
+		buildPath(id)
+	}
+	return serviceByID, pathCache, nil
+}
+
+func (r *StatsRepository) projectRevenueProductLookups(shopID uint) (map[uint]model.Product, map[uint]model.ProductCategory, map[uint]uint, error) {
+	var products []model.Product
+	if err := database.DB.Where("shop_id = ?", shopID).Find(&products).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	productByID := make(map[uint]model.Product, len(products))
+	for _, product := range products {
+		productByID[product.ID] = product
+	}
+
+	var categories []model.ProductCategory
+	if err := database.DB.Where("shop_id = ?", shopID).Find(&categories).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	categoryByID := make(map[uint]model.ProductCategory, len(categories))
+	for _, category := range categories {
+		categoryByID[category.ID] = category
+	}
+
+	var skus []model.ProductSKU
+	if err := database.DB.Joins("JOIN products ON products.id = product_skus.product_id AND products.shop_id = ? AND products.deleted_at IS NULL", shopID).
+		Find(&skus).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	skuProductIDByID := make(map[uint]uint, len(skus))
+	for _, sku := range skus {
+		skuProductIDByID[sku.ID] = sku.ProductID
+	}
+	return productByID, categoryByID, skuProductIDByID, nil
+}
+
 type StaffPerformance struct {
-	StaffID        uint    `json:"staff_id"`
-	StaffName      string  `json:"staff_name"`
-	ApptCount      int     `json:"appointment_count"`
-	Revenue        float64 `json:"revenue"`
+	StaffID               uint    `json:"staff_id"`
+	StaffName             string  `json:"staff_name"`
+	ApptCount             int     `json:"appointment_count"`
+	Revenue               float64 `json:"revenue"`
+	ProductRevenue        float64 `json:"product_revenue"`
+	CommissionRate        float64 `json:"commission_rate"`
+	ProductCommissionRate float64 `json:"product_commission_rate"`
+	Commission            float64 `json:"commission"`
+}
+
+type StaffCommissionDetail struct {
+	OrderID        uint    `json:"order_id"`
+	OrderNo        string  `json:"order_no"`
+	Date           string  `json:"date"`
+	PayMethod      string  `json:"pay_method"`
+	PayMethodLabel string  `json:"pay_method_label"`
+	PayAmount      float64 `json:"pay_amount"`
+	ServiceAmount  float64 `json:"service_amount"`
+	ProductAmount  float64 `json:"product_amount"`
 	CommissionRate float64 `json:"commission_rate"`
 	Commission     float64 `json:"commission"`
+	Formula        string  `json:"formula"`
+	CustomerName   string  `json:"customer_name"`
+	PetSummary     string  `json:"pet_summary"`
+	Remark         string  `json:"remark"`
 }
 
 func (r *StatsRepository) GetStaffPerformance(shopID uint, startDate, endDate string) ([]StaffPerformance, error) {
 	var perfs []StaffPerformance
 	err := database.DB.Table("orders").
-		Select("orders.staff_id, staffs.name as staff_name, staffs.commission_rate, COUNT(*) as appt_count, SUM(orders.pay_amount) as revenue").
+		Select(`
+			orders.staff_id,
+			staffs.name as staff_name,
+			staffs.commission_rate,
+			staffs.product_commission_rate,
+			COUNT(*) as appt_count,
+			SUM(orders.pay_amount) as revenue,
+			COALESCE(SUM(CASE WHEN orders.product_total - orders.product_discount_amount > 0 THEN orders.product_total - orders.product_discount_amount ELSE 0 END), 0) as product_revenue,
+			COALESCE(SUM(orders.commission), 0) as commission
+		`).
 		Joins("JOIN staffs ON staffs.id = orders.staff_id").
 		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
 		Where("orders.shop_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND orders.staff_id IS NOT NULL AND orders.deleted_at IS NULL",
 			shopID, startDate, endDate).
-		Group("orders.staff_id, staffs.name, staffs.commission_rate").
+		Group("orders.staff_id, staffs.name, staffs.commission_rate, staffs.product_commission_rate").
 		Order("revenue DESC").
 		Find(&perfs).Error
-	// Calculate commission
-	for i := range perfs {
-		perfs[i].Commission = perfs[i].Revenue * perfs[i].CommissionRate / 100
-	}
 	return perfs, err
+}
+
+func (r *StatsRepository) GetStaffCommissionDetails(shopID, staffID uint, startDate, endDate string) ([]StaffCommissionDetail, error) {
+	type staffCommissionDetailRow struct {
+		OrderID               uint
+		OrderNo               string
+		Date                  string
+		PayMethod             string
+		PayAmount             float64
+		ServiceTotal          float64
+		ServiceDiscountAmount float64
+		ProductAmount         float64
+		CommissionRate        float64
+		Commission            float64
+		CustomerName          string
+		PetName               string
+		Remark                string
+	}
+
+	var rows []staffCommissionDetailRow
+	err := database.DB.Table("orders").
+		Select(`
+			orders.id AS order_id,
+			orders.order_no,
+			COALESCE(appointments.date, DATE(orders.created_at)) AS date,
+			orders.pay_method,
+			orders.pay_amount,
+			orders.service_total,
+			orders.service_discount_amount,
+			CASE WHEN orders.product_total - orders.product_discount_amount > 0 THEN orders.product_total - orders.product_discount_amount ELSE 0 END AS product_amount,
+			staffs.commission_rate,
+			orders.commission,
+			COALESCE(NULLIF(customers.nickname, ''), customers.phone, '-') AS customer_name,
+			COALESCE(pets.name, '') AS pet_name,
+			orders.remark
+		`).
+		Joins("JOIN staffs ON staffs.id = orders.staff_id").
+		Joins("LEFT JOIN appointments ON appointments.id = orders.appointment_id AND appointments.deleted_at IS NULL").
+		Joins("LEFT JOIN customers ON customers.id = orders.customer_id").
+		Joins("LEFT JOIN pets ON pets.id = orders.pet_id").
+		Where("orders.shop_id = ? AND orders.staff_id = ? AND COALESCE(appointments.date, DATE(orders.created_at)) >= ? AND COALESCE(appointments.date, DATE(orders.created_at)) <= ? AND orders.status = 1 AND orders.commission > 0 AND orders.deleted_at IS NULL",
+			shopID, staffID, startDate, endDate).
+		Order("COALESCE(appointments.date, DATE(orders.created_at)) ASC, orders.id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	details := make([]StaffCommissionDetail, 0, len(rows))
+	for _, row := range rows {
+		serviceAmount := row.PayAmount - row.ProductAmount
+		if row.ServiceTotal > 0 {
+			serviceAmount = row.ServiceTotal - row.ServiceDiscountAmount
+		}
+		if serviceAmount < 0 {
+			serviceAmount = 0
+		}
+		details = append(details, StaffCommissionDetail{
+			OrderID:        row.OrderID,
+			OrderNo:        row.OrderNo,
+			Date:           row.Date,
+			PayMethod:      row.PayMethod,
+			PayMethodLabel: paymentBreakdownLabel(normalizeDashboardPayMethod(row.PayMethod)),
+			PayAmount:      row.PayAmount,
+			ServiceAmount:  serviceAmount,
+			ProductAmount:  row.ProductAmount,
+			CommissionRate: row.CommissionRate,
+			Commission:     row.Commission,
+			Formula:        formatCommissionFormula(row.PayAmount, row.ProductAmount, serviceAmount, row.PayMethod, row.CommissionRate, row.Commission),
+			CustomerName:   row.CustomerName,
+			PetSummary:     row.PetName,
+			Remark:         row.Remark,
+		})
+	}
+	return details, nil
+}
+
+func normalizeDashboardPayMethod(method string) string {
+	switch method {
+	case "wechat":
+		return "wechat"
+	case "qrcode", "alipay":
+		return "qrcode"
+	case "meituan":
+		return "meituan"
+	case "balance", "card":
+		return "balance"
+	case "mixed_balance":
+		return "mixed_balance"
+	default:
+		return "other"
+	}
+}
+
+func formatCommissionFormula(payAmount, productAmount, serviceAmount float64, payMethod string, rate float64, commission float64) string {
+	rateText := fmt.Sprintf("%.0f%%", rate)
+	if productAmount > 0 && payMethod == "meituan" {
+		return fmt.Sprintf("(¥%.2f - 商品¥%.2f) × 0.9 × %s = ¥%.2f", payAmount, productAmount, rateText, commission)
+	}
+	if productAmount > 0 {
+		return fmt.Sprintf("(¥%.2f - 商品¥%.2f) × %s = ¥%.2f", payAmount, productAmount, rateText, commission)
+	}
+	if payMethod == "meituan" {
+		return fmt.Sprintf("¥%.2f × 0.9 × %s = ¥%.2f", serviceAmount, rateText, commission)
+	}
+	return fmt.Sprintf("¥%.2f × %s = ¥%.2f", serviceAmount, rateText, commission)
 }

@@ -1,0 +1,12 @@
+Total messages: 11 (Errors: 9, Warnings: 0)
+Returning 9 messages for level "error"
+
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/staffs?page=1&page_size=100:0
+[ERROR] {code: 401, data: null, msg: 未登录} @ http://36.151.144.227/assets/index-0uAbt7xH.js:17
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/appointments/331:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/service-records?appointment_id=331:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/appointments/331/status-logs:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/appointments/331:0
+[ERROR] {code: 401, data: null, msg: 未登录} @ http://36.151.144.227/assets/index-0uAbt7xH.js:17
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/service-records?appointment_id=331:0
+[ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://36.151.144.227/api/v1/b/appointments/331/status-logs:0

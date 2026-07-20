@@ -146,7 +146,7 @@
         <view v-if="productLoading" class="empty-block">商品加载中...</view>
         <view v-else-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
         <view v-else class="product-grid">
-          <view class="product-card" v-for="product in filteredProducts" :key="product.ID">
+          <view class="product-card" v-for="product in visibleProductCards" :key="product.ID">
             <view class="product-card-top">
               <view class="product-name-wrap" @click="openProductPicker(product)">
                 <text class="product-name">{{ product.name }}</text>
@@ -180,6 +180,10 @@
               <text class="product-meta">{{ getSellableSkus(product).length }}个可售规格</text>
             </view>
             <view v-if="getProductCartCount(product.ID)" class="product-badge">{{ getProductCartCount(product.ID) }}</view>
+          </view>
+          <view v-if="filteredProducts.length > PRODUCT_COLLAPSED_LIMIT" class="product-list-toggle" @click="productListExpanded = !productListExpanded">
+            <text>{{ productListExpanded ? '收起商品' : `展开全部 ${filteredProducts.length} 个商品` }}</text>
+            <text :class="['product-list-toggle-icon', productListExpanded ? 'open' : '']">⌄</text>
           </view>
         </view>
 
@@ -256,7 +260,7 @@
                   <view
                     v-for="service in filteredServices"
                     :key="service.ID"
-                    :class="['svc-item', selectedServiceId === service.ID ? 'checked' : '']"
+                    :class="['svc-item', isServiceSelected(service.ID) ? 'checked' : '', selectedServiceId === service.ID ? 'active-service' : '']"
                     @click="selectService(service)"
                   >
                     <view class="svc-item-info">
@@ -265,15 +269,30 @@
                     </view>
                     <view class="svc-item-right">
                       <text class="svc-item-price">¥{{ service.base_price }}</text>
-                      <view :class="['svc-item-check', selectedServiceId === service.ID ? 'on' : '']"></view>
+                      <view :class="['svc-item-check', isServiceSelected(service.ID) ? 'on' : '']"></view>
                     </view>
                   </view>
                 </scroll-view>
               </view>
             </view>
 
+            <view class="selected-service-section" v-if="serviceItems.length > 0">
+              <text class="selected-service-title">已选服务</text>
+              <view class="selected-service-list">
+                <view
+                  v-for="item in serviceItems"
+                  :key="item.service_id"
+                  :class="['selected-service-chip', selectedServiceId === item.service_id ? 'active' : '']"
+                  @click="selectedServiceId = item.service_id"
+                >
+                  <text>{{ item.name }} · ¥{{ item.unit_price.toFixed(2) }}</text>
+                  <text class="selected-service-remove" @click.stop="removeServiceItem(item.service_id)">移除</text>
+                </view>
+              </view>
+            </view>
+
             <view class="spec-section" v-if="selectedServiceId && specList.length > 0">
-              <text class="spec-title">选择规格</text>
+              <text class="spec-title">选择规格{{ activeServiceItem ? ' · ' + activeServiceItem.name : '' }}</text>
               <view class="spec-picker">
                 <view
                   v-for="spec in specList"
@@ -355,8 +374,31 @@
           <text class="discount">-¥{{ appointmentDepositDeduction.toFixed(2) }}</text>
         </view>
         <view class="summary-row total">
-          <text>应付</text>
+          <text>{{ manualPayTouched ? '调整后应付' : '应付' }}</text>
           <text class="pay-amount">¥{{ payAmount.toFixed(2) }}</text>
+        </view>
+        <view class="manual-total-card">
+          <view class="manual-total-head">
+            <view>
+              <text class="manual-total-title">手动总价</text>
+              <text class="manual-total-desc">特殊算法、团购差价或临时优惠时可直接改最终应付。</text>
+            </view>
+            <text v-if="manualPayTouched" class="manual-total-reset" @click="resetManualPay">恢复自动</text>
+          </view>
+          <view class="manual-total-input-row">
+            <text class="manual-total-prefix">¥</text>
+            <input
+              v-model="manualPayInput"
+              class="manual-total-input"
+              type="digit"
+              :placeholder="calculatedPayAmount.toFixed(2)"
+              @input="onManualPayInput"
+              @blur="onManualPayBlur"
+            />
+          </view>
+          <text v-if="manualPayTouched && manualAdjustment !== 0" :class="['manual-total-tip', manualAdjustment > 0 ? 'increase' : 'decrease']">
+            {{ manualAdjustment > 0 ? '将增加' : '将减免' }} ¥{{ Math.abs(manualAdjustment).toFixed(2) }}
+          </text>
         </view>
       </view>
 
@@ -388,7 +430,6 @@ import { getCustomer, getCustomerList, getCustomerPets } from '@/api/customer'
 import { getPetList } from '@/api/pet'
 import { getProductCategories, getProductList } from '@/api/product'
 import { createOrder, getOrder, updateOrder } from '@/api/order'
-import { priceLookup } from '@/api/addon'
 import { getServiceList, getPriceRules } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { getStaffList } from '@/api/staff'
@@ -412,6 +453,18 @@ interface CartItem {
   unit_price: number
 }
 
+interface ServiceCartItem {
+  service_id: number
+  name: string
+  base_price: number
+  unit_price: number
+  duration: number
+  spec_id: number
+  spec_name: string
+  use_custom_price: boolean
+  custom_price_input: string
+}
+
 const customerKeyword = ref('')
 const customerOptions = ref<CustomerOption[]>([])
 const customerPets = ref<PetOption[]>([])
@@ -427,18 +480,40 @@ const productCategories = ref<any[]>([])
 const activeProductCategoryId = ref(0)
 const productLoading = ref(false)
 const cartItems = ref<CartItem[]>([])
+const PRODUCT_COLLAPSED_LIMIT = 5
+const productListExpanded = ref(false)
 
 const serviceList = ref<any[]>([])
 const categoryTree = ref<any[]>([])
 const activeCategoryId = ref(0)
 const activeSubCategoryId = ref(0)
 const selectedServiceId = ref(0)
+const serviceItems = ref<ServiceCartItem[]>([])
+const servicePriceRulesById = ref<Record<number, any[]>>({})
 const servicePanelExpanded = ref(false)
-const servicePrice = ref(0)
-const specList = ref<any[]>([])
-const selectedSpecId = ref(0)
-const useCustomPrice = ref(false)
-const customPriceInput = ref('')
+const activeServiceItem = computed(() => serviceItems.value.find((item) => item.service_id === selectedServiceId.value) || null)
+const servicePrice = computed({
+  get: () => Number(activeServiceItem.value?.unit_price || 0),
+  set: (value: number) => {
+    if (activeServiceItem.value) {
+      activeServiceItem.value.unit_price = roundCurrency(Number(value || 0))
+    }
+  },
+})
+const specList = computed(() => selectedServiceId.value > 0 ? servicePriceRulesById.value[selectedServiceId.value] || [] : [])
+const selectedSpecId = computed(() => Number(activeServiceItem.value?.spec_id || 0))
+const useCustomPrice = computed({
+  get: () => !!activeServiceItem.value?.use_custom_price,
+  set: (value: boolean) => {
+    if (activeServiceItem.value) activeServiceItem.value.use_custom_price = value
+  },
+})
+const customPriceInput = computed({
+  get: () => activeServiceItem.value?.custom_price_input || '',
+  set: (value: string) => {
+    if (activeServiceItem.value) activeServiceItem.value.custom_price_input = value
+  },
+})
 
 const staffList = ref<any[]>([])
 const selectedStaffIdx = ref(0)
@@ -448,6 +523,8 @@ const memberBalance = ref(0)
 const customerCard = ref<MemberCard | null>(null)
 const linkedAppointment = ref<any>(null)
 const appointmentIsLate = ref(false)
+const manualPayInput = ref('')
+const manualPayTouched = ref(false)
 const prefillAppointmentId = ref(0)
 const editingOrderId = ref(0)
 const editingOrderPayStatus = ref(0)
@@ -504,11 +581,13 @@ const filteredProducts = computed(() => {
   return productList.value.filter((product) => {
     if (product.status !== 1) return false
     if (getSellableSkus(product).length === 0) return false
+    if (activeProductCategoryId.value > 0 && Number(product.category_id || product.category?.ID || 0) !== activeProductCategoryId.value) return false
     return true
   })
 })
+const visibleProductCards = computed(() => productListExpanded.value ? filteredProducts.value : filteredProducts.value.slice(0, PRODUCT_COLLAPSED_LIMIT))
 
-const serviceSubtotal = computed(() => selectedServiceId.value > 0 ? roundCurrency(servicePrice.value) : 0)
+const serviceSubtotal = computed(() => roundCurrency(serviceItems.value.reduce((sum, item) => sum + Number(item.unit_price || 0), 0)))
 const productSubtotal = computed(() => roundCurrency(cartItems.value.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)))
 const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value))
 
@@ -537,8 +616,11 @@ const appointmentDepositDeduction = computed(() => {
   const allowed = appointmentIsLate.value ? raw * 0.7 : raw
   return roundCurrency(Math.min(allowed, payAmountBeforeDeposit.value))
 })
-const payAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
-const hasServiceItem = computed(() => selectedServiceId.value > 0)
+const calculatedPayAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
+const manualPayValue = computed(() => roundCurrency(Math.max(parseAmountInput(manualPayInput.value), 0)))
+const payAmount = computed(() => manualPayTouched.value ? manualPayValue.value : calculatedPayAmount.value)
+const manualAdjustment = computed(() => roundCurrency(payAmount.value - calculatedPayAmount.value))
+const hasServiceItem = computed(() => serviceItems.value.length > 0)
 const hasChargeItems = computed(() => hasServiceItem.value || cartItems.value.length > 0)
 const chargeBucketCount = computed(() => {
   let count = 0
@@ -605,6 +687,25 @@ function setAppointmentLate(value: boolean) {
   appointmentIsLate.value = value
 }
 
+function parseAmountInput(value: string) {
+  const parsed = Number.parseFloat(String(value || '').replace(/[^\d.]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function onManualPayInput() {
+  manualPayTouched.value = true
+}
+
+function onManualPayBlur() {
+  if (!manualPayTouched.value) return
+  manualPayInput.value = manualPayValue.value.toFixed(2)
+}
+
+function resetManualPay() {
+  manualPayTouched.value = false
+  manualPayInput.value = calculatedPayAmount.value > 0 ? calculatedPayAmount.value.toFixed(2) : ''
+}
+
 async function loadServiceData() {
   try {
     const [serviceRes, categoryRes] = await Promise.all([
@@ -652,6 +753,7 @@ async function loadProductCategories() {
 function setActiveProductCategory(categoryId: number) {
   if (activeProductCategoryId.value === categoryId) return
   activeProductCategoryId.value = categoryId
+  productListExpanded.value = false
   triggerProductSearch(true)
 }
 
@@ -667,8 +769,15 @@ function triggerProductSearch(immediate = false) {
 }
 
 watch(productKeyword, () => {
+  productListExpanded.value = false
   triggerProductSearch(false)
 })
+
+watch(calculatedPayAmount, (value) => {
+  if (!manualPayTouched.value) {
+    manualPayInput.value = value > 0 ? value.toFixed(2) : ''
+  }
+}, { immediate: true })
 
 async function loadStaffs() {
   try {
@@ -701,6 +810,28 @@ async function searchCustomers() {
       customerOptions.value = []
     }
   }, 250)
+}
+
+function normalizePhoneInput(value: string) {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits.length >= 5 && digits.length <= 20 ? digits : ''
+}
+
+async function resolveCustomerByPhoneBeforeSubmit(phone: string) {
+  if (selectedCustomer.value?.ID || !phone) return selectedCustomer.value
+  try {
+    const res = await getCustomerList({ page: 1, page_size: 10, keyword: phone } as any)
+    const list = res.data?.list || []
+    const matched = list.find((customer: CustomerOption) => normalizePhoneInput(customer.phone || '') === phone)
+    if (!matched) return null
+    customerOptions.value = []
+    customerKeyword.value = ''
+    await applyCustomerSelection(matched)
+    uni.showToast({ title: `已自动绑定${matched.nickname || '老客户'}`, icon: 'none' })
+    return matched
+  } catch {
+    return null
+  }
 }
 
 async function selectCustomer(customer: CustomerOption) {
@@ -817,8 +948,10 @@ async function selectPet(pet: PetOption) {
   petKeyword.value = ''
   petSearchResults.value = []
 
-  if (selectedServiceId.value > 0 && pet.fur_level) {
-    await lookupPrice(selectedServiceId.value, pet.fur_level)
+  if (serviceItems.value.length > 0 && pet.fur_level) {
+    for (const item of serviceItems.value) {
+      await applyPetPriceRule(item.service_id, pet.fur_level)
+    }
   }
 }
 
@@ -827,11 +960,8 @@ function clearPet() {
   petKeyword.value = ''
   petSearchResults.value = []
   selectedServiceId.value = 0
-  selectedSpecId.value = 0
-  specList.value = []
-  servicePrice.value = 0
-  useCustomPrice.value = false
-  customPriceInput.value = ''
+  serviceItems.value = []
+  servicePriceRulesById.value = {}
 }
 
 function calcAge(birthDate: string): string {
@@ -846,39 +976,102 @@ function calcAge(birthDate: string): string {
   return remain > 0 ? `${years}岁${remain}个月` : `${years}岁`
 }
 
+function isServiceSelected(serviceId: number) {
+  return serviceItems.value.some((item) => item.service_id === serviceId)
+}
+
+function createServiceCartItem(service: any): ServiceCartItem {
+  const basePrice = Number(service.base_price || 0)
+  return {
+    service_id: Number(service.ID || 0),
+    name: service.name || '服务项目',
+    base_price: basePrice,
+    unit_price: basePrice,
+    duration: Number(service.duration || 0),
+    spec_id: 0,
+    spec_name: '',
+    use_custom_price: false,
+    custom_price_input: '',
+  }
+}
+
+function dedupeServicePriceRules(rules: any[]) {
+  const seen = new Set<string>()
+  const list: any[] = []
+  for (const raw of rules || []) {
+    const name = raw.name || raw.fur_level || raw.pet_size || '规格'
+    const key = [
+      name,
+      raw.fur_level || '',
+      raw.pet_size || '',
+      raw.breed || '',
+      Number(raw.price || 0).toFixed(2),
+      Number(raw.duration || 0),
+    ].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    list.push({ ...raw, name })
+  }
+  return list
+}
+
+async function ensureServicePriceRules(serviceId: number) {
+  if (servicePriceRulesById.value[serviceId]) return servicePriceRulesById.value[serviceId]
+  try {
+    const res = await getPriceRules(serviceId)
+    const rules = dedupeServicePriceRules(res.data || [])
+    servicePriceRulesById.value = { ...servicePriceRulesById.value, [serviceId]: rules }
+    return rules
+  } catch {
+    servicePriceRulesById.value = { ...servicePriceRulesById.value, [serviceId]: [] }
+    return []
+  }
+}
+
+async function applyPetPriceRule(serviceId: number, furLevel: string) {
+  const item = serviceItems.value.find((entry) => entry.service_id === serviceId)
+  if (!item || item.use_custom_price) return
+  const rules = await ensureServicePriceRules(serviceId)
+  const match = rules.find((rule: any) => rule.fur_level === furLevel)
+  if (match) {
+    item.unit_price = Number(match.price || 0)
+    item.spec_id = Number(match.ID || 0)
+    item.spec_name = match.name || match.fur_level || match.pet_size || ''
+    return
+  }
+  item.unit_price = item.base_price
+  item.spec_id = 0
+  item.spec_name = ''
+}
+
 async function selectService(service: any) {
   servicePanelExpanded.value = true
   selectedServiceId.value = service.ID
-  selectedSpecId.value = 0
-  servicePrice.value = Number(service.base_price || 0)
-  useCustomPrice.value = false
-  customPriceInput.value = ''
-  try {
-    const res = await getPriceRules(service.ID)
-    const rules = res.data || []
-    specList.value = rules.map((item: any) => ({ ...item, name: item.name || item.fur_level || item.pet_size || '规格' }))
-    if (selectedPet.value?.fur_level && rules.length > 0) {
-      const match = rules.find((item: any) => item.fur_level === selectedPet.value?.fur_level)
-      if (match) {
-        servicePrice.value = Number(match.price || 0)
-        selectedSpecId.value = match.ID
-      }
-    }
-  } catch {
-    specList.value = []
+  let item = serviceItems.value.find((entry) => entry.service_id === service.ID)
+  if (!item) {
+    item = createServiceCartItem(service)
+    serviceItems.value.push(item)
+  }
+  await ensureServicePriceRules(service.ID)
+  if (selectedPet.value?.fur_level) {
+    await applyPetPriceRule(service.ID, selectedPet.value.fur_level)
   }
 }
 
 function selectSpec(spec: any) {
-  selectedSpecId.value = spec.ID
+  if (!activeServiceItem.value) return
+  activeServiceItem.value.spec_id = Number(spec.ID || 0)
+  activeServiceItem.value.spec_name = spec.name || spec.fur_level || spec.pet_size || ''
   servicePrice.value = Number(spec.price || 0)
   useCustomPrice.value = false
   customPriceInput.value = ''
 }
 
 function enableCustomPrice() {
+  if (!activeServiceItem.value) return
   useCustomPrice.value = true
-  selectedSpecId.value = 0
+  activeServiceItem.value.spec_id = 0
+  activeServiceItem.value.spec_name = ''
   if (customPriceInput.value) {
     servicePrice.value = parseFloat(customPriceInput.value) || 0
   }
@@ -893,13 +1086,10 @@ function getBasePrice() {
   return service ? Number(service.base_price || 0).toFixed(2) : '0.00'
 }
 
-async function lookupPrice(serviceId: number, furLevel: string) {
-  try {
-    const res = await priceLookup(serviceId, furLevel)
-    servicePrice.value = Number(res.data?.price || 0)
-  } catch {
-    const service = serviceList.value.find((item: any) => item.ID === serviceId)
-    servicePrice.value = Number(service?.base_price || 0)
+function removeServiceItem(serviceId: number) {
+  serviceItems.value = serviceItems.value.filter((item) => item.service_id !== serviceId)
+  if (selectedServiceId.value === serviceId) {
+    selectedServiceId.value = serviceItems.value[serviceItems.value.length - 1]?.service_id || 0
   }
 }
 
@@ -996,14 +1186,16 @@ async function prefillFromAppointment(appointmentId: number) {
       await selectPet(pet)
     }
 
-    const firstService = firstPetGroup?.services?.[0] || appt?.services?.[0]
-    if (firstService?.service_id) {
-      const service = serviceList.value.find((item) => item.ID === firstService.service_id)
+    const appointmentServices = firstPetGroup?.services || appt?.services || []
+    for (const appointmentService of appointmentServices) {
+      if (!appointmentService?.service_id) continue
+      const service = serviceList.value.find((item) => item.ID === appointmentService.service_id)
       if (service) {
         await selectService(service)
         servicePanelExpanded.value = true
-        if (typeof firstService.price === 'number' && firstService.price > 0) {
-          servicePrice.value = firstService.price
+        const selectedItem = serviceItems.value.find((item) => item.service_id === service.ID)
+        if (selectedItem && typeof appointmentService.price === 'number' && appointmentService.price >= 0) {
+          selectedItem.unit_price = Number(appointmentService.price || 0)
         }
       }
     }
@@ -1054,17 +1246,19 @@ async function prefillFromOrder(orderId: number) {
       await selectPet(order.pet)
     }
 
-    const serviceItem = (order.items || []).find((item: any) => item.item_type === 1)
-    if (serviceItem?.item_id) {
+    const serviceOrderItems = (order.items || []).filter((item: any) => item.item_type === 1)
+    for (const serviceItem of serviceOrderItems) {
+      if (!serviceItem?.item_id) continue
       const service = serviceList.value.find((item: any) => item.ID === serviceItem.item_id)
       if (service) {
         await selectService(service)
         servicePanelExpanded.value = true
         const nextPrice = Number(serviceItem.unit_price || 0)
-        if (nextPrice > 0 && nextPrice !== Number(servicePrice.value || 0)) {
-          useCustomPrice.value = true
-          customPriceInput.value = String(nextPrice)
-          servicePrice.value = nextPrice
+        const selectedItem = serviceItems.value.find((item) => item.service_id === service.ID)
+        if (selectedItem && nextPrice >= 0 && nextPrice !== Number(selectedItem.unit_price || 0)) {
+          selectedItem.use_custom_price = true
+          selectedItem.custom_price_input = String(nextPrice)
+          selectedItem.unit_price = nextPrice
         }
       }
     }
@@ -1104,6 +1298,13 @@ async function prefillFromOrder(orderId: number) {
       }
     }
     remark.value = order.remark || ''
+    if (isBoardingProductEdit.value) {
+      manualPayTouched.value = false
+      manualPayInput.value = calculatedPayAmount.value > 0 ? calculatedPayAmount.value.toFixed(2) : ''
+    } else {
+      manualPayTouched.value = true
+      manualPayInput.value = Number(order.pay_amount || 0).toFixed(2)
+    }
   } catch {
     uni.showToast({ title: '订单信息带入失败', icon: 'none' })
   }
@@ -1145,15 +1346,20 @@ async function onSubmit() {
 
   submitting.value = true
   try {
+    const typedCustomerPhone = normalizePhoneInput(customerKeyword.value)
+    await resolveCustomerByPhoneBeforeSubmit(typedCustomerPhone)
+
     const items: any[] = []
-    if (!isBoardingProductEdit.value && hasServiceItem.value) {
-      items.push({
-        item_type: 1,
-        item_id: selectedServiceId.value,
-        name: serviceList.value.find((item: any) => item.ID === selectedServiceId.value)?.name || '服务项目',
-        quantity: 1,
-        unit_price: Number(servicePrice.value || 0),
-      })
+    if (!isBoardingProductEdit.value) {
+      for (const item of serviceItems.value) {
+        items.push({
+          item_type: 1,
+          item_id: item.service_id,
+          name: item.spec_name ? `${item.name} · ${item.spec_name}` : item.name,
+          quantity: 1,
+          unit_price: Number(item.unit_price || 0),
+        })
+      }
     }
     for (const item of cartItems.value) {
       items.push({
@@ -1165,13 +1371,23 @@ async function onSubmit() {
       })
     }
 
+    const addons = !isBoardingProductEdit.value && manualAdjustment.value !== 0
+      ? [{
+          name: manualAdjustment.value > 0 ? '手动加价' : '手动减价',
+          amount: manualAdjustment.value,
+        }]
+      : []
+
+    const customerId = selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined
     const payload = {
       pet_id: selectedPet.value?.ID || undefined,
-      customer_id: selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined,
+      customer_id: customerId,
+      customer_phone: customerId ? undefined : typedCustomerPhone || undefined,
       staff_id: selectedStaff.value?.ID || undefined,
       appointment_is_late: hasAppointmentContext.value ? appointmentIsLate.value : undefined,
       remark: remark.value,
       items,
+      addons,
     } as any
 
     const orderRes = isEditing.value
@@ -1612,6 +1828,7 @@ function roundCurrency(value: number) {
   border-bottom: 1rpx solid #F3F4F6;
 }
 .svc-item.checked { background: #EEF2FF; }
+.svc-item.active-service { box-shadow: inset 6rpx 0 0 #4F46E5; }
 .svc-item-info { flex: 1; min-width: 0; }
 .svc-item-name {
   display: block;
@@ -1658,6 +1875,45 @@ function roundCurrency(value: number) {
   border: solid #fff;
   border-width: 0 3rpx 3rpx 0;
   transform: translate(-50%, -50%) rotate(45deg);
+}
+.selected-service-section {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 2rpx solid #EEF2FF;
+  border-radius: 16rpx;
+  background: #F8FAFF;
+}
+.selected-service-title {
+  display: block;
+  font-size: 24rpx;
+  color: #6B7280;
+  margin-bottom: 12rpx;
+}
+.selected-service-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.selected-service-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: #fff;
+  border: 2rpx solid #E5E7EB;
+  font-size: 24rpx;
+  color: #111827;
+}
+.selected-service-chip.active {
+  border-color: #4F46E5;
+  background: #EEF2FF;
+}
+.selected-service-remove {
+  flex-shrink: 0;
+  color: #EF4444;
+  font-size: 24rpx;
 }
 .spec-section {
   margin-top: 18rpx;
@@ -1771,6 +2027,27 @@ function roundCurrency(value: number) {
   border: 2rpx solid #E5E7EB;
   border-radius: 16rpx;
   padding: 18rpx 20rpx;
+}
+.product-list-toggle {
+  min-height: 72rpx;
+  border-radius: 14rpx;
+  background: #F8FAFC;
+  border: 2rpx dashed #C7D2FE;
+  color: #4F46E5;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+.product-list-toggle-icon {
+  font-size: 28rpx;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+.product-list-toggle-icon.open {
+  transform: rotate(180deg);
 }
 .product-badge {
   position: absolute;
@@ -2038,6 +2315,74 @@ function roundCurrency(value: number) {
   font-size: 36rpx;
   font-weight: 800;
   color: #4F46E5;
+}
+.manual-total-card {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+}
+.manual-total-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  align-items: flex-start;
+  margin-bottom: 14rpx;
+}
+.manual-total-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #111827;
+}
+.manual-total-desc {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #64748B;
+  line-height: 1.45;
+}
+.manual-total-reset {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #4F46E5;
+  font-weight: 700;
+}
+.manual-total-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-height: 76rpx;
+  padding: 0 18rpx;
+  border-radius: 16rpx;
+  background: #fff;
+  border: 1rpx solid #DDE3EA;
+}
+.manual-total-prefix {
+  font-size: 30rpx;
+  font-weight: 800;
+  color: #4F46E5;
+}
+.manual-total-input {
+  flex: 1;
+  min-width: 0;
+  height: 76rpx;
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.manual-total-tip {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+.manual-total-tip.increase {
+  color: #C2410C;
+}
+.manual-total-tip.decrease {
+  color: #059669;
 }
 .form-row {
   display: flex;

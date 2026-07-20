@@ -1,11 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildOrderCareReportDraft = exports.buildOrderCareReportPetOptions = exports.canGenerateOrderCareReport = exports.normalizeOrderCareReportDate = exports.orderCareReportSectionDefinitions = exports.orderCareReportBodyShapeOptions = void 0;
+exports.buildOrderCareReportPayload = exports.buildOrderCareReportDraft = exports.buildOrderCareReportPetOptions = exports.canGenerateOrderCareReport = exports.normalizeOrderCareReportDate = exports.orderCareReportSectionDefinitions = exports.orderCareReportBodyShapeOptions = void 0;
 exports.orderCareReportBodyShapeOptions = [
     { label: '太瘦', value: 'thin' },
-    { label: '偏瘦', value: 'skinny' },
+    { label: '略瘦', value: 'skinny' },
     { label: '标准', value: 'standard' },
-    { label: '偏胖', value: 'chubby' },
+    { label: '略胖', value: 'chubby' },
     { label: '肥胖', value: 'obese' },
 ];
 exports.orderCareReportSectionDefinitions = [
@@ -16,16 +16,17 @@ exports.orderCareReportSectionDefinitions = [
             { label: '正常', value: 'normal' },
             { label: '皮屑', value: 'dandruff' },
             { label: '发红', value: 'red' },
-            { label: '出油', value: 'greasy' },
-            { label: '结痂', value: 'scab' },
+            { label: '黏腻', value: 'greasy' },
+            { label: '疙瘩', value: 'scab' },
+            { label: '伤口', value: 'wound' },
         ],
     },
     {
         key: 'hair',
         label: '被毛检查',
         options: [
-            { label: '飞毛', value: 'shedding' },
-            { label: '底毛多', value: 'undercoat_many' },
+            { label: '已梳理', value: 'shedding' },
+            { label: '掉毛较多', value: 'undercoat_many' },
             { label: '干燥', value: 'dry' },
             { label: '油腻', value: 'greasy' },
             { label: '打结', value: 'matting' },
@@ -35,7 +36,7 @@ exports.orderCareReportSectionDefinitions = [
         key: 'nails',
         label: '修剪指甲',
         options: [
-            { label: '已剪', value: 'trimmed' },
+            { label: '已修剪', value: 'trimmed' },
             { label: '趾间异常', value: 'dewclaw_abnormal' },
             { label: '足垫干燥', value: 'pads_dry' },
             { label: '过长', value: 'too_long' },
@@ -49,7 +50,7 @@ exports.orderCareReportSectionDefinitions = [
             { label: '已清洁', value: 'cleaned' },
             { label: '分泌物多', value: 'tear_many' },
             { label: '眼睛发红', value: 'eye_red' },
-            { label: '眼貌异常', value: 'eye_abnormal' },
+            { label: '眼睑异常', value: 'eye_abnormal' },
             { label: '伤口', value: 'wound' },
         ],
     },
@@ -58,10 +59,11 @@ exports.orderCareReportSectionDefinitions = [
         label: '清洁耳朵',
         options: [
             { label: '已清洁', value: 'cleaned' },
-            { label: '讨厌触碰', value: 'touch_sensitive' },
+            { label: '讨厌被触摸', value: 'touch_sensitive' },
             { label: '发红肿胀', value: 'inflamed' },
-            { label: '耳垢结痂', value: 'earwax' },
+            { label: '耳垢黏腻', value: 'earwax' },
             { label: '耳垢发黑', value: 'black_earwax' },
+            { label: '伤口', value: 'wound' },
         ],
     },
     {
@@ -69,9 +71,13 @@ exports.orderCareReportSectionDefinitions = [
         label: '口腔检查',
         options: [
             { label: '正常', value: 'normal' },
+            { label: '讨厌被触摸', value: 'touch_sensitive' },
             { label: '牙结石', value: 'tartar' },
             { label: '牙龈发红', value: 'gum_red' },
             { label: '牙龈肿胀', value: 'gum_swollen' },
+            { label: '口腔溃疡', value: 'oral_ulcer' },
+            { label: '强烈口臭', value: 'bad_breath' },
+            { label: '牙齿异常', value: 'dental_abnormal' },
         ],
     },
     {
@@ -79,9 +85,9 @@ exports.orderCareReportSectionDefinitions = [
         label: '肛门及周围',
         options: [
             { label: '正常', value: 'normal' },
+            { label: '脱肛', value: 'prolapse' },
             { label: '发红', value: 'red' },
-            { label: '发炎', value: 'inflamed' },
-            { label: '肛腺肿胀', value: 'anal_gland_swollen' },
+            { label: '鼓起脓肿', value: 'inflamed' },
         ],
     },
 ];
@@ -297,3 +303,32 @@ function buildOrderCareReportDraft(order, petId) {
     };
 }
 exports.buildOrderCareReportDraft = buildOrderCareReportDraft;
+function buildOrderCareReportPayload(draft) {
+    return {
+        pet_id: draft.petId,
+        pet_name: compactText(draft.petName),
+        breed: compactText(draft.breed),
+        gender: compactText(draft.gender),
+        age: compactText(draft.age),
+        portrait_url: compactText(draft.portraitUrl),
+        weight: compactText(draft.weight),
+        care_date: normalizeOrderCareReportDate(draft.careDate),
+        next_care_date: normalizeOrderCareReportDate(draft.nextCareDate),
+        care_content: compactText(draft.careContent),
+        body_shape: compactText(draft.bodyShape),
+        skin: normalizeOrderCareReportSection(draft.skin),
+        hair: normalizeOrderCareReportSection(draft.hair),
+        nails: normalizeOrderCareReportSection(draft.nails),
+        eyes_face: normalizeOrderCareReportSection(draft.eyesFace),
+        ears: normalizeOrderCareReportSection(draft.ears),
+        oral: normalizeOrderCareReportSection(draft.oral),
+        anus: normalizeOrderCareReportSection(draft.anus),
+    };
+}
+exports.buildOrderCareReportPayload = buildOrderCareReportPayload;
+function normalizeOrderCareReportSection(section) {
+    return {
+        checks: Array.isArray(section.checks) ? section.checks.map(compactText).filter(Boolean) : [],
+        note: compactText(section.note),
+    };
+}

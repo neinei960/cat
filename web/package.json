@@ -39,7 +39,13 @@
     "test:image-cropper": "rm -rf .tmp/image-cropper-test && npx tsc ./src/utils/image-cropper.ts ./scripts/test-image-cropper.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/image-cropper-test && node ./.tmp/image-cropper-test/scripts/test-image-cropper.js",
     "test:order-receipt-image": "rm -rf .tmp/order-receipt-image-test && npx tsc ./scripts/test-order-receipt-image.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/order-receipt-image-test && node ./.tmp/order-receipt-image-test/test-order-receipt-image.js",
     "test:customer-edit-remark": "rm -rf .tmp/customer-edit-remark-test && npx tsc ./scripts/test-customer-edit-remark.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/customer-edit-remark-test && node ./.tmp/customer-edit-remark-test/test-customer-edit-remark.js",
-    "test:customer-detail-record-collapse": "rm -rf .tmp/customer-detail-record-collapse-test && npx tsc ./scripts/test-customer-detail-record-collapse.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/customer-detail-record-collapse-test && node ./.tmp/customer-detail-record-collapse-test/test-customer-detail-record-collapse.js"
+    "test:customer-detail-record-collapse": "rm -rf .tmp/customer-detail-record-collapse-test && npx tsc ./scripts/test-customer-detail-record-collapse.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/customer-detail-record-collapse-test && node ./.tmp/customer-detail-record-collapse-test/test-customer-detail-record-collapse.js",
+    "test:appointment-detail-notes-edit": "rm -rf .tmp/appointment-detail-notes-edit-test && npx tsc ./scripts/test-appointment-detail-notes-edit.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/appointment-detail-notes-edit-test && node ./.tmp/appointment-detail-notes-edit-test/test-appointment-detail-notes-edit.js",
+    "test:order-create-product-collapse": "rm -rf .tmp/order-create-product-collapse-test && npx tsc ./scripts/test-order-create-product-collapse.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/order-create-product-collapse-test && node ./.tmp/order-create-product-collapse-test/test-order-create-product-collapse.js",
+    "test:order-batch-staff-edit": "rm -rf .tmp/order-batch-staff-edit-test && npx tsc ./scripts/test-order-batch-staff-edit.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/order-batch-staff-edit-test && node ./.tmp/order-batch-staff-edit-test/test-order-batch-staff-edit.js",
+    "test:order-pay-method-confirm": "rm -rf .tmp/order-pay-method-confirm-test && npx tsc ./scripts/test-order-pay-method-confirm.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/order-pay-method-confirm-test && node ./.tmp/order-pay-method-confirm-test/test-order-pay-method-confirm.js",
+    "test:appointment-short-time-slot": "rm -rf .tmp/appointment-short-time-slot-test && npx tsc ./scripts/test-appointment-short-time-slot.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/appointment-short-time-slot-test && node ./.tmp/appointment-short-time-slot-test/test-appointment-short-time-slot.js",
+    "test:appointment-edit-deposit-entry": "rm -rf .tmp/appointment-edit-deposit-entry-test && npx tsc ./scripts/test-appointment-edit-deposit-entry.ts --module commonjs --target es2020 --moduleResolution node --esModuleInterop --types node --skipLibCheck --outDir ./.tmp/appointment-edit-deposit-entry-test && node ./.tmp/appointment-edit-deposit-entry-test/test-appointment-edit-deposit-entry.js"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080420251103001",
@@ -58,8 +64,17 @@
     "@dcloudio/uni-mp-weixin": "3.0.0-4080420251103001",
     "@dcloudio/uni-mp-xhs": "3.0.0-4080420251103001",
     "@dcloudio/uni-quickapp-webview": "3.0.0-4080420251103001",
+    "@vue/devtools-api": "7.7.9",
+    "@vue/devtools-kit": "7.7.9",
+    "@vue/devtools-shared": "7.7.9",
+    "birpc": "^2.9.0",
+    "hookable": "^5.5.3",
     "html2canvas": "^1.4.1",
+    "mitt": "^3.0.1",
+    "perfect-debounce": "^1.0.0",
     "pinia": "^3.0.4",
+    "speakingurl": "^14.0.1",
+    "superjson": "^2.2.6",
     "vue": "^3.4.21",
     "vue-i18n": "^9.1.9"
   },

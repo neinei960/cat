@@ -1,0 +1,68 @@
+<h2>护理报告视觉对照</h2>
+<p class="subtitle">左侧是真实样例，右侧是当前系统生成图。请重点看字段字重、日期、勾选符号和长备注。</p>
+
+<div class="split" style="align-items:flex-start;gap:20px">
+  <div class="mockup" style="flex:1;min-width:0">
+    <div class="mockup-header">真实样例</div>
+    <div class="mockup-body" style="padding:12px;background:#f6f7f9">
+      <img src="reference.jpg" alt="真实护理报告" style="display:block;width:100%;height:auto;border-radius:6px">
+    </div>
+  </div>
+  <div class="mockup" style="flex:1;min-width:0">
+    <div class="mockup-header">当前生成图</div>
+    <div class="mockup-body" style="padding:12px;background:#f6f7f9">
+      <img src="current.jpg" alt="当前生成报告" style="display:block;width:100%;height:auto;border-radius:6px">
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <h3>确认到的差异</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>真实样例</h4>
+      <ul>
+        <li>录入内容使用明显的粗体，字段层级更清楚</li>
+        <li>日期显示为 2026.7.3，不补零</li>
+        <li>勾选符号更粗、更大，并略微越过方框</li>
+        <li>左侧字段为“护理内容 / Content of care”</li>
+        <li>长备注允许缩小字号或换行，不应过早截断</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>当前生成图</h4>
+      <ul>
+        <li>后端只嵌入常规字重，内容整体偏细</li>
+        <li>日期仍为 2026-04-20</li>
+        <li>勾选符号较细小，虽居中但不像真实手填效果</li>
+        <li>底图字段还是“上次护理 / Last care”</li>
+        <li>备注单行截断，信息量不足</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h3>希望匹配到什么程度？</h3>
+<div class="options">
+  <div class="option" data-choice="full-match" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>整体匹配（推荐）</h3>
+      <p>同时调整粗体字体、字号、日期、勾选样式、护理内容标签和长备注排版。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="type-only" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>只改字体</h3>
+      <p>仅加粗录入文字，保留当前日期、勾选样式和底图标签。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="type-and-check" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>字体 + 勾选</h3>
+      <p>修正主要视觉差异，但不改底图字段和长备注规则。</p>
+    </div>
+  </div>
+</div>

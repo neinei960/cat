@@ -218,6 +218,13 @@ func (r *OrderRepository) UpdateRemark(id uint, remark string) error {
 	return database.DB.Model(&model.Order{}).Where("id = ?", id).Update("remark", remark).Error
 }
 
+func (r *OrderRepository) UpdateCustomerPet(id uint, customerID *uint, petID *uint) error {
+	return database.DB.Model(&model.Order{}).Where("id = ?", id).Updates(map[string]any{
+		"customer_id": customerID,
+		"pet_id":      petID,
+	}).Error
+}
+
 func (r *OrderRepository) CreateItems(items []model.OrderItem) error {
 	return database.DB.Create(&items).Error
 }

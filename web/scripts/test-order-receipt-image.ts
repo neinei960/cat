@@ -4,6 +4,8 @@ import path from 'node:path'
 
 const filePath = path.resolve(__dirname, '../../src/pages/order/detail.vue')
 const source = fs.readFileSync(filePath, 'utf8')
+const saveUtilPath = path.resolve(__dirname, '../../src/utils/web-image-save.ts')
+const saveUtilSource = fs.readFileSync(saveUtilPath, 'utf8')
 
 assert(
   source.includes('<view class="receipt-wrap" v-if="!receiptImageUrl">'),
@@ -16,7 +18,7 @@ assert(
 )
 
 assert(
-  source.includes('navigator.share') || source.includes('window.open('),
+  saveUtilSource.includes('navigator.share') || saveUtilSource.includes('window.open('),
   'receipt save flow should provide a mobile Safari fallback instead of relying only on a.download',
 )
 

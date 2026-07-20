@@ -367,6 +367,45 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	return s.repo.FindPlanByID(shopID, plan.ID)
 }
 
+func (s *FeedingService) DeletePlan(shopID, id uint, role string) error {
+	if !model.HasStaffRoleAtLeast(role, model.StaffRoleManager) {
+		return errors.New("仅店长可删除历史上门订单")
+	}
+	plan, err := s.repo.FindPlanByID(shopID, id)
+	if err != nil {
+		return errors.New("上门计划不存在")
+	}
+	if !isHistoricalFeedingPlan(plan) {
+		return errors.New("仅历史上门计划可删除")
+	}
+
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := deleteLinkedPayOrders(tx, shopID, plan.OrderID, &plan.ID); err != nil {
+			return err
+		}
+		visitIDs := tx.Model(&model.FeedingVisit{}).Select("id").Where("feeding_plan_id = ?", plan.ID)
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitMedia{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitLog{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingVisit{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingPlanRule{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingPlanPet{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.FeedingPlan{}, plan.ID).Error
+	})
+}
+
 func (s *FeedingService) PausePlan(shopID, operatorID, id uint) (*model.FeedingPlan, error) {
 	return s.updatePlanStatus(shopID, operatorID, id, model.FeedingPlanStatusPaused, "pause_plan", "暂停喂养计划")
 }
@@ -1308,6 +1347,54 @@ func (s *FeedingService) appendPlanLog(tx *gorm.DB, visitID, operatorID uint, ac
 			Content:        content,
 		}
 		return tx.Create(logRecord).Error
+	}
+	return nil
+}
+
+func isHistoricalFeedingPlan(plan *model.FeedingPlan) bool {
+	if plan == nil {
+		return false
+	}
+	if plan.Status == model.FeedingPlanStatusCompleted || plan.Status == model.FeedingPlanStatusCancelled {
+		return true
+	}
+	endDate, err := time.Parse("2006-01-02", strings.TrimSpace(plan.EndDate))
+	if err != nil {
+		return false
+	}
+	today, _ := time.Parse("2006-01-02", time.Now().Format("2006-01-02"))
+	return endDate.Before(today)
+}
+
+func deleteLinkedPayOrders(tx *gorm.DB, shopID uint, orderID *uint, feedingPlanID *uint) error {
+	ordersByID := make(map[uint]model.Order)
+	if orderID != nil && *orderID > 0 {
+		var order model.Order
+		if err := tx.Where("shop_id = ?", shopID).First(&order, *orderID).Error; err == nil {
+			ordersByID[order.ID] = order
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	if feedingPlanID != nil && *feedingPlanID > 0 {
+		var orders []model.Order
+		if err := tx.Where("shop_id = ? AND feeding_plan_id = ?", shopID, *feedingPlanID).Find(&orders).Error; err != nil {
+			return err
+		}
+		for _, order := range orders {
+			ordersByID[order.ID] = order
+		}
+	}
+	for _, order := range ordersByID {
+		if err := rollbackBalancePaymentOnDelete(tx, &order); err != nil {
+			return err
+		}
+		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&model.Order{}, order.ID).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }

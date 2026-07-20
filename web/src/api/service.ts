@@ -1,6 +1,6 @@
 import { request } from './request'
 
-export function getServiceList(params?: (PageParams & { order_by?: string })) {
+export function getServiceList(params?: (PageParams & { order_by?: string; customer_id?: number })) {
   return request<PageResult<ServiceItem>>({ url: '/b/services', data: params })
 }
 

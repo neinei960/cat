@@ -29,7 +29,7 @@ export function buildReceiptFileName(orderNo: string) {
 export function buildOrderCareReportFileName(orderNo: string, petName: string) {
   const safeOrderNo = sanitizeFileNamePart(orderNo) || 'NO'
   const safePetName = sanitizeFileNamePart(petName) || '猫咪'
-  return `护理报告_${safeOrderNo}_${safePetName}.png`
+  return `护理报告_${safeOrderNo}_${safePetName}.jpg`
 }
 
 export function openImagePreviewWindow(src: string, title = '图片预览') {
@@ -52,6 +52,12 @@ export function openImagePreviewWindow(src: string, title = '图片预览') {
   img.alt = title
   doc.body.appendChild(img)
   return true
+}
+
+function isMobileImageSaveFallbackBrowser() {
+  if (typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent || ''
+  return /Android|iP(hone|od|ad)|Mobile|MicroMessenger|MQQBrowser|MiuiBrowser|HuaweiBrowser|Quark|UCBrowser/i.test(userAgent)
 }
 
 export function dataUrlToBlob(dataUrl: string): Blob {
@@ -106,6 +112,10 @@ export async function saveImageByUrl(src: string, fileName: string, options: Sav
         }
       }
     }
+  }
+
+  if (isMobileImageSaveFallbackBrowser() && openImagePreviewWindow(src, options.title || fileName)) {
+    return 'preview'
   }
 
   const objectUrl = options.blobUrl || (blob ? URL.createObjectURL(blob) : '')

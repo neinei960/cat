@@ -1,0 +1,32 @@
+- generic [ref=e8]:
+  - generic [ref=e9]:
+    - generic [ref=e10]: CAT SPA MANAGER
+    - generic [ref=e11]: 猫咪洗护门店工作台
+    - generic [ref=e12]: 让预约、开单、会员和客户管理都在一个地方顺畅完成。
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: 门店状态
+        - generic [ref=e16]: 实时经营
+      - generic [ref=e17]:
+        - generic [ref=e18]: 工作重点
+        - generic [ref=e19]: 预约到店与结算
+      - generic [ref=e20]:
+        - generic [ref=e21]: 管理范围
+        - generic [ref=e22]: 客户 / 猫咪 / 会员卡
+  - generic [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e28]: 账号登录
+      - generic [ref=e29]: 进入今天的门店工作流
+    - generic [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]: 手机号
+        - generic [ref=e35]:
+          - generic: 请输入手机号
+          - spinbutton [ref=e36]
+      - generic [ref=e37]:
+        - generic [ref=e38]: 密码
+        - generic [ref=e40]:
+          - generic: 请输入密码
+          - textbox [ref=e41]
+      - generic [ref=e42]: 如遇登录异常，请先确认服务状态或联系管理员处理。
+      - generic [ref=e44] [cursor=pointer]: 进入工作台

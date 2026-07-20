@@ -60,13 +60,14 @@ func (h *PetHandler) Create(c *gin.Context) {
 
 	// 根据手机号查找客户
 	customerID := req.CustomerID
-	if req.OwnerPhone != "" && customerID == nil {
-		cust, err := h.customerService.GetByPhone(req.OwnerPhone, shopID)
+	ownerPhone := ensureCustomerPhone(h.customerService, shopID, req.OwnerPhone)
+	if customerID == nil {
+		cust, err := h.customerService.GetByPhone(ownerPhone, shopID)
 		if err != nil {
 			// 自动创建客户
 			cust = &model.Customer{
 				ShopID: shopID,
-				Phone:  req.OwnerPhone,
+				Phone:  ownerPhone,
 			}
 			if err := h.customerService.Create(cust); err != nil {
 				response.Error(c, http.StatusInternalServerError, "创建客户失败")
@@ -170,8 +171,18 @@ func (h *PetHandler) Update(c *gin.Context) {
 		pet.CustomerID = &cust.ID
 	} else if req.CustomerID != nil {
 		pet.CustomerID = req.CustomerID
-	} else {
-		pet.CustomerID = nil
+	} else if pet.CustomerID == nil {
+		shopID := c.GetUint("shop_id")
+		ownerPhone := ensureCustomerPhone(h.customerService, shopID, "")
+		cust := &model.Customer{
+			ShopID: shopID,
+			Phone:  ownerPhone,
+		}
+		if err := h.customerService.Create(cust); err != nil {
+			response.Error(c, http.StatusInternalServerError, "创建客户失败")
+			return
+		}
+		pet.CustomerID = &cust.ID
 	}
 	pet.Name = req.Name
 	if req.Species != "" {

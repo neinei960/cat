@@ -44,6 +44,7 @@
           :key="item.ID"
           class="history-card"
           @click="goDetail(item.ID)"
+          @longpress.stop="deleteHistoryOrder(item)"
         >
           <view class="card-head">
             <view class="head-copy">
@@ -52,6 +53,7 @@
             </view>
             <text class="status-pill history-status-pill">已离店</text>
           </view>
+          <text v-if="canDeleteHistory" class="delete-hint">长按可删除</text>
 
           <view class="card-body">
             <view class="card-info">
@@ -98,7 +100,9 @@
 import { computed, ref } from 'vue'
 import { onReachBottom, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { getBoardingCabinets, getBoardingOrders } from '@/api/boarding'
+import { deleteBoardingOrder, getBoardingCabinets, getBoardingOrders } from '@/api/boarding'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 import {
   getBoardingHistoryCustomerLabel,
   getBoardingHistoryPetNames,
@@ -108,11 +112,15 @@ import {
 
 const PAGE_SIZE = 20
 
+const authStore = useAuthStore()
+const canDeleteHistory = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const list = ref<BoardingOrder[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
 const loadingMore = ref(false)
+const deletingId = ref(0)
+const suppressNextClick = ref(false)
 const hasMore = ref(true)
 const cabinets = ref<BoardingCabinet[]>([])
 const filter = ref({
@@ -187,7 +195,38 @@ function payStatusClass(order: BoardingOrder) {
 }
 
 function goDetail(id: number) {
+  if (suppressNextClick.value) {
+    suppressNextClick.value = false
+    return
+  }
   uni.navigateTo({ url: `/pages/boarding/detail?id=${id}` })
+}
+
+function deleteHistoryOrder(item: BoardingOrder) {
+  if (!canDeleteHistory.value || deletingId.value) return
+  suppressNextClick.value = true
+  setTimeout(() => {
+    suppressNextClick.value = false
+  }, 800)
+  uni.showModal({
+    title: '删除历史寄养',
+    content: `确认删除「${petNames(item)}」这条历史寄养记录？关联收款订单也会同步删除。`,
+    confirmText: '删除',
+    confirmColor: '#DC2626',
+    success: async (res) => {
+      if (!res.confirm) return
+      deletingId.value = item.ID
+      try {
+        await deleteBoardingOrder(item.ID)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await loadData()
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '删除失败', icon: 'none' })
+      } finally {
+        deletingId.value = 0
+      }
+    },
+  })
 }
 
 function normalizeDateRange() {
@@ -304,6 +343,12 @@ onReachBottom(loadMore)
   font-size: 24rpx;
   color: #6b7280;
   line-height: 1.6;
+}
+.delete-hint {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #94a3b8;
 }
 .filter-card {
   border-radius: 22rpx;

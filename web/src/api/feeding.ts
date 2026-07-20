@@ -54,6 +54,10 @@ export function getFeedingPlan(id: number) {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}` })
 }
 
+export function deleteFeedingPlan(id: number) {
+  return request({ url: `/b/feeding/plans/${id}`, method: 'DELETE' })
+}
+
 export function updateFeedingDeposit(id: number, deposit: number) {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}/deposit`, method: 'PUT', data: { deposit } })
 }

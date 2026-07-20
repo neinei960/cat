@@ -11,7 +11,9 @@ function main() {
   assert(source.includes('paddingBottom: UNDERLINE_GAP'), 'stage text styles should keep an 8px gap above the underline')
   assert(source.includes('fitCenteredFontSize('), 'stage should shrink long centered text to keep it visually centered on the underline')
   assert(source.includes("overflow: 'hidden'"), 'stage should clip overflow after centered text has been fit to the underline width')
-  assert(source.includes('const NOTE_LINE_HEIGHT = 32'), 'stage note styles should reserve a fixed note line height')
+  assert(source.includes('const NOTE_LINE_HEIGHT = 56'), 'stage note styles should reserve the real template note row height')
+  assert(source.includes("alignItems: 'center'"), 'stage notes should be vertically centered on the printed note line')
+  assert(source.includes("justifyContent: 'center'"), 'stage notes should be horizontally centered on the printed note line')
 }
 
 main()

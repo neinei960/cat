@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/service"
@@ -67,6 +68,22 @@ func (h *DashboardHandler) ServiceRanking(c *gin.Context) {
 	response.Success(c, data)
 }
 
+func (h *DashboardHandler) ProjectRevenueTree(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if startDate == "" || endDate == "" {
+		response.Error(c, http.StatusBadRequest, "请提供start_date和end_date")
+		return
+	}
+	data, err := h.dashService.GetProjectRevenueTree(shopID, startDate, endDate)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, data)
+}
+
 func (h *DashboardHandler) StaffPerformance(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	startDate := c.Query("start_date")
@@ -76,6 +93,27 @@ func (h *DashboardHandler) StaffPerformance(c *gin.Context) {
 		return
 	}
 	data, err := h.dashService.GetStaffPerformance(shopID, startDate, endDate)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	response.Success(c, data)
+}
+
+func (h *DashboardHandler) StaffCommissionDetails(c *gin.Context) {
+	shopID := c.GetUint("shop_id")
+	staffID, _ := strconv.ParseUint(c.Param("staff_id"), 10, 64)
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	if staffID == 0 {
+		response.Error(c, http.StatusBadRequest, "请提供员工")
+		return
+	}
+	if startDate == "" || endDate == "" {
+		response.Error(c, http.StatusBadRequest, "请提供start_date和end_date")
+		return
+	}
+	data, err := h.dashService.GetStaffCommissionDetails(shopID, uint(staffID), startDate, endDate)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return

@@ -155,7 +155,7 @@
         </view>
 
         <view class="field-card settings-card">
-          <view class="settings-row">
+          <view v-if="selectedPetOptions.length > 1" class="settings-row option-settings-row">
             <view class="settings-copy">
               <text class="field-label">是否合住</text>
               <text class="field-tip">合住表示多只猫共享一个房间。</text>
@@ -165,20 +165,21 @@
               <view :class="['option-pill compact', roomMode === 'split' ? 'active' : '']" @click="setRoomMode('split')">分房</view>
             </view>
           </view>
-          <view class="settings-divider"></view>
+          <view v-if="selectedPetOptions.length > 1" class="settings-divider"></view>
           <view class="settings-row">
             <view class="settings-copy">
               <text class="field-label">是否已驱虫</text>
-              <text class="field-tip">可选，入住前确认一次；暂时不清楚也可以先跳过。</text>
+              <text class="field-tip">{{ form.hasDeworming ? '已驱虫' : '未驱虫' }}</text>
             </view>
-            <view class="option-row compact">
-              <view :class="['option-pill compact', form.hasDeworming === true ? 'active' : '']" @click="form.hasDeworming = true">已驱虫</view>
-              <view :class="['option-pill compact', form.hasDeworming === false ? 'active negative' : '']" @click="form.hasDeworming = false">未驱虫</view>
-              <view :class="['option-pill compact', form.hasDeworming === null ? 'active' : '']" @click="form.hasDeworming = null">暂不填写</view>
-            </view>
+            <switch
+              class="settings-switch"
+              color="#4f46e5"
+              :checked="form.hasDeworming === true"
+              @change="(e: any) => form.hasDeworming = e.detail.value"
+            />
           </view>
           <view class="settings-divider"></view>
-          <view class="settings-row">
+          <view class="settings-row option-settings-row">
             <view class="settings-copy">
               <text class="field-label">寄养定金</text>
               <text class="field-tip">选择收取后，本单金额预览和收款单会抵扣 ¥200。</text>
@@ -201,15 +202,15 @@
         <view class="section-head">
           <view class="section-index">3</view>
           <view>
-            <text class="section-title">房间分组</text>
-            <text class="section-desc">先把猫咪分到不同房间，再为每个房间选择寄养房型。</text>
+            <text class="section-title">{{ isSinglePetFlow ? '房型与加收' : '房间分组' }}</text>
+            <text class="section-desc">{{ isSinglePetFlow ? '单猫只需要选择寄养房型，可按需添加特殊寄养项目。' : '多只猫先确认合住或分房，再为每个房间选择寄养房型。' }}</text>
           </view>
         </view>
 
-        <view v-if="selectedPetOptions.length === 0" class="empty-box">先在上面选择猫咪，才能继续分房。</view>
+        <view v-if="selectedPetOptions.length === 0" class="empty-box">先在上面选择猫咪，才能继续选择房型。</view>
 
         <template v-else>
-          <view class="assign-block">
+          <view v-if="!isSinglePetFlow" class="assign-block">
             <view class="sub-head">
               <text class="sub-title">猫咪分房</text>
               <view v-if="roomMode === 'split'" class="mini-btn ghost" @click="addRoomGroup">+ 新增房间</view>
@@ -222,7 +223,7 @@
             </view>
           </view>
 
-          <view class="room-group-tabs">
+          <view v-if="showRoomTabs" class="room-group-tabs">
             <view
               v-for="(group, index) in roomGroups"
               :key="group.id"
@@ -234,16 +235,16 @@
             </view>
           </view>
 
-          <view v-if="activeRoomGroup" class="room-group-card active-room-group-card">
+          <view v-if="activeRoomGroup" :class="['room-group-card', 'active-room-group-card', isSinglePetFlow ? 'single-flow-card' : '']">
             <view class="room-group-head">
               <view>
-                <text class="room-group-title">{{ roomLabel(activeRoomGroupIndex - 1) }}</text>
+                <text class="room-group-title">{{ isSinglePetFlow ? '选择寄养房型' : roomLabel(activeRoomGroupIndex - 1) }}</text>
                 <text class="room-group-sub">{{ roomPets(activeRoomGroup.id).map((item) => item.label).join('、') || '先分配猫咪到这个房间' }}</text>
               </view>
               <view v-if="roomMode === 'split' && roomGroups.length > 1" class="draft-del" @click="removeRoomGroup(activeRoomGroup.id)">删除</view>
             </view>
 
-            <view class="room-tags">
+            <view v-if="!isSinglePetFlow" class="room-tags">
               <text class="room-tag">{{ roomPets(activeRoomGroup.id).length }} 只猫</text>
               <text v-if="activeRoomGroup.preview" class="room-tag price">¥{{ activeRoomGroup.preview.pay_amount.toFixed(2) }}</text>
             </view>
@@ -271,58 +272,66 @@
                 </view>
               </view>
 
-              <view class="field-card special-card">
+              <view v-if="activeRoomGroup.cabinetId" class="field-card special-card">
                 <text class="field-label">特殊寄养项目</text>
-                <text class="field-tip">按房间单独选择，可同时选择多个加收项目。选中后分别填写日价和天数。</text>
+                <text class="field-tip">{{ isSinglePetFlow ? '可选，选中后填写日价和天数。' : '按房间单独选择，可同时选择多个加收项目。选中后分别填写日价和天数。' }}</text>
                 <view class="special-option-list">
                   <view
                     v-for="item in visibleSpecialItems"
                     :key="item.ID"
-                    :class="['special-option', isSpecialItemSelected(activeRoomGroup, item.ID) ? 'active' : '']"
-                    @click="toggleSpecialItem(activeRoomGroup.id, item)"
+                    class="special-option-wrap"
                   >
-                    <view>
-                      <text class="special-option-name">{{ item.name }}</text>
-                      <text class="special-option-meta">默认 ¥{{ Number(item.default_daily_price || 0).toFixed(2) }}/天</text>
+                    <view
+                      :class="['special-option', isSpecialItemSelected(activeRoomGroup, item.ID) ? 'active' : '']"
+                      @click="toggleSpecialItem(activeRoomGroup.id, item)"
+                    >
+                      <view>
+                        <text class="special-option-name">{{ item.name }}</text>
+                        <text class="special-option-meta">默认 ¥{{ Number(item.default_daily_price || 0).toFixed(2) }}/天</text>
+                      </view>
+                      <text class="special-option-mark">{{ isSpecialItemSelected(activeRoomGroup, item.ID) ? '已选' : '选择' }}</text>
                     </view>
-                    <text class="special-option-mark">{{ isSpecialItemSelected(activeRoomGroup, item.ID) ? '已选' : '选择' }}</text>
-                  </view>
-                </view>
-                <view
-                  v-for="selection in activeRoomGroup.specialItems"
-                  :key="selection.id"
-                  class="field-grid special-grid"
-                >
-                  <view class="field-card compact special-title-card">
-                    <text class="field-label">项目</text>
-                    <text class="special-selected-name">{{ specialItemLabel(selection.id) }}</text>
-                  </view>
-                  <view class="field-card compact">
-                    <text class="field-label">特殊日价</text>
-                    <input
-                      :value="selection.dailyPrice"
-                      class="input no-gap"
-                      type="digit"
-                      placeholder="例如：30"
-                      @input="handleSpecialItemInput(activeRoomGroup.id, selection.id, 'dailyPrice', $event)"
-                    />
-                  </view>
-                  <view class="field-card compact">
-                    <text class="field-label">特殊天数</text>
-                    <input
-                      :value="selection.days"
-                      class="input no-gap"
-                      type="number"
-                      placeholder="例如：2"
-                      @input="handleSpecialItemInput(activeRoomGroup.id, selection.id, 'days', $event)"
-                    />
+                    <view
+                      v-if="specialItemSelection(activeRoomGroup, item.ID)"
+                      class="special-input-grid"
+                    >
+                      <view class="field-card compact">
+                        <text class="field-label">特殊日价</text>
+                        <input
+                          :value="specialItemSelection(activeRoomGroup, item.ID)?.dailyPrice"
+                          class="input no-gap"
+                          type="digit"
+                          placeholder="例如：30"
+                          @input="handleSpecialItemInput(activeRoomGroup.id, item.ID, 'dailyPrice', $event)"
+                        />
+                      </view>
+                      <view class="field-card compact">
+                        <text class="field-label">特殊天数</text>
+                        <input
+                          :value="specialItemSelection(activeRoomGroup, item.ID)?.days"
+                          class="input no-gap"
+                          type="number"
+                          placeholder="例如：2"
+                          @input="handleSpecialItemInput(activeRoomGroup.id, item.ID, 'days', $event)"
+                        />
+                      </view>
+                      <view class="special-day-actions">
+                        <view
+                          :class="['special-day-fill', isSpecialItemEveryDay(activeRoomGroup, item.ID) ? 'active' : '']"
+                          @click.stop="fillSpecialItemEveryDay(activeRoomGroup.id, item.ID)"
+                        >
+                          {{ isSpecialItemEveryDay(activeRoomGroup, item.ID) ? '已每天' : '每天' }}
+                        </view>
+                        <text class="field-tip">按全部寄养晚数自动填写，也可以手动改天数。</text>
+                      </view>
+                    </view>
                   </view>
                 </view>
               </view>
 
               <view v-if="activeRoomGroup.preview" class="room-preview-box">
                 <view class="room-preview-head">
-                  <text class="room-preview-title">{{ roomLabel(activeRoomGroupIndex - 1) }} 预览</text>
+                  <text class="room-preview-title">{{ isSinglePetFlow ? '费用预览' : `${roomLabel(activeRoomGroupIndex - 1)} 预览` }}</text>
                   <text class="room-preview-value">¥{{ activeRoomGroup.preview.pay_amount.toFixed(2) }}</text>
                 </view>
                 <view class="line-list compact-list">
@@ -335,7 +344,7 @@
             </template>
           </view>
 
-          <view class="primary-action" @click="loadAvailableCabinets">查询各房间可用房型</view>
+          <view class="primary-action" @click="loadAvailableCabinets">{{ isSinglePetFlow ? '查询可用房型' : '查询各房间可用房型' }}</view>
         </template>
       </view>
 
@@ -488,7 +497,7 @@ const activeDraftPetId = ref<number | null>(newPets.value[0]?.id || null)
 const form = ref({
   checkInAt: '',
   checkOutAt: '',
-  hasDeworming: null as boolean | null,
+  hasDeworming: false as boolean | null,
   depositEnabled: false,
   remark: '',
 })
@@ -541,6 +550,10 @@ const stayNights = computed(() => {
   if (Number.isNaN(diff) || diff <= 0) return 0
   return Math.round(diff / (24 * 60 * 60 * 1000))
 })
+
+const isSinglePetFlow = computed(() => selectedPetOptions.value.length === 1)
+
+const showRoomTabs = computed(() => !isSinglePetFlow.value && roomGroups.value.length > 1)
 
 const activeDraftPet = computed(() => newPets.value.find((pet) => pet.id === activeDraftPetId.value) || newPets.value[0] || null)
 
@@ -653,6 +666,10 @@ function dedupeSpecialItems(items: BoardingSpecialItem[]) {
 
 function isSpecialItemSelected(group: RoomGroupState, itemId: number) {
   return group.specialItems.some((item) => item.id === itemId)
+}
+
+function specialItemSelection(group: RoomGroupState | null, itemId: number) {
+  return group?.specialItems.find((item) => item.id === itemId)
 }
 
 function roomPets(groupId: number) {
@@ -942,6 +959,19 @@ function updateSpecialItemField(groupId: number, itemId: number, field: 'dailyPr
 
 function handleSpecialItemInput(groupId: number, itemId: number, field: 'dailyPrice' | 'days', event: any) {
   updateSpecialItemField(groupId, itemId, field, event?.detail?.value ?? '')
+}
+
+function isSpecialItemEveryDay(group: RoomGroupState | null, itemId: number) {
+  const days = Number(specialItemSelection(group, itemId)?.days || 0)
+  return stayNights.value > 0 && days === stayNights.value
+}
+
+function fillSpecialItemEveryDay(groupId: number, itemId: number) {
+  if (stayNights.value <= 0) {
+    uni.showToast({ title: '先选择入住和离店日期', icon: 'none' })
+    return
+  }
+  updateSpecialItemField(groupId, itemId, 'days', String(stayNights.value))
 }
 
 function describePolicy(policy: BoardingDiscountPolicy) {
@@ -1237,7 +1267,16 @@ onShow(() => {
 .draft-card, .room-group-card { padding: 18rpx; border-radius: 22rpx; background: #fffdf8; border: 1rpx solid #f3e8d2; }
 .active-draft-card,
 .active-room-group-card { margin-top: 16rpx; }
+.single-flow-card {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 .draft-top, .room-group-head { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; margin-bottom: 14rpx; }
+.single-flow-card .room-group-head {
+  padding: 0 2rpx;
+}
 .draft-title, .room-group-title { font-size: 26rpx; font-weight: 700; color: #111827; }
 .draft-del { font-size: 22rpx; color: #ef4444; }
 .draft-hint { display: block; margin-top: 6rpx; font-size: 21rpx; color: #9ca3af; }
@@ -1310,12 +1349,21 @@ onShow(() => {
 .settings-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 18rpx;
+}
+.settings-row.option-settings-row {
+  display: block;
+}
+.settings-row.option-settings-row .option-row.compact {
+  margin-top: 12rpx;
 }
 .settings-copy {
   min-width: 0;
   flex: 1;
+}
+.settings-switch {
+  flex: 0 0 auto;
 }
 .settings-divider {
   height: 1rpx;
@@ -1427,6 +1475,11 @@ onShow(() => {
   gap: 12rpx;
   margin-top: 14rpx;
 }
+.special-option-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
 .special-option {
   display: flex;
   align-items: center;
@@ -1466,8 +1519,39 @@ onShow(() => {
   background: #4f46e5;
   color: #fff;
 }
-.special-title-card {
-  justify-content: center;
+.special-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+  padding: 12rpx;
+  border-radius: 18rpx;
+  background: #f8faff;
+  border: 1rpx solid #e0e7ff;
+}
+.special-input-grid .field-card {
+  margin-top: 0;
+}
+.special-day-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 4rpx 2rpx 2rpx;
+}
+.special-day-fill {
+  flex-shrink: 0;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid #d1d5db;
+  background: #fff;
+  color: #4b5563;
+  font-size: 23rpx;
+  font-weight: 600;
+}
+.special-day-fill.active {
+  border-color: #4f46e5;
+  background: #4f46e5;
+  color: #fff;
 }
 .action-card {
   gap: 0;
@@ -1506,9 +1590,6 @@ onShow(() => {
 @media (max-width: 768px) {
   .field-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
   .date-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .settings-row {
-    flex-direction: column;
-  }
   .option-row.compact {
     width: 100%;
   }

@@ -90,10 +90,12 @@ func (h *BoardingHandler) UpdateCabinet(c *gin.Context) {
 }
 
 type saveHolidayReq struct {
-	HolidayDate string `json:"holiday_date"`
-	StartDate   string `json:"start_date"`
-	EndDate     string `json:"end_date"`
-	Name        string `json:"name"`
+	HolidayDate     string  `json:"holiday_date"`
+	StartDate       string  `json:"start_date"`
+	EndDate         string  `json:"end_date"`
+	Name            string  `json:"name"`
+	SurchargeAmount float64 `json:"surcharge_amount"`
+	IDs             []uint  `json:"ids"`
 }
 
 func (h *BoardingHandler) ListHolidays(c *gin.Context) {
@@ -115,9 +117,10 @@ func (h *BoardingHandler) CreateHoliday(c *gin.Context) {
 	shopID := c.GetUint("shop_id")
 	if req.HolidayDate != "" {
 		holiday := &model.BoardingHoliday{
-			ShopID:      shopID,
-			HolidayDate: req.HolidayDate,
-			Name:        req.Name,
+			ShopID:          shopID,
+			HolidayDate:     req.HolidayDate,
+			Name:            req.Name,
+			SurchargeAmount: req.SurchargeAmount,
 		}
 		if err := h.service.CreateHoliday(holiday); err != nil {
 			response.Error(c, http.StatusBadRequest, err.Error())
@@ -131,7 +134,25 @@ func (h *BoardingHandler) CreateHoliday(c *gin.Context) {
 		return
 	}
 
-	holidays, err := h.service.CreateHolidayRange(shopID, req.StartDate, req.EndDate, req.Name)
+	holidays, err := h.service.CreateHolidayRange(shopID, req.StartDate, req.EndDate, req.Name, req.SurchargeAmount)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, holidays)
+}
+
+func (h *BoardingHandler) UpdateHolidayRange(c *gin.Context) {
+	var req saveHolidayReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if req.StartDate == "" || req.EndDate == "" {
+		response.Error(c, http.StatusBadRequest, "请选择开始和结束日期")
+		return
+	}
+	holidays, err := h.service.UpdateHolidayRange(c.GetUint("shop_id"), req.IDs, req.StartDate, req.EndDate, req.Name, req.SurchargeAmount)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -480,6 +501,17 @@ func (h *BoardingHandler) GetOrder(c *gin.Context) {
 		return
 	}
 	response.Success(c, order)
+}
+
+func (h *BoardingHandler) DeleteOrder(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	role, _ := c.Get("role")
+	roleText, _ := role.(string)
+	if err := h.service.DeleteOrder(c.GetUint("shop_id"), uint(id), roleText); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, nil)
 }
 
 type updateBoardingDewormingReq struct {

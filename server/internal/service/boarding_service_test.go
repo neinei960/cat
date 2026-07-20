@@ -301,9 +301,10 @@ func TestCreateHolidayEnsuresDefaultHolidaySurchargePolicy(t *testing.T) {
 		repository.NewPetRepository(),
 	)
 	err := svc.CreateHoliday(&model.BoardingHoliday{
-		ShopID:      shop.ID,
-		HolidayDate: "2026-05-01",
-		Name:        "五一",
+		ShopID:          shop.ID,
+		HolidayDate:     "2026-05-01",
+		Name:            "五一",
+		SurchargeAmount: 50,
 	})
 	if err != nil {
 		t.Fatalf("create holiday: %v", err)
@@ -340,7 +341,7 @@ func TestCreateHolidayRangeCreatesInclusiveDailyRecords(t *testing.T) {
 		repository.NewPetRepository(),
 	)
 
-	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-03", "五一")
+	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-03", "五一", 45)
 	if err != nil {
 		t.Fatalf("create holiday range: %v", err)
 	}
@@ -355,6 +356,9 @@ func TestCreateHolidayRangeCreatesInclusiveDailyRecords(t *testing.T) {
 		}
 		if created[i].Name != "五一" {
 			t.Fatalf("expected created holiday %d name 五一, got %s", i, created[i].Name)
+		}
+		if created[i].SurchargeAmount != 45 {
+			t.Fatalf("expected created holiday %d surcharge 45, got %.2f", i, created[i].SurchargeAmount)
 		}
 	}
 
@@ -388,14 +392,15 @@ func TestCreateHolidayRangeSkipsExistingDates(t *testing.T) {
 	)
 
 	if err := svc.CreateHoliday(&model.BoardingHoliday{
-		ShopID:      shop.ID,
-		HolidayDate: "2026-05-02",
-		Name:        "已有日期",
+		ShopID:          shop.ID,
+		HolidayDate:     "2026-05-02",
+		Name:            "已有日期",
+		SurchargeAmount: 80,
 	}); err != nil {
 		t.Fatalf("seed existing holiday: %v", err)
 	}
 
-	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-03", "五一")
+	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-03", "五一", 35)
 	if err != nil {
 		t.Fatalf("create holiday range: %v", err)
 	}
@@ -412,6 +417,258 @@ func TestCreateHolidayRangeSkipsExistingDates(t *testing.T) {
 	}
 	if len(list) != 3 {
 		t.Fatalf("expected 3 persisted holidays after skipping duplicate, got %d", len(list))
+	}
+}
+
+func TestUpdateHolidayRangeReplacesInclusiveDailyRecords(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "修改范围节假日门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+
+	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-03", "五一", 35)
+	if err != nil {
+		t.Fatalf("create holiday range: %v", err)
+	}
+	ids := []uint{created[0].ID, created[1].ID, created[2].ID}
+
+	updated, err := svc.UpdateHolidayRange(shop.ID, ids, "2026-05-02", "2026-05-04", "劳动节", 55)
+	if err != nil {
+		t.Fatalf("update holiday range: %v", err)
+	}
+	if len(updated) != 3 {
+		t.Fatalf("expected 3 updated holidays, got %d", len(updated))
+	}
+
+	wantDates := []string{"2026-05-02", "2026-05-03", "2026-05-04"}
+	for i, want := range wantDates {
+		if updated[i].HolidayDate != want {
+			t.Fatalf("expected updated holiday %d date %s, got %s", i, want, updated[i].HolidayDate)
+		}
+		if updated[i].Name != "劳动节" {
+			t.Fatalf("expected updated holiday %d name 劳动节, got %s", i, updated[i].Name)
+		}
+		if updated[i].SurchargeAmount != 55 {
+			t.Fatalf("expected updated holiday %d surcharge 55, got %.2f", i, updated[i].SurchargeAmount)
+		}
+	}
+
+	list, err := svc.ListHolidays(shop.ID)
+	if err != nil {
+		t.Fatalf("list holidays: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("expected 3 persisted holidays after update, got %d", len(list))
+	}
+	for i, want := range wantDates {
+		if list[i].HolidayDate != want {
+			t.Fatalf("expected persisted holiday %d date %s, got %s", i, want, list[i].HolidayDate)
+		}
+	}
+}
+
+func TestUpdateHolidayRangeRejectsOtherRangeConflict(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "修改范围冲突门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+
+	created, err := svc.CreateHolidayRange(shop.ID, "2026-05-01", "2026-05-02", "五一", 35)
+	if err != nil {
+		t.Fatalf("create holiday range: %v", err)
+	}
+	if err := svc.CreateHoliday(&model.BoardingHoliday{
+		ShopID:          shop.ID,
+		HolidayDate:     "2026-05-03",
+		Name:            "端午",
+		SurchargeAmount: 45,
+	}); err != nil {
+		t.Fatalf("seed conflict holiday: %v", err)
+	}
+
+	_, err = svc.UpdateHolidayRange(shop.ID, []uint{created[0].ID, created[1].ID}, "2026-05-01", "2026-05-03", "五一", 35)
+	if err == nil {
+		t.Fatal("expected conflict error")
+	}
+
+	list, err := svc.ListHolidays(shop.ID)
+	if err != nil {
+		t.Fatalf("list holidays: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("expected original 3 holidays to remain, got %d", len(list))
+	}
+}
+
+func TestPreviewUsesHolidaySpecificSurchargeAmount(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "节假日逐日加收门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+	customer := model.Customer{ShopID: shop.ID, Phone: "13800136666", Nickname: "寄养客户", DiscountRate: 1}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	pet := model.Pet{ShopID: shop.ID, CustomerID: &customer.ID, Name: "芝麻", Species: "猫"}
+	if err := database.DB.Create(&pet).Error; err != nil {
+		t.Fatalf("create pet: %v", err)
+	}
+	cabinet := model.BoardingCabinet{ShopID: shop.ID, Code: "holiday-custom", CabinetType: "普通房", RoomCount: 2, Capacity: 1, BasePrice: 100, Status: model.BoardingCabinetStatusEnabled}
+	if err := database.DB.Create(&cabinet).Error; err != nil {
+		t.Fatalf("create cabinet: %v", err)
+	}
+	ruleJSON, _ := json.Marshal(surchargeRule{Surcharge: 30})
+	policy := model.BoardingDiscountPolicy{
+		ShopID:     shop.ID,
+		Name:       "节假日加收",
+		PolicyType: model.BoardingPolicyTypeHolidaySurcharge,
+		RuleJSON:   string(ruleJSON),
+		Priority:   1,
+		Status:     1,
+	}
+	if err := database.DB.Create(&policy).Error; err != nil {
+		t.Fatalf("create holiday policy: %v", err)
+	}
+	holidays := []model.BoardingHoliday{
+		{ShopID: shop.ID, HolidayDate: "2026-05-01", Name: "五一", SurchargeAmount: 50},
+		{ShopID: shop.ID, HolidayDate: "2026-05-02", Name: "五一", SurchargeAmount: 70},
+	}
+	if err := database.DB.Create(&holidays).Error; err != nil {
+		t.Fatalf("create holidays: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+	preview, _, _, err := svc.Preview(shop.ID, BoardingPreviewInput{
+		CustomerID: customer.ID,
+		PetIDs:     []uint{pet.ID},
+		CabinetID:  cabinet.ID,
+		CheckInAt:  "2026-05-01",
+		CheckOutAt: "2026-05-03",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if preview.HolidaySurchargeAmount != 120 {
+		t.Fatalf("expected holiday surcharge 120.00, got %.2f", preview.HolidaySurchargeAmount)
+	}
+	if preview.PayAmount != 320 {
+		t.Fatalf("expected pay amount 320.00, got %.2f", preview.PayAmount)
+	}
+}
+
+func TestExistingRoomRepriceAddsCurrentHolidaySurchargePolicy(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "已有寄养节假日补算门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+	customer := model.Customer{ShopID: shop.ID, Phone: "13800137777", Nickname: "老单客户", DiscountRate: 1}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	pet := model.Pet{ShopID: shop.ID, CustomerID: &customer.ID, Name: "花花", Species: "猫"}
+	if err := database.DB.Create(&pet).Error; err != nil {
+		t.Fatalf("create pet: %v", err)
+	}
+	cabinet := model.BoardingCabinet{ShopID: shop.ID, Code: "existing-room-holiday", CabinetType: "普通房", RoomCount: 2, Capacity: 1, BasePrice: 100, Status: model.BoardingCabinetStatusEnabled}
+	if err := database.DB.Create(&cabinet).Error; err != nil {
+		t.Fatalf("create cabinet: %v", err)
+	}
+	stayRuleJSON, _ := json.Marshal(stayRule{Stay: 7, Free: 1})
+	stayPolicy := model.BoardingDiscountPolicy{
+		ShopID:     shop.ID,
+		Name:       "住7免1",
+		PolicyType: model.BoardingPolicyTypeStayNFreeM,
+		RuleJSON:   string(stayRuleJSON),
+		Priority:   1,
+		Status:     1,
+	}
+	if err := database.DB.Create(&stayPolicy).Error; err != nil {
+		t.Fatalf("create stay policy: %v", err)
+	}
+	surchargeRuleJSON, _ := json.Marshal(surchargeRule{Surcharge: 30})
+	holidayPolicy := model.BoardingDiscountPolicy{
+		ShopID:     shop.ID,
+		Name:       "节假日加收",
+		PolicyType: model.BoardingPolicyTypeHolidaySurcharge,
+		RuleJSON:   string(surchargeRuleJSON),
+		Priority:   1,
+		Status:     1,
+	}
+	if err := database.DB.Create(&holidayPolicy).Error; err != nil {
+		t.Fatalf("create holiday policy: %v", err)
+	}
+	holidays := []model.BoardingHoliday{
+		{ShopID: shop.ID, HolidayDate: "2026-05-01", Name: "五一", SurchargeAmount: 50},
+		{ShopID: shop.ID, HolidayDate: "2026-05-02", Name: "五一", SurchargeAmount: 70},
+	}
+	if err := database.DB.Create(&holidays).Error; err != nil {
+		t.Fatalf("create holidays: %v", err)
+	}
+	policySnapshot, _ := json.Marshal([]model.BoardingDiscountPolicy{stayPolicy})
+	room := &model.BoardingOrderRoom{
+		CabinetID:          cabinet.ID,
+		CheckInAt:          "2026-05-01",
+		CheckOutAt:         "2026-05-03",
+		PolicySnapshotJSON: string(policySnapshot),
+		Pets: []model.BoardingOrderPet{
+			{PetID: pet.ID},
+		},
+	}
+	order := &model.BoardingOrder{
+		ShopID:     shop.ID,
+		CustomerID: customer.ID,
+		Rooms:      []model.BoardingOrderRoom{*room},
+	}
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+
+	preview, _, _, err := svc.previewExistingRoom(shop.ID, order, room, cabinet.ID, room.CheckOutAt, nil)
+	if err != nil {
+		t.Fatalf("preview existing room: %v", err)
+	}
+	if got := roundMoney(preview.HolidaySurchargeAmount); got != 120 {
+		t.Fatalf("expected existing room reprice holiday surcharge 120.00, got %.2f", got)
+	}
+	foundHolidayPolicy := false
+	for _, policy := range preview.Policies {
+		if policy.ID == holidayPolicy.ID {
+			foundHolidayPolicy = true
+			break
+		}
+	}
+	if !foundHolidayPolicy {
+		t.Fatalf("expected current holiday surcharge policy to be selected")
 	}
 }
 
@@ -676,6 +933,185 @@ func TestExtendBoardingOrderReappliesFixedDepositDeduction(t *testing.T) {
 	}
 	if got := roundMoney(payOrder.PayAmount); got != 200 {
 		t.Fatalf("expected linked order pay amount 200 after extension, got %.2f", got)
+	}
+}
+
+func TestExtendRoomChecksOnlyAdditionalStayAvailability(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "续住库存门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+	customer := model.Customer{ShopID: shop.ID, Phone: "13800138881", Nickname: "续住客户", DiscountRate: 1}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	operator := model.Staff{ShopID: shop.ID, Phone: "13900138881", PasswordHash: "hash", Name: "续住店员", Role: model.StaffRoleStaff, Status: 1}
+	if err := database.DB.Create(&operator).Error; err != nil {
+		t.Fatalf("create operator: %v", err)
+	}
+	cabinet := model.BoardingCabinet{ShopID: shop.ID, Code: "extend-room", CabinetType: "续住房", RoomCount: 2, Capacity: 1, BasePrice: 100, Status: model.BoardingCabinetStatusEnabled}
+	if err := database.DB.Create(&cabinet).Error; err != nil {
+		t.Fatalf("create cabinet: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+	create := func(start, end string) *model.BoardingOrder {
+		order, err := svc.CreateOrder(shop.ID, BoardingCreateInput{
+			CustomerID: customer.ID,
+			CheckInAt:  start,
+			CheckOutAt: end,
+			RoomGroups: []BoardingRoomGroupInput{
+				{PetCount: 1, CabinetID: cabinet.ID, CheckInAt: start, CheckOutAt: end},
+			},
+			OperatorID: operator.ID,
+		})
+		if err != nil {
+			t.Fatalf("create boarding order %s-%s: %v", start, end, err)
+		}
+		if err := database.DB.Model(&model.BoardingOrder{}).Where("id = ?", order.ID).Update("status", model.BoardingOrderStatusCheckedIn).Error; err != nil {
+			t.Fatalf("mark order checked in: %v", err)
+		}
+		if err := database.DB.Model(&model.BoardingOrderRoom{}).Where("boarding_order_id = ?", order.ID).Update("status", model.BoardingOrderStatusCheckedIn).Error; err != nil {
+			t.Fatalf("mark room checked in: %v", err)
+		}
+		loaded, err := svc.GetOrder(shop.ID, order.ID)
+		if err != nil {
+			t.Fatalf("reload order: %v", err)
+		}
+		return loaded
+	}
+
+	order := create("2026-04-01", "2026-05-01")
+	create("2026-04-30", "2026-05-05")
+	create("2026-05-06", "2026-05-13")
+
+	extended, err := svc.Extend(shop.ID, order.ID, operator.ID, "2026-05-13")
+	if err != nil {
+		t.Fatalf("extend should ignore non-concurrent historical overlap in original stay range: %v", err)
+	}
+	if extended.CheckOutAt != "2026-05-13" {
+		t.Fatalf("expected checkout 2026-05-13, got %s", extended.CheckOutAt)
+	}
+}
+
+func TestExtendPaidHistoricalBoardingOrderCreatesBalanceOrderWithStayFreeDiscount(t *testing.T) {
+	setupBoardingServiceTestDB(t)
+
+	shop := model.Shop{Name: "已支付历史续住门店"}
+	if err := database.DB.Create(&shop).Error; err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+	customer := model.Customer{ShopID: shop.ID, Phone: "13800139991", Nickname: "历史续住客户", DiscountRate: 1}
+	if err := database.DB.Create(&customer).Error; err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+	operator := model.Staff{ShopID: shop.ID, Phone: "13900139991", PasswordHash: "hash", Name: "店员续住", Role: model.StaffRoleStaff, Status: 1}
+	if err := database.DB.Create(&operator).Error; err != nil {
+		t.Fatalf("create operator: %v", err)
+	}
+	cabinet := model.BoardingCabinet{ShopID: shop.ID, Code: "history-extend", CabinetType: "历史续住房", RoomCount: 2, Capacity: 1, BasePrice: 100, Status: model.BoardingCabinetStatusEnabled}
+	if err := database.DB.Create(&cabinet).Error; err != nil {
+		t.Fatalf("create cabinet: %v", err)
+	}
+	stayRuleJSON, _ := json.Marshal(stayRule{Stay: 3, Free: 1})
+	stayPolicy := model.BoardingDiscountPolicy{
+		ShopID:     shop.ID,
+		Name:       "住3免1",
+		PolicyType: model.BoardingPolicyTypeStayNFreeM,
+		RuleJSON:   string(stayRuleJSON),
+		Priority:   1,
+		Status:     1,
+	}
+	if err := database.DB.Create(&stayPolicy).Error; err != nil {
+		t.Fatalf("create stay policy: %v", err)
+	}
+
+	svc := NewBoardingService(
+		repository.NewBoardingRepository(),
+		repository.NewOrderRepository(),
+		repository.NewCustomerRepository(),
+		repository.NewPetRepository(),
+	)
+	order, err := svc.CreateOrder(shop.ID, BoardingCreateInput{
+		CustomerID: customer.ID,
+		CheckInAt:  "2026-05-01",
+		CheckOutAt: "2026-05-03",
+		PolicyIDs:  []uint{stayPolicy.ID},
+		RoomGroups: []BoardingRoomGroupInput{
+			{PetCount: 1, CabinetID: cabinet.ID, CheckInAt: "2026-05-01", CheckOutAt: "2026-05-03"},
+		},
+		OperatorID: operator.ID,
+	})
+	if err != nil {
+		t.Fatalf("create boarding order: %v", err)
+	}
+	if got := roundMoney(order.PayAmount); got != 200 {
+		t.Fatalf("expected initial pay amount 200, got %.2f", got)
+	}
+	originalPayOrderID := *order.OrderID
+	if err := database.DB.Model(&model.Order{}).Where("id = ?", originalPayOrderID).Updates(map[string]interface{}{
+		"pay_status": 1,
+		"status":     1,
+	}).Error; err != nil {
+		t.Fatalf("mark linked pay order paid: %v", err)
+	}
+	if err := database.DB.Model(&model.BoardingOrder{}).Where("id = ?", order.ID).Updates(map[string]interface{}{
+		"status":              model.BoardingOrderStatusCheckedOut,
+		"actual_check_out_at": "2026-05-03",
+	}).Error; err != nil {
+		t.Fatalf("mark boarding order checked out: %v", err)
+	}
+	if err := database.DB.Model(&model.BoardingOrderRoom{}).Where("boarding_order_id = ?", order.ID).Updates(map[string]interface{}{
+		"status":              model.BoardingOrderStatusCheckedOut,
+		"actual_check_out_at": "2026-05-03",
+	}).Error; err != nil {
+		t.Fatalf("mark boarding room checked out: %v", err)
+	}
+
+	extended, err := svc.Extend(shop.ID, order.ID, operator.ID, "2026-05-05")
+	if err != nil {
+		t.Fatalf("extend paid historical boarding order: %v", err)
+	}
+	if extended.Status != model.BoardingOrderStatusCheckedIn {
+		t.Fatalf("expected extended historical order to become checked_in, got %s", extended.Status)
+	}
+	if got := roundMoney(extended.PayAmount); got != 300 {
+		t.Fatalf("expected full repriced amount 300 after stay-free discount, got %.2f", got)
+	}
+	if got := roundMoney(extended.DiscountAmount); got != 100 {
+		t.Fatalf("expected stay-free discount 100, got %.2f", got)
+	}
+	if extended.OrderID == nil || *extended.OrderID == originalPayOrderID {
+		t.Fatalf("expected a new balance pay order to be linked")
+	}
+
+	var originalPayOrder model.Order
+	if err := database.DB.First(&originalPayOrder, originalPayOrderID).Error; err != nil {
+		t.Fatalf("load original pay order: %v", err)
+	}
+	if originalPayOrder.PayStatus != 1 || roundMoney(originalPayOrder.PayAmount) != 200 {
+		t.Fatalf("expected original paid order to stay paid at 200, got status=%d amount=%.2f", originalPayOrder.PayStatus, originalPayOrder.PayAmount)
+	}
+
+	var balanceOrder model.Order
+	if err := database.DB.Preload("Items").First(&balanceOrder, *extended.OrderID).Error; err != nil {
+		t.Fatalf("load balance order: %v", err)
+	}
+	if balanceOrder.PayStatus != 0 {
+		t.Fatalf("expected balance order unpaid, got %d", balanceOrder.PayStatus)
+	}
+	if got := roundMoney(balanceOrder.PayAmount); got != 100 {
+		t.Fatalf("expected balance order pay amount 100, got %.2f", got)
+	}
+	if got := boardingPaidCreditFromItems(balanceOrder.Items); got != 200 {
+		t.Fatalf("expected paid credit item 200, got %.2f", got)
 	}
 }
 

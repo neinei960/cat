@@ -22,6 +22,7 @@ interface CreateApptReq {
   source?: number
   customer_type?: number
   notes?: string
+  deposit?: number
 }
 
 export function getAvailableSlots(date: string, options: { service_ids: number[]; duration: number; exclude_id?: number }) {

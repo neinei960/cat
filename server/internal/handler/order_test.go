@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/neinei960/cat/server/internal/model"
+	"github.com/neinei960/cat/server/internal/repository"
+	"github.com/neinei960/cat/server/internal/service"
 )
 
 func TestBuildOrderDraftTreatsSingleGroupMergedOrderAsBatch(t *testing.T) {
@@ -89,5 +91,34 @@ func TestBuildOrderDraftPreservesBoardingAmountsWhenAddingProducts(t *testing.T)
 	}
 	if items[0].ItemType != 4 || items[1].ItemType != 6 || items[2].ItemType != 2 {
 		t.Fatalf("unexpected merged item types: %+v", items)
+	}
+}
+
+func TestBuildOrderDraftBindsExistingCustomerByPhone(t *testing.T) {
+	setupCustomerTestDB(t)
+	customer := seedCustomer(t, 1, "024578", "老家长")
+	h := &OrderHandler{
+		customerService: service.NewCustomerService(repository.NewCustomerRepository()),
+	}
+
+	req := createOrderReq{
+		CustomerPhone: "024578",
+		Items: []orderItemInput{
+			{
+				ItemType:  2,
+				ItemID:    88,
+				Name:      "零售商品",
+				Quantity:  1,
+				UnitPrice: 20,
+			},
+		},
+	}
+
+	order, _, err := h.buildOrderDraft(1, req, nil)
+	if err != nil {
+		t.Fatalf("build retail draft: %v", err)
+	}
+	if order.CustomerID == nil || *order.CustomerID != customer.ID {
+		t.Fatalf("expected customer_id %d from phone match, got %v", customer.ID, order.CustomerID)
 	}
 }

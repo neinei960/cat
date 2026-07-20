@@ -22,5 +22,6 @@ type Service struct {
 	ServiceCategory *ServiceCategory   `json:"service_category,omitempty" gorm:"foreignKey:CategoryID"`
 	PriceRules      []ServicePriceRule `json:"price_rules,omitempty" gorm:"foreignKey:ServiceID"`
 
-	MonthlyUsageCount int64 `json:"monthly_usage_count,omitempty" gorm:"-"`
+	MonthlyUsageCount  int64 `json:"monthly_usage_count,omitempty" gorm:"-"`
+	CustomerUsageCount int64 `json:"customer_usage_count,omitempty" gorm:"-"`
 }
