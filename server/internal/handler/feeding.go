@@ -108,6 +108,17 @@ func (h *FeedingHandler) UpdatePlan(c *gin.Context) {
 	response.Success(c, plan)
 }
 
+func (h *FeedingHandler) DeletePlan(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	role, _ := c.Get("role")
+	roleText, _ := role.(string)
+	if err := h.service.DeletePlan(c.GetUint("shop_id"), uint(id), roleText); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, nil)
+}
+
 func (h *FeedingHandler) PausePlan(c *gin.Context) {
 	h.changePlanStatus(c, "pause")
 }

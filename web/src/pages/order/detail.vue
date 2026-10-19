@@ -10,26 +10,54 @@
 
     <view class="card">
       <view class="row"><text class="label">订单号</text><text>{{ order.order_no }}</text></view>
-      <view class="row"><text class="label">客户</text><text>{{ order.customer?.nickname || '-' }}</text></view>
       <view class="row">
-        <text class="label">{{ order.order_kind === 'product' ? '订单类型' : '猫咪' }}</text>
+        <text class="label">客户</text>
         <text
-          :class="['row-value', primaryPetId ? 'pet-link' : '']"
-          @click="goPetDetail(primaryPetId)"
-        >{{ order.order_kind === 'product' ? '商品零售' : (order.pet_summary || order.pet?.name || '-') }}</text>
+          :class="['row-value', order.customer_id ? 'pet-link' : '']"
+          @click="goCustomerDetail(order.customer_id)"
+        >{{ order.customer?.nickname || '-' }}</text>
+      </view>
+      <view class="row pet-row" v-if="headerPets.length || order.order_kind !== 'product' || canEditCustomerPet">
+        <text class="label">猫咪</text>
+        <view class="pet-name-list">
+          <template v-if="headerPets.length">
+            <template v-for="(pet, index) in headerPets" :key="`${pet.pet_id || pet.pet_name}-${index}`">
+              <text
+                class="pet-link pet-name-link"
+                @click="goPetDetail(pet.pet_id, pet.pet_name)"
+              >{{ pet.pet_name }}</text>
+              <text v-if="index < headerPets.length - 1" class="pet-name-separator">、</text>
+            </template>
+          </template>
+          <text v-else class="row-value">-</text>
+        </view>
+      </view>
+      <view class="row" v-if="showOrderKindRow">
+        <text class="label">订单类型</text>
+        <text class="row-value">{{ orderKindLabel }}</text>
+      </view>
+      <view class="row" v-if="order.appointment_id">
+        <text class="label">到店状态</text>
+        <text :class="['row-value', appointmentIsLateValue ? 'late-flag' : '']">{{ appointmentIsLateValue ? '迟到' : '正常' }}</text>
       </view>
       <view class="row"><text class="label">经手员工</text><text>{{ order.staff?.name || '-' }}</text></view>
-      <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ payMethodMap[order.pay_method] || order.pay_method }}</text></view>
+      <view class="row" v-if="order.pay_method"><text class="label">支付方式</text><text>{{ displayPayMethod }}</text></view>
+      <view class="row" v-if="order.pay_method === 'mixed_balance'"><text class="label">余额扣款</text><text>¥{{ Number(order.member_balance_used || 0).toFixed(2) }}</text></view>
+      <view class="row" v-if="order.pay_method === 'mixed_balance'"><text class="label">补差金额</text><text>¥{{ Number(order.cash_pay_amount || 0).toFixed(2) }}</text></view>
       <view class="row" v-if="order.pay_time"><text class="label">支付时间</text><text>{{ formatDateTime(order.pay_time) }}</text></view>
     </view>
 
     <view class="card">
       <text class="card-title">明细</text>
       <view v-for="(group, groupIndex) in petGroups" :key="`${group.pet_name}-${groupIndex}`" class="pet-group">
-        <view class="pet-group-head">
+        <view v-if="shouldShowPetGroupHead(group)" class="pet-group-head">
           <text
-            :class="['pet-group-name', group.pet_id ? 'pet-link' : '', group.pet_name === '零售商品' ? 'group-retail' : '']"
-            @click="goPetDetail(group.pet_id)"
+            :class="[
+              'pet-group-name',
+              group.pet_name !== '零售商品' ? 'pet-link' : '',
+              group.pet_name === '零售商品' ? 'group-retail' : ''
+            ]"
+            @click="group.pet_name !== '零售商品' ? goPetDetail(group.pet_id, group.pet_name) : undefined"
           >{{ group.pet_name === '零售商品' ? '📦' : '🐱' }} {{ group.pet_name }}</text>
           <text class="pet-group-count">{{ group.items.length }}项</text>
         </view>
@@ -40,13 +68,13 @@
         </view>
       </view>
       <view class="total-section">
-        <view class="total-row" v-if="serviceTotalValue > 0"><text>服务小计</text><text>¥{{ serviceTotalValue.toFixed(2) }}</text></view>
-        <view class="total-row" v-if="serviceDiscountValue > 0"><text>服务优惠</text><text class="discount-text">-¥{{ serviceDiscountValue.toFixed(2) }}</text></view>
-        <view class="total-row" v-if="productTotalValue > 0"><text>商品小计</text><text>¥{{ productTotalValue.toFixed(2) }}</text></view>
-        <view class="total-row" v-if="productDiscountValue > 0"><text>商品优惠</text><text class="discount-text">-¥{{ productDiscountValue.toFixed(2) }}</text></view>
-        <view class="total-row" v-if="addonTotalValue > 0"><text>附加费</text><text>¥{{ addonTotalValue.toFixed(2) }}</text></view>
-        <view class="total-row"><text>总计</text><text>¥{{ order.total_amount }}</text></view>
-        <view class="total-row" v-if="order.discount_amount"><text>优惠</text><text class="discount-text">-¥{{ order.discount_amount }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && serviceTotalValue > 0"><text>服务小计</text><text>¥{{ serviceTotalValue.toFixed(2) }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && serviceDiscountValue > 0"><text>服务优惠</text><text class="discount-text">-¥{{ serviceDiscountValue.toFixed(2) }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && productTotalValue > 0"><text>商品小计</text><text>¥{{ productTotalValue.toFixed(2) }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && productDiscountValue > 0"><text>商品优惠</text><text class="discount-text">-¥{{ productDiscountValue.toFixed(2) }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && addonTotalValue > 0"><text>附加费</text><text>¥{{ addonTotalValue.toFixed(2) }}</text></view>
+        <view class="total-row" v-if="showDetailBreakdown && order.discount_amount"><text>优惠</text><text class="discount-text">-¥{{ order.discount_amount }}</text></view>
+        <view class="total-row" v-if="appointmentDepositDeductionValue > 0"><text>{{ appointmentDepositLabel }}</text><text class="discount-text">-¥{{ appointmentDepositDeductionValue.toFixed(2) }}</text></view>
         <view class="total-row final"><text>应付</text><text class="pay-amount">¥{{ order.pay_amount }}</text></view>
         <view class="remark-block">
           <view class="remark-head">
@@ -57,7 +85,6 @@
             v-model="remarkDraft"
             class="remark-input"
             maxlength="200"
-            auto-height
             placeholder="备注收款说明、客户要求或补充信息"
           />
         </view>
@@ -65,171 +92,258 @@
     </view>
 
     <view class="actions">
+      <button v-if="canEditCustomerPet" class="btn link" @click="openCustomerPetModal">修改客户/猫咪</button>
       <button v-if="canEditPrice" class="btn edit" @click="goEditOrder">修改订单</button>
       <button v-if="order.status === 0 && !isDeletedView" class="btn pay" @click="openPayModal">收款</button>
       <button v-if="order.status === 0 && isAdmin && !isDeletedView" class="btn cancel" @click="doCancel">取消订单</button>
       <button v-if="order.status === 1 && isAdmin && !isDeletedView" class="btn refund" @click="doRefund">退款</button>
       <button v-if="(order.status === 1 || order.status === 2 || order.status === 3) && isAdmin && !isDeletedView" class="btn delete" @click="doDelete">删除订单</button>
+      <button v-if="canGenerateCareReport" class="btn report" @click="showCareReport = true">生成报告</button>
       <button class="btn receipt" @click="showReceipt = true">生成小票</button>
     </view>
 
+    <view class="modal-mask" v-if="showCustomerPetModal" @click="closeCustomerPetModal">
+      <view class="link-modal" @click.stop>
+        <view class="modal-head">
+          <view>
+            <text class="modal-title">修改客户/猫咪</text>
+            <text class="modal-subtitle">只修改订单归属，不改金额和明细</text>
+          </view>
+          <text class="modal-close" @click="closeCustomerPetModal">×</text>
+        </view>
+
+        <view class="link-section">
+          <view class="link-section-head">
+            <text class="link-section-title">客户</text>
+            <text v-if="customerPetSelectedCustomer" class="link-clear" @click="clearCustomerPetCustomer">清空</text>
+          </view>
+          <view v-if="customerPetSelectedCustomer" class="selected-link-card">
+            <text class="selected-link-name">{{ customerPetSelectedCustomer.nickname || '未命名客户' }}</text>
+            <text class="selected-link-meta">{{ customerPetSelectedCustomer.phone || '未留手机号' }}</text>
+          </view>
+          <view class="link-search">
+            <input
+              v-model="customerPetCustomerKeyword"
+              class="link-search-input"
+              confirm-type="search"
+              @input="searchCustomerPetCustomers"
+              @confirm="searchCustomerPetCustomers"
+            />
+            <text v-if="!customerPetCustomerKeyword" class="link-search-placeholder">搜索客户昵称或手机号</text>
+          </view>
+          <view v-if="customerPetCustomerOptions.length" class="link-options">
+            <view
+              v-for="customer in customerPetCustomerOptions"
+              :key="customer.ID"
+              class="link-option"
+              @click="selectCustomerPetCustomer(customer)"
+            >
+              <text class="link-option-name">{{ customer.nickname || '未命名客户' }}</text>
+              <text class="link-option-meta">{{ customer.phone || '未留手机号' }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="link-section">
+          <view class="link-section-head">
+            <text class="link-section-title">猫咪</text>
+            <text v-if="customerPetSelectedPet" class="link-clear" @click="customerPetSelectedPet = null">清空</text>
+          </view>
+          <view v-if="!customerPetSelectedCustomer" class="link-empty">先选择客户；纯商品单也可以只绑定客户。</view>
+          <view v-else-if="customerPetPets.length === 0" class="link-empty">该客户暂无猫咪档案，可以只保存客户。</view>
+          <view v-else class="pet-choice-list">
+            <view
+              v-for="pet in customerPetPets"
+              :key="pet.ID"
+              :class="['pet-choice', customerPetSelectedPet?.ID === pet.ID ? 'active' : '']"
+              @click="customerPetSelectedPet = pet"
+            >
+              <text class="pet-choice-name">{{ pet.name }}</text>
+              <text class="pet-choice-meta">{{ pet.breed || '未知品种' }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="link-actions">
+          <button class="link-btn ghost" @click="closeCustomerPetModal">取消</button>
+          <button class="link-btn primary" :disabled="savingCustomerPet" @click="saveCustomerPet">{{ savingCustomerPet ? '保存中...' : '保存' }}</button>
+        </view>
+      </view>
+    </view>
+
     <!-- 小票弹窗 -->
-    <view class="modal-mask" v-if="showReceipt" @click="showReceipt = false">
+    <view class="modal-mask" v-if="showReceipt" @click="closeReceipt">
       <view class="receipt-outer" @click.stop>
-      <view class="receipt-wrap">
-        <view class="receipt" id="receiptContent">
+      <view class="receipt-wrap" v-if="!receiptImageUrl">
+        <view class="receipt" id="receiptContent" :class="{ 'receipt-lite-render': receiptLiteRender }">
+          <view class="receipt-card receipt-brand-card">
+            <view class="receipt-brand-top">
+              <view class="receipt-logo">
+                <image
+                  v-if="!logoError && !receiptLiteRender"
+                  class="receipt-logo-img"
+                  :src="logoSrc"
+                  mode="aspectFill"
+                  @error="logoError = true"
+                />
+                <text v-else class="receipt-logo-emoji">猫</text>
+              </view>
+              <view class="receipt-brand-main">
+                <text class="receipt-shop">{{ shopName }}</text>
+                <view class="receipt-sub">
+                  <text
+                    v-for="(line, index) in receiptSubtitleLines"
+                    :key="`receipt-sub-${index}`"
+                    class="receipt-sub-line"
+                  >{{ line }}</text>
+                </view>
+              </view>
+              <view v-if="!hasMemberCard" class="receipt-brand-tag muted">{{ statusMap[Number(order.status)] || '账单' }}</view>
+            </view>
 
-          <!-- 头部 Logo 区域 -->
-          <view class="receipt-header">
-            <view class="receipt-logo">
-              <image
-                v-if="!logoError"
-                class="receipt-logo-img"
-                :src="logoSrc"
-                mode="aspectFill"
-                @error="logoError = true"
-              />
-              <text v-if="logoError" class="receipt-logo-emoji">🐱</text>
-            </view>
-            <view class="receipt-brand">
-              <text class="receipt-shop">{{ shopName }}</text>
-              <text class="receipt-sub" v-if="shopSubtitle">{{ shopSubtitle }}</text>
-              <text class="receipt-sub2">— 消费小票 —</text>
-            </view>
-          </view>
-
-          <!-- 分隔线 -->
-          <view class="receipt-dashed"></view>
-
-          <!-- 客户信息 -->
-          <view class="receipt-info">
-            <view class="receipt-info-row">
-              <text class="receipt-info-label">消费时间</text>
-              <text class="receipt-info-value">{{ formatDateTime(order.pay_time || order.CreatedAt) }}</text>
-            </view>
-            <view class="receipt-info-row">
-              <text class="receipt-info-label">手机号码</text>
-              <text class="receipt-info-value">{{ maskPhone(order.customer?.phone) }}</text>
-            </view>
-            <view class="receipt-info-row" v-if="hasMemberCard">
-              <text class="receipt-info-label">会员余额</text>
-              <view class="receipt-member-badge">
-                <text class="receipt-member-level">VIP {{ memberCardLevel }}</text>
-                <text class="receipt-member-amount">¥{{ balanceBeforePay.toFixed(2) }}</text>
+            <view class="receipt-meta-list">
+              <view class="receipt-meta-row">
+                <text class="receipt-meta-label">消费时间</text>
+                <text class="receipt-meta-value">{{ formatReceiptDateTime(order.pay_time || order.CreatedAt) }}</text>
+              </view>
+              <view class="receipt-meta-row">
+                <text class="receipt-meta-label">手机号码</text>
+                <text class="receipt-meta-value">{{ maskPhone(order.customer?.phone) }}</text>
+              </view>
+              <view v-if="hasMemberCard" class="receipt-meta-row">
+                <text class="receipt-meta-label">会员余额</text>
+                <view class="receipt-member-badge">
+                  <text class="receipt-member-level">VIP {{ memberCardLevel }}</text>
+                  <text class="receipt-member-amount">¥{{ receiptBalanceBeforePay.toFixed(2) }}</text>
+                </view>
               </view>
             </view>
           </view>
 
-          <!-- 分隔线 -->
-          <view class="receipt-dashed"></view>
+          <view
+            v-for="(group, groupIndex) in receiptGroups"
+            :key="`receipt-${group.pet_name}-${groupIndex}`"
+            class="receipt-card receipt-group-card"
+          >
+            <text class="receipt-group-title">{{ group.pet_name }}</text>
 
-          <!-- 服务明细表格 -->
-          <view class="receipt-table">
-          <view class="receipt-table-head">
-            <text class="rt-name">项目</text>
-            <text class="rt-price">零售价</text>
-            <text class="rt-rate">折扣</text>
-            <text class="rt-qty">数量</text>
-            <text class="rt-amount">小计</text>
-          </view>
-            <view v-for="(group, groupIndex) in receiptGroups" :key="`receipt-${group.pet_name}-${groupIndex}`" class="receipt-group">
-              <view class="receipt-group-head">
-                <text class="receipt-group-name">{{ group.pet_name }}</text>
+            <view
+              v-for="item in group.items"
+              :key="`receipt-item-${groupIndex}-${item.ID}`"
+              class="receipt-item"
+            >
+              <view class="receipt-item-main">
+                <text class="receipt-item-name">{{ item.name }}</text>
+                <view class="receipt-item-meta">
+                  <text>售价 ¥{{ Number(item.unit_price || 0).toFixed(2) }}</text>
+                  <template v-if="hasReceiptDiscount(item)">
+                    <text class="receipt-item-dot">·</text>
+                    <text>{{ getReceiptDiscountTag(item) }}</text>
+                  </template>
+                  <text class="receipt-item-dot">·</text>
+                  <text>×{{ item.quantity }}</text>
+                </view>
               </view>
-              <view
-                :class="['receipt-table-row', rowIndex % 2 === 1 ? 'receipt-table-row-alt' : '']"
-                v-for="(item, rowIndex) in group.items"
-                :key="`receipt-item-${groupIndex}-${item.ID}`"
-              >
-                <text class="rt-name">{{ item.name }}</text>
-                <text class="rt-price">{{ item.unit_price }}</text>
-                <text class="rt-rate">
-                  <text v-if="getReceiptDiscountTag(item) !== '-'" class="rt-rate-tag">{{ getReceiptDiscountTag(item) }}</text>
-                  <text v-else>-</text>
-                </text>
-                <text class="rt-qty">{{ item.quantity }}</text>
-                <text class="rt-amount">{{ calcReceiptAmount(item) }}</text>
-              </view>
+              <text class="receipt-item-price">¥{{ calcReceiptAmount(item) }}</text>
             </view>
           </view>
 
-          <!-- 分隔线 -->
-          <view class="receipt-dashed"></view>
+          <view class="receipt-card receipt-summary-card">
+            <view v-if="showReceiptBreakdown && serviceTotalValue > 0" class="receipt-summary-row">
+              <text>服务小计</text>
+              <text>¥{{ serviceTotalValue.toFixed(2) }}</text>
+            </view>
+            <view v-if="showReceiptBreakdown && productTotalValue > 0" class="receipt-summary-row">
+              <text>商品小计</text>
+              <text>¥{{ productTotalValue.toFixed(2) }}</text>
+            </view>
+            <view v-if="showReceiptBreakdown && addonTotalValue > 0" class="receipt-summary-row">
+              <text>附加费</text>
+              <text>¥{{ addonTotalValue.toFixed(2) }}</text>
+            </view>
+            <view v-if="showReceiptBreakdown && productDiscountValue > 0" class="receipt-summary-row saving">
+              <text>商品优惠</text>
+              <text>-¥{{ productDiscountValue.toFixed(2) }}</text>
+            </view>
+            <view v-if="receiptTotalSaving > 0" class="receipt-summary-row saving">
+              <text>总优惠</text>
+              <text>-¥{{ receiptTotalSaving.toFixed(2) }}</text>
+            </view>
+            <view v-if="appointmentDepositDeductionValue > 0" class="receipt-summary-row saving">
+              <text>{{ appointmentDepositLabel }}</text>
+              <text>-¥{{ appointmentDepositDeductionValue.toFixed(2) }}</text>
+            </view>
 
-          <!-- 金额汇总 -->
-          <view class="receipt-summary">
-            <view class="receipt-row" v-if="showReceiptBreakdown && serviceTotalValue > 0">
-              <text class="receipt-row-label">服务小计</text>
-              <text class="receipt-row-value">¥{{ serviceTotalValue.toFixed(2) }}</text>
-            </view>
-            <view class="receipt-row" v-if="showReceiptBreakdown && productTotalValue > 0">
-              <text class="receipt-row-label">商品小计</text>
-              <text class="receipt-row-value">¥{{ productTotalValue.toFixed(2) }}</text>
-            </view>
-            <view class="receipt-row" v-if="showReceiptBreakdown && showDiscountSummary && productDiscountValue > 0">
-              <text class="receipt-row-label">商品优惠</text>
-              <view class="receipt-discount-tag">
-                <text>省 ¥{{ productDiscountValue.toFixed(2) }}</text>
+            <view class="receipt-summary-divider"></view>
+
+            <view class="receipt-total-row">
+              <view class="receipt-total-copy">
+                <text class="receipt-total-label">实付总计</text>
+                <text class="receipt-total-tip">{{ receiptTotalSaving > 0 ? `本次已节省 ¥${receiptTotalSaving.toFixed(2)}` : '期待下次见 👋🏻' }}</text>
               </view>
+              <text class="receipt-total-price">¥{{ Number(order.pay_amount || 0).toFixed(2) }}</text>
             </view>
-            <view class="receipt-row" v-if="showReceiptBreakdown && addonTotalValue > 0">
-              <text class="receipt-row-label">附加费</text>
-              <text class="receipt-row-value">¥{{ addonTotalValue.toFixed(2) }}</text>
+
+            <view v-if="hasMemberCard" class="receipt-balance-row">
+              <text class="receipt-meta-label">消费后余额</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptBalanceAfterPay.toFixed(2) }}</text>
             </view>
-            <view class="receipt-row" v-if="showReceiptBreakdown && showBillTotal">
-              <text class="receipt-row-label">账单总价</text>
-              <text class="receipt-row-value">¥{{ order.total_amount }}</text>
+            <view v-if="receiptBalanceUsedAmount > 0" class="receipt-balance-row">
+              <text class="receipt-meta-label">余额抵扣</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptBalanceUsedAmount.toFixed(2) }}</text>
             </view>
-            <view class="receipt-row" v-if="showReceiptBreakdown && showDiscountSummary && order.discount_amount > 0">
-              <text class="receipt-row-label">优惠金额</text>
-              <view class="receipt-discount-tag">
-                <text>省 ¥{{ order.discount_amount }}</text>
-              </view>
-              </view>
-            <view class="receipt-pay-block">
-              <text class="receipt-pay-label">应付金额</text>
-              <text class="receipt-pay-amount">¥{{ order.pay_amount }}</text>
-            </view>
-            <view class="receipt-info-row" v-if="hasMemberCard && order.pay_method === 'balance'">
-              <text class="receipt-info-label">消费后余额</text>
-              <view class="receipt-member-badge">
-                <text class="receipt-member-level">VIP {{ memberCardLevel }}</text>
-                <text class="receipt-member-amount">¥{{ balanceAfterPay.toFixed(2) }}</text>
-              </view>
+            <view v-if="receiptCashPayAmount > 0" class="receipt-balance-row">
+              <text class="receipt-meta-label">用户需补</text>
+              <text class="receipt-meta-value receipt-meta-value-strong">¥{{ receiptCashPayAmount.toFixed(2) }}</text>
             </view>
           </view>
 
-          <!-- 分隔线 -->
-          <view class="receipt-dashed"></view>
-
-          <!-- 底部信息 -->
-          <view class="receipt-footer">
+          <view class="receipt-card receipt-footer-card">
             <view class="receipt-footer-row">
               <text class="receipt-footer-label">经手员工</text>
               <text class="receipt-footer-value">{{ order.staff?.name || '-' }}</text>
             </view>
             <view class="receipt-footer-row">
               <text class="receipt-footer-label">支付方式</text>
-              <text class="receipt-footer-value">{{ payMethodMap[order.pay_method] || order.pay_method || '待付款' }}</text>
+              <text class="receipt-footer-value">{{ displayPayMethod }}</text>
+            </view>
+            <view v-if="order.pay_method === 'mixed_balance'" class="receipt-footer-row">
+              <text class="receipt-footer-label">余额扣款</text>
+              <text class="receipt-footer-value">¥{{ Number(order.member_balance_used || 0).toFixed(2) }}</text>
+            </view>
+            <view v-if="order.pay_method === 'mixed_balance'" class="receipt-footer-row">
+              <text class="receipt-footer-label">补差金额</text>
+              <text class="receipt-footer-value">¥{{ Number(order.cash_pay_amount || 0).toFixed(2) }}</text>
             </view>
           </view>
 
-          <!-- 感谢语 -->
           <view class="receipt-thanks">
             <text class="receipt-thanks-cn">赞美生命 创造健康美好的人宠生活</text>
             <text class="receipt-thanks-en">Praise life, Create a healthy and beautiful pet life.</text>
           </view>
-
         </view>
       </view>
         <view class="receipt-actions" v-if="!receiptImageUrl">
           <view class="btn-receipt-save" @click="saveReceiptImage">{{ generatingImage ? '生成中...' : '生成图片' }}</view>
-          <view class="btn-receipt-close" @click="showReceipt = false">关闭</view>
+          <view class="btn-receipt-close" @click="closeReceipt">关闭</view>
         </view>
         <!-- 生成后显示图片 -->
         <view v-if="receiptImageUrl" class="receipt-image-wrap">
-          <text class="receipt-image-hint">点击「保存图片」或长按图片保存</text>
-          <image :src="receiptBlobUrl || receiptImageUrl" mode="widthFix" class="receipt-image" show-menu-by-longpress />
+          <text class="receipt-image-hint">{{ receiptImageHint }}</text>
+          <img
+            v-if="showNativeReceiptImage"
+            :src="receiptPreviewSrc"
+            class="receipt-image receipt-image-native"
+            alt="小票图片"
+            @click.stop
+          />
+          <image
+            v-else
+            :src="receiptPreviewSrc"
+            mode="widthFix"
+            class="receipt-image"
+            show-menu-by-longpress
+          />
           <view class="receipt-actions">
             <view class="btn-receipt-save" @click="downloadReceiptImage">保存图片</view>
             <view class="btn-receipt-close" @click="closeReceipt">关闭</view>
@@ -237,6 +351,13 @@
         </view>
       </view>
     </view>
+
+    <OrderCareReportModal
+      v-if="order"
+      :visible="showCareReport"
+      :order="order"
+      @close="showCareReport = false"
+    />
 
     <!-- Pay modal -->
     <view class="modal-mask" v-if="showPayModal" @click="showPayModal = false">
@@ -254,6 +375,11 @@
           <text class="modal-amount">¥{{ order.pay_amount }}</text>
         </view>
 
+        <view v-if="canChooseBalancePayment && customerCard" class="pay-choice-tip">
+          <text class="pay-choice-title">会员余额</text>
+          <text class="pay-choice-desc">该客户会员余额 ¥{{ memberBalance.toFixed(2) }}，店长可选择扣余额，也可以选择其它收款方式。</text>
+        </view>
+
         <view class="pay-remark-panel">
           <text class="pay-remark-label">备注</text>
           <textarea
@@ -266,17 +392,17 @@
         </view>
 
         <view class="pay-grid">
-          <view class="pay-card qrcode" @click="doPay('qrcode')">
+          <view :class="['pay-card', 'qrcode', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('qrcode')">
             <view class="pay-card-badge">码</view>
             <text class="pay-card-label">扫码</text>
             <text class="pay-card-sub">聚合码 / 扫码枪</text>
           </view>
-          <view class="pay-card wechat" @click="doPay('wechat')">
+          <view :class="['pay-card', 'wechat', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('wechat')">
             <view class="pay-card-badge">微</view>
             <text class="pay-card-label">微信</text>
             <text class="pay-card-sub">微信转账 / 收款</text>
           </view>
-          <view class="pay-card meituan" @click="doPay('meituan')">
+          <view :class="['pay-card', 'meituan', paying ? 'pay-card-disabled' : '']" @click="confirmPayMethod('meituan')">
             <view class="pay-card-badge">团</view>
             <text class="pay-card-label">美团</text>
             <text class="pay-card-sub">平台核销订单</text>
@@ -300,24 +426,48 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
-import { getOrder, payOrder, cancelOrder, refundOrder, updateOrderRemark, deleteOrder } from '@/api/order'
+import OrderCareReportModal from '@/components/order/OrderCareReportModal.vue'
+import { getOrder, payOrder, cancelOrder, refundOrder, updateOrderRemark, updateOrderCustomerPet, deleteOrder } from '@/api/order'
+import { getCustomerList, getCustomerPets } from '@/api/customer'
+import { getPetList } from '@/api/pet'
 import { getShop } from '@/api/shop'
 import { getCustomerCard } from '@/api/member-card'
+import { uploadH5File } from '@/api/upload'
 import { useAuthStore } from '@/store/auth'
 import html2canvas from 'html2canvas'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
+import { getReceiptGroupName, getReceiptItemDisplayName, splitOrderItemName } from '@/utils/order-item-display'
+import { canGenerateOrderCareReport } from '@/utils/order-care-report'
+import { getReceiptCanvasScale } from '@/utils/receipt-image'
+import { buildReceiptFileName, dataUrlToBlob, isAppleSafariBrowser, saveImageByUrl } from '@/utils/web-image-save'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
+const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
+const currentStaffRole = computed(() => {
+  if (authStore.staffInfo?.role) return authStore.staffInfo.role
+  try {
+    const raw = uni.getStorageSync('staffInfo')
+    if (!raw) return ''
+    return JSON.parse(raw)?.role || ''
+  } catch {
+    return ''
+  }
+})
+const isStoreOwner = computed(() => currentStaffRole.value === 'admin')
 const order = ref<any>(null)
 const isDeletedView = ref(false)
 const showPayModal = ref(false)
 const showReceipt = ref(false)
+const showCareReport = ref(false)
+const showCustomerPetModal = ref(false)
 const remarkDraft = ref('')
 const savingRemark = ref(false)
+const savingCustomerPet = ref(false)
+const paying = ref(false)
 const memberBalance = ref(0)
 const customerCard = ref<any>(null)
 const logoError = ref(false)
@@ -326,6 +476,14 @@ const shopName = ref('猫咪洗护')
 const shopSubtitle = ref('')
 const lockedScrollY = ref(0)
 const pageScrollLockApplied = ref(false)
+const resolvingPetName = ref('')
+const customerPetCustomerKeyword = ref('')
+const customerPetCustomerOptions = ref<any[]>([])
+const customerPetSelectedCustomer = ref<any | null>(null)
+const customerPetSelectedPet = ref<any | null>(null)
+const customerPetPets = ref<any[]>([])
+let customerPetSearchTimer: ReturnType<typeof setTimeout> | null = null
+const SERVICE_LIKE_ITEM_TYPES = [1, 4, 5, 6]
 
 function setPageScrollLock(locked: boolean) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -358,26 +516,67 @@ function setPageScrollLock(locked: boolean) {
   window.scrollTo(0, lockedScrollY.value)
   pageScrollLockApplied.value = false
 }
-const hasMemberCard = computed(() => !!customerCard.value?.ID)
+function hasSnapshotAmount(value: unknown) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+}
+
+const hasMemberBalanceSnapshot = computed(() => {
+  return hasSnapshotAmount(order.value?.member_balance_before) || hasSnapshotAmount(order.value?.member_balance_after)
+})
+const hasMemberCard = computed(() => !!customerCard.value?.ID || hasMemberBalanceSnapshot.value)
 const memberCardLevel = computed(() => {
   return customerCard.value?.template?.name || customerCard.value?.card_name || '会员'
 })
-const balanceBeforePay = computed(() => {
+const receiptBalanceBeforePay = computed(() => {
+  if (hasSnapshotAmount(order.value?.member_balance_before)) {
+    return Math.max(Number(order.value?.member_balance_before), 0)
+  }
   const balance = Number(memberBalance.value || 0)
   if (!order.value || order.value.pay_method !== 'balance') return Math.max(balance, 0)
   return Math.max(balance + Number(order.value.pay_amount || 0), 0)
 })
-const balanceAfterPay = computed(() => {
-  if (!order.value || order.value.pay_method !== 'balance') return 0
-  return Math.max(memberBalance.value, 0)
+const isMixedBalancePreview = computed(() => {
+  return !!customerCard.value
+    && Number(order.value?.pay_status || 0) === 0
+    && memberBalance.value > 0
+    && memberBalance.value < Number(order.value?.pay_amount || 0)
 })
-const showDiscountSummary = computed(() => hasMemberCard.value)
-const showBillTotal = computed(() => hasMemberCard.value)
-
+const receiptBalanceAfterPay = computed(() => {
+  if (hasSnapshotAmount(order.value?.member_balance_after)) {
+    return Math.max(Number(order.value?.member_balance_after), 0)
+  }
+  if (isMixedBalancePreview.value) {
+    return 0
+  }
+  return Math.max(Number(memberBalance.value || 0), 0)
+})
+const receiptBalanceUsedAmount = computed(() => {
+  const stored = Number(order.value?.member_balance_used || 0)
+  if (stored > 0) return Math.max(stored, 0)
+  if (!isMixedBalancePreview.value) return 0
+  return Math.min(Math.max(Number(memberBalance.value || 0), 0), Math.max(Number(order.value?.pay_amount || 0), 0))
+})
+const receiptCashPayAmount = computed(() => {
+  const stored = Number(order.value?.cash_pay_amount || 0)
+  if (stored > 0) return Math.max(stored, 0)
+  if (!isMixedBalancePreview.value) return 0
+  return Math.max(Number(order.value?.pay_amount || 0) - receiptBalanceUsedAmount.value, 0)
+})
+const receiptSubtitleLines = computed(() => {
+  const fallback = '专注猫咪科学与健康的可持续人宠美护生活'
+  const raw = String(shopSubtitle.value || fallback)
+  const normalized = raw
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return [fallback]
+  return normalized.split(' ').filter(Boolean)
+})
 const serviceTotalValue = computed(() => {
   const stored = Number(order.value?.service_total || 0)
   if (stored > 0) return stored
-  return getItemSubtotal(1)
+  return getItemSubtotalByTypes(SERVICE_LIKE_ITEM_TYPES)
 })
 const productTotalValue = computed(() => {
   const stored = Number(order.value?.product_total || 0)
@@ -389,14 +588,21 @@ const addonTotalValue = computed(() => {
   if (stored > 0) return stored
   return getItemSubtotal(3)
 })
-const showReceiptBreakdown = computed(() => {
-  const chargeBuckets = [
+const appointmentIsLateValue = computed(() => !!order.value?.appointment_is_late)
+const appointmentDepositLabel = computed(() => {
+  if (order.value?.order_kind === 'boarding') return '定金抵扣'
+  return appointmentIsLateValue.value ? '⚠️ 预约金抵扣' : '预约金抵扣'
+})
+const appointmentDepositDeductionValue = computed(() => Number(order.value?.appointment_deposit_deduction_amount || 0))
+const chargeBucketCount = computed(() => {
+  return [
     serviceTotalValue.value > 0,
     productTotalValue.value > 0,
     addonTotalValue.value > 0,
   ].filter(Boolean).length
-  return chargeBuckets > 1
 })
+const showReceiptBreakdown = computed(() => chargeBucketCount.value > 1)
+const showDetailBreakdown = computed(() => chargeBucketCount.value > 1)
 const serviceDiscountValue = computed(() => {
   const stored = Number(order.value?.service_discount_amount || 0)
   if (stored > 0) return stored
@@ -413,6 +619,14 @@ const productDiscountValue = computed(() => {
   }
   return 0
 })
+const hasAnyDiscount = computed(() => Number(order.value?.discount_amount || 0) > 0 || serviceDiscountValue.value > 0 || productDiscountValue.value > 0)
+const showDiscountSummary = computed(() => hasAnyDiscount.value)
+const showBillTotal = computed(() => hasAnyDiscount.value)
+const receiptTotalSaving = computed(() => {
+  const stored = Number(order.value?.discount_amount || 0)
+  if (stored > 0) return stored
+  return Number((serviceDiscountValue.value + productDiscountValue.value).toFixed(2))
+})
 const serviceDiscountRate = computed(() => {
   if (serviceTotalValue.value <= 0) return 1
   return (serviceTotalValue.value - serviceDiscountValue.value) / serviceTotalValue.value
@@ -421,12 +635,157 @@ const productDiscountRate = computed(() => {
   if (productTotalValue.value <= 0) return 1
   return (productTotalValue.value - productDiscountValue.value) / productTotalValue.value
 })
+function getMemberCardDiscountRate(value: unknown) {
+  const rate = Number(value || 1)
+  if (rate > 0 && rate < 1) return rate
+  return 1
+}
+const excludesMemberServiceDiscount = computed(() => {
+  const items = Array.isArray(order.value?.items) ? order.value.items : []
+  return order.value?.order_kind === 'boarding'
+    || order.value?.order_kind === 'feeding'
+    || Number(order.value?.feeding_plan_id || 0) > 0
+    || items.some((item: any) => [4, 5].includes(Number(item?.item_type)))
+})
+const receiptServiceDiscountRate = computed(() => {
+  if (excludesMemberServiceDiscount.value) return 1
+  const customerRate = getMemberCardDiscountRate(order.value?.customer?.discount_rate)
+  if (customerRate < 1) return customerRate
+  return getMemberCardDiscountRate(customerCard.value?.discount_rate)
+})
+const receiptProductDiscountRate = computed(() => getMemberCardDiscountRate(customerCard.value?.product_discount_rate))
+const balancePaymentPreviewAmount = computed(() => {
+  const storedPayAmount = Math.max(Number(order.value?.pay_amount || 0), 0)
+  if (!order.value || Number(order.value.pay_status || 0) === 1) return storedPayAmount
+
+  const quotedAmount = Math.max(
+    serviceTotalValue.value * receiptServiceDiscountRate.value
+      + productTotalValue.value * receiptProductDiscountRate.value
+      + addonTotalValue.value
+      - appointmentDepositDeductionValue.value,
+    0,
+  )
+  const roundedQuote = Math.round(quotedAmount * 100) / 100
+  if (serviceTotalValue.value <= 0 && productTotalValue.value <= 0 && addonTotalValue.value <= 0) {
+    return storedPayAmount
+  }
+  return Math.min(storedPayAmount, roundedQuote)
+})
 
 const canEditPrice = computed(() => {
   if (!order.value) return false
   if (isDeletedView.value) return false
-  if (order.value.order_kind === 'feeding' || Number(order.value.feeding_plan_id || 0) > 0) return false
-  return Number(order.value.pay_status || 0) === 0 && ![2, 3].includes(Number(order.value.status || 0))
+  if (
+    order.value.order_kind === 'feeding' ||
+    order.value.order_kind === 'boarding' ||
+    Number(order.value.feeding_plan_id || 0) > 0
+  ) return false
+  const status = Number(order.value.status || 0)
+  const payStatus = Number(order.value.pay_status || 0)
+  if ([2, 3].includes(status)) return false
+  if (payStatus === 0) return true
+  return payStatus === 1 && status === 1 && canManageOpenedOrder.value
+})
+const canEditCustomerPet = computed(() => {
+  if (!order.value || isDeletedView.value) return false
+  const status = Number(order.value.status || 0)
+  return status === 0 || status === 1
+})
+const canGenerateCareReport = computed(() => canGenerateOrderCareReport(order.value))
+const canChooseBalancePayment = computed(() => isStoreOwner.value)
+
+const orderKindLabel = computed(() => {
+  switch (order.value?.order_kind) {
+    case 'product':
+      return '商品零售'
+    case 'mixed':
+      return '服务 + 商品'
+    case 'feeding':
+      return '上门喂养'
+    case 'boarding':
+      return '寄养'
+    default:
+      return '服务订单'
+  }
+})
+
+const showOrderKindRow = computed(() => {
+  return !!order.value?.order_kind && order.value.order_kind !== 'service'
+})
+
+const headerPets = computed(() => {
+  const result: Array<{ pet_id?: number; pet_name: string }> = []
+  const appendPet = (petName?: string, petId?: number) => {
+    const name = String(petName || '').trim()
+    if (!name || name === '零售商品') return
+    const normalizedPetId = Number(petId || 0)
+    const existing = result.find((item) => normalizedPetId > 0
+      ? item.pet_id === normalizedPetId
+      : !item.pet_id && item.pet_name === name)
+    if (existing) {
+      if (!existing.pet_id && normalizedPetId > 0) existing.pet_id = normalizedPetId
+      return
+    }
+    result.push({
+      pet_id: normalizedPetId > 0 ? normalizedPetId : undefined,
+      pet_name: name,
+    })
+  }
+
+  appendPet(order.value?.pet?.name, Number(order.value?.pet_id || order.value?.pet?.ID || 0))
+
+  if (order.value?.order_kind !== 'boarding') {
+    for (const group of petGroups.value) {
+      appendPet(group?.pet_name, Number(group?.pet_id || 0))
+    }
+  }
+
+  if (result.length === 0) {
+    const summary = String(order.value?.pet_summary || '').trim()
+    if (summary) {
+      summary
+        .split(/[、,，/]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach((name) => appendPet(name))
+    }
+  }
+
+  return result
+})
+
+const retailNamePrefixes = computed(() => {
+  const prefixes = new Set<string>()
+  const appendPrefix = (value?: string) => {
+    const nextValue = String(value || '').trim()
+    if (!nextValue || nextValue === '零售商品' || nextValue === '未分组') return
+    prefixes.add(nextValue)
+  }
+
+  appendPrefix(order.value?.pet?.name)
+
+  const rawGroups = Array.isArray(order.value?.pet_groups) ? order.value.pet_groups : []
+  for (const group of rawGroups) {
+    appendPrefix(group?.pet_name)
+  }
+
+  const items = Array.isArray(order.value?.items) ? order.value.items : []
+  for (const item of items) {
+    if (Number(item?.item_type) === 2) continue
+    const [petName] = splitOrderItemName(item?.name)
+    appendPrefix(petName)
+  }
+
+  const summary = String(order.value?.pet_summary || '').trim()
+  if (summary) {
+    summary
+      .split(/[、,，/]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((name) => appendPrefix(name))
+  }
+
+  return Array.from(prefixes)
 })
 
 const primaryPetId = computed(() => {
@@ -442,7 +801,16 @@ const primaryPetId = computed(() => {
 const petGroups = computed(() => {
   const groups = order.value?.pet_groups
   if (Array.isArray(groups) && groups.length > 0) {
-    return groups
+    return groups.map((group: any) => ({
+      ...group,
+      pet_name: getReceiptGroupName(group.pet_name, order.value?.order_kind),
+      items: Array.isArray(group.items)
+        ? group.items.map((item: any) => ({
+            ...item,
+            name: getReceiptItemDisplayName(item.name, group.pet_name === '零售商品', retailNamePrefixes.value, order.value?.order_kind),
+          }))
+        : [],
+    }))
   }
   const items = Array.isArray(order.value?.items) ? order.value.items : []
   if (!items.length) return []
@@ -450,26 +818,29 @@ const petGroups = computed(() => {
   const grouped: Array<{ pet_name: string; items: any[] }> = []
   const groupMap = new Map<string, { pet_name: string; items: any[] }>()
   for (const item of items) {
-    if (item.item_type === 2 || item.item_type === 3) {
+    if (item.item_type === 2) {
       const key = '零售商品'
       if (!groupMap.has(key)) {
         const nextGroup = { pet_name: key, items: [] as any[] }
         groupMap.set(key, nextGroup)
         grouped.push(nextGroup)
       }
-      groupMap.get(key)!.items.push({ ...item })
+      groupMap.get(key)!.items.push({
+        ...item,
+        name: getReceiptItemDisplayName(item.name, true, retailNamePrefixes.value),
+      })
       continue
     }
     const [petName, itemName] = splitOrderItemName(item.name)
     const key = petName || order.value?.pet?.name || '未分组'
     if (!groupMap.has(key)) {
-      const nextGroup = { pet_name: key, items: [] as any[] }
+      const nextGroup = { pet_name: getReceiptGroupName(key, order.value?.order_kind), items: [] as any[] }
       groupMap.set(key, nextGroup)
       grouped.push(nextGroup)
     }
     groupMap.get(key)!.items.push({
       ...item,
-      name: itemName || item.name,
+      name: getReceiptItemDisplayName(item.name, false, retailNamePrefixes.value, order.value?.order_kind) || itemName || item.name,
     })
   }
   return grouped
@@ -480,13 +851,12 @@ const receiptGroups = computed(() => {
     const isRetailGroup = group.pet_name === '零售商品'
     return {
       ...group,
+      pet_name: getReceiptGroupName(group.pet_name, order.value?.order_kind),
       items: Array.isArray(group.items)
         ? group.items.map((item: any) => {
-            if (!isRetailGroup) return item
-            const [, itemName] = splitOrderItemName(item.name)
             return {
               ...item,
-              name: itemName || item.name,
+              name: getReceiptItemDisplayName(item.name, isRetailGroup, retailNamePrefixes.value, order.value?.order_kind),
             }
           })
         : [],
@@ -503,16 +873,17 @@ function formatDateTime(val: string | undefined): string {
   return `${match[1]}年${match[2]}月${match[3]}日 ${match[4]}:${match[5]}:${match[6]}`
 }
 
+function formatReceiptDateTime(val: string | undefined): string {
+  if (!val) return '-'
+  const str = val.replace('T', ' ').substring(0, 16)
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/)
+  if (!match) return val
+  return `${match[1]}.${match[2]}.${match[3]} ${match[4]}:${match[5]}`
+}
+
 function maskPhone(phone: string | undefined): string {
   if (!phone || phone.length < 7) return phone || '-'
   return phone.substring(0, 3) + '****' + phone.substring(phone.length - 4)
-}
-
-function splitOrderItemName(name: string | undefined): [string, string] {
-  if (!name) return ['', '']
-  const parts = name.split(' · ')
-  if (parts.length < 2) return ['', name]
-  return [parts[0].trim(), parts.slice(1).join(' · ').trim()]
 }
 
 function calcReceiptAmount(item: any): string {
@@ -529,35 +900,104 @@ function calcReceiptAmount(item: any): string {
 }
 
 function getItemSubtotal(itemType: number) {
+  return getItemSubtotalByTypes([itemType])
+}
+
+function getItemSubtotalByTypes(itemTypes: number[]) {
   const items = Array.isArray(order.value?.items) ? order.value.items : []
   return items
-    .filter((item: any) => Number(item.item_type) === itemType)
+    .filter((item: any) => itemTypes.includes(Number(item.item_type)))
     .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0)
 }
 
 function getReceiptDiscountTag(item: any) {
   if (item?.item_type === 1) {
-    if (serviceDiscountRate.value >= 1) return '-'
-    return `${(serviceDiscountRate.value * 10).toFixed(1)}折`
+    if (receiptServiceDiscountRate.value >= 1) return '-'
+    return `${(receiptServiceDiscountRate.value * 10).toFixed(1)}折`
   }
   if (item?.item_type === 2) {
-    if (productDiscountRate.value >= 1) return '-'
-    return `${(productDiscountRate.value * 10).toFixed(1)}折`
+    if (receiptProductDiscountRate.value >= 1) return '-'
+    return `${(receiptProductDiscountRate.value * 10).toFixed(1)}折`
   }
   return '-'
 }
 
+function hasReceiptDiscount(item: any) {
+  return getReceiptDiscountTag(item) !== '-'
+}
+
 const receiptImageUrl = ref('')
 const receiptBlobUrl = ref('')
+const receiptRemoteUrl = ref('')
+const receiptImageBlob = ref<Blob | null>(null)
 const generatingImage = ref(false)
+const receiptRenderToken = ref(0)
+const receiptLiteRender = ref(false)
+const isAppleSafari = computed(() => isAppleSafariBrowser())
+const showNativeReceiptImage = computed(() => true)
+const receiptPreviewSrc = computed(() => {
+  if (!receiptImageUrl.value) return ''
+  if (receiptRemoteUrl.value) return receiptRemoteUrl.value
+  return isAppleSafari.value ? receiptImageUrl.value : receiptBlobUrl.value || receiptImageUrl.value
+})
+const receiptImageHint = computed(() => {
+  if (isAppleSafari.value) {
+    return '长按图片保存到相册；如未出现菜单，点击「保存图片」后在新页面长按'
+  }
+  return '点击「保存图片」或长按图片保存'
+})
 
-function dataURLtoBlob(dataURL: string): Blob {
-  const parts = dataURL.split(',')
-  const mime = parts[0].match(/:(.*?);/)![1]
-  const raw = atob(parts[1])
-  const arr = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
-  return new Blob([arr], { type: mime })
+function isConstrainedReceiptCanvas() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const userAgent = navigator.userAgent || ''
+  return /iP(hone|od|ad)/i.test(userAgent) || window.innerWidth <= 480
+}
+
+async function renderReceiptCanvas(el: HTMLElement, scale: number) {
+  await nextTick()
+  return html2canvas(el, {
+    backgroundColor: '#F6F2EA',
+    scale,
+    useCORS: true,
+    allowTaint: false,
+    logging: false,
+    scrollX: 0,
+    scrollY: 0,
+    windowWidth: Math.ceil(el.scrollWidth),
+    windowHeight: Math.ceil(el.scrollHeight),
+    foreignObjectRendering: false,
+    imageTimeout: 8000,
+    removeContainer: true,
+  })
+}
+
+async function renderReceiptDataUrl(el: HTMLElement, scale: number) {
+  const canvas = await renderReceiptCanvas(el, scale)
+  return canvas.toDataURL('image/png')
+}
+
+async function renderReceiptDataUrlWithFallback(el: HTMLElement, scale: number) {
+  try {
+    return await renderReceiptDataUrl(el, scale)
+  } catch (primaryError) {
+    console.error('html2canvas primary render error:', primaryError)
+  }
+
+  if (scale > 1) {
+    try {
+      return await renderReceiptDataUrl(el, 1)
+    } catch (scaleError) {
+      console.error('html2canvas scale-1 render error:', scaleError)
+    }
+  }
+
+  receiptLiteRender.value = true
+  try {
+    return await renderReceiptDataUrl(el, 1)
+  } finally {
+    receiptLiteRender.value = false
+    await nextTick()
+  }
 }
 
 async function saveReceiptImage() {
@@ -566,49 +1006,75 @@ async function saveReceiptImage() {
     uni.showToast({ title: '找不到小票内容', icon: 'none' })
     return
   }
+  const renderToken = receiptRenderToken.value + 1
+  receiptRenderToken.value = renderToken
   generatingImage.value = true
   try {
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#fff',
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: el.scrollWidth,
-      windowHeight: el.scrollHeight,
-    })
-    const dataUrl = canvas.toDataURL('image/png')
+    const scale = getReceiptCanvasScale(el.scrollWidth, el.scrollHeight, isConstrainedReceiptCanvas())
+    const dataUrl = await renderReceiptDataUrlWithFallback(el, scale)
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
+    const blob = dataUrlToBlob(dataUrl)
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
+
+    let remoteUrl = ''
+    if (typeof File === 'function') {
+      try {
+        const receiptFile = new File(
+          [blob],
+          buildReceiptFileName(order.value?.order_no || 'receipt'),
+          { type: blob.type || 'image/png' },
+        )
+        remoteUrl = await uploadH5File(receiptFile, { preserveOriginal: true })
+      } catch (uploadError) {
+        console.warn('receipt image upload failed, using local preview:', uploadError)
+      }
+    }
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
+
     receiptImageUrl.value = dataUrl
-    // Create blob URL for iOS Safari compatibility
-    const blob = dataURLtoBlob(dataUrl)
+    receiptImageBlob.value = blob
+    receiptRemoteUrl.value = remoteUrl
     if (receiptBlobUrl.value) URL.revokeObjectURL(receiptBlobUrl.value)
     receiptBlobUrl.value = URL.createObjectURL(blob)
   } catch (e) {
+    if (!showReceipt.value || receiptRenderToken.value !== renderToken) return
     console.error('html2canvas error:', e)
     uni.showToast({ title: '生成失败，请截屏保存', icon: 'none' })
   } finally {
-    generatingImage.value = false
+    if (receiptRenderToken.value === renderToken) {
+      generatingImage.value = false
+    }
   }
 }
 
-function downloadReceiptImage() {
-  if (!receiptBlobUrl.value) return
-  const a = document.createElement('a')
-  a.href = receiptBlobUrl.value
-  a.download = `小票_${order.value?.order_no || 'receipt'}.png`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+async function downloadReceiptImage() {
+  if (!receiptImageUrl.value) return
+  const result = await saveImageByUrl(
+    receiptRemoteUrl.value || receiptImageUrl.value,
+    buildReceiptFileName(order.value?.order_no || 'receipt'),
+    {
+      title: '小票图片',
+      blobUrl: receiptBlobUrl.value || undefined,
+      blob: receiptImageBlob.value || undefined,
+    }
+  )
+  if (result === 'preview') {
+    uni.showToast({ title: '新页面已打开，请长按图片保存', icon: 'none' })
+  } else if (result === 'noop') {
+    uni.showToast({ title: '请长按上方图片保存', icon: 'none' })
+  }
 }
 
 function closeReceipt() {
+  receiptRenderToken.value += 1
+  generatingImage.value = false
   if (receiptBlobUrl.value) {
     URL.revokeObjectURL(receiptBlobUrl.value)
     receiptBlobUrl.value = ''
   }
   receiptImageUrl.value = ''
+  receiptRemoteUrl.value = ''
+  receiptImageBlob.value = null
   showReceipt.value = false
 }
 const statusMap: Record<number, string> = { 0: '待付款', 1: '已支付', 2: '已取消', 3: '已退款' }
@@ -617,18 +1083,40 @@ const payMethodMap: Record<string, string> = {
   wechat: '微信',
   meituan: '美团',
   balance: '会员余额',
+  mixed_balance: '会员余额 + 补差',
   other: '其他',
   alipay: '扫码',
   cash: '其他',
   card: '会员余额',
 }
+const payMethodConfirmMap: Record<string, string> = {
+  qrcode: '扫码',
+  wechat: '微信',
+  meituan: '美团',
+  balance: '会员余额',
+  other: '其他',
+}
+const mixedBalanceCashPayMethods = [
+  { label: '扫码补差', method: 'qrcode' },
+  { label: '微信补差', method: 'wechat' },
+  { label: '美团补差', method: 'meituan' },
+  { label: '其他补差', method: 'other' },
+]
+const displayPayMethod = computed(() => {
+  if (!order.value?.pay_method) return '待付款'
+  if (order.value.pay_method === 'mixed_balance') {
+    const cashLabel = payMethodMap[order.value.cash_pay_method] || order.value.cash_pay_method || '补差'
+    return `会员余额 + ${cashLabel}`
+  }
+  return payMethodMap[order.value.pay_method] || order.value.pay_method
+})
 
 onLoad(async (query) => {
   if (query?.id) {
     isDeletedView.value = query.include_deleted === '1'
     const res = await getOrder(parseInt(query.id), isDeletedView.value)
     order.value = res.data
-    remarkDraft.value = order.value?.remark || ''
+    remarkDraft.value = resolveEditableRemark(order.value)
     // Load shop info for receipt
     try {
       const shopRes = await getShop()
@@ -637,21 +1125,21 @@ onLoad(async (query) => {
         shopSubtitle.value = shopRes.data.address || ''
       }
     } catch {}
-    // Load member balance for receipt
-    if (order.value?.customer_id) {
-      try {
-        const cardRes = await getCustomerCard(order.value.customer_id)
-        if (cardRes.data) {
-          memberBalance.value = cardRes.data.balance
-          customerCard.value = cardRes.data
-        }
-      } catch {}
-    }
+    await refreshCustomerCard()
+  }
+})
+
+onShow(async () => {
+  if (!order.value) return
+  try {
+    await reload()
+  } catch {
+    uni.showToast({ title: '刷新订单失败，请重试', icon: 'none' })
   }
 })
 
 watch(
-  () => showReceipt.value || showPayModal.value,
+  () => showReceipt.value || showPayModal.value || showCareReport.value || showCustomerPetModal.value,
   (visible) => {
     setPageScrollLock(visible)
   }
@@ -662,33 +1150,171 @@ onUnmounted(() => {
 })
 
 async function reload() {
+  const hasRemarkEdits = remarkDraft.value !== resolveEditableRemark(order.value)
   const res = await getOrder(order.value.ID, isDeletedView.value)
   order.value = res.data
-  remarkDraft.value = order.value?.remark || ''
+  if (!hasRemarkEdits) remarkDraft.value = resolveEditableRemark(order.value)
+  await refreshCustomerCard()
 }
 
-async function openPayModal() {
-  // Load member balance
+async function openCustomerPetModal() {
+  if (!order.value) return
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+  customerPetSelectedCustomer.value = order.value.customer || null
+  customerPetSelectedPet.value = order.value.pet || null
+  customerPetPets.value = []
+  showCustomerPetModal.value = true
+  const customerId = Number(order.value.customer_id || order.value.customer?.ID || 0)
+  if (customerId > 0) {
+    await loadCustomerPetPets(customerId)
+  }
+}
+
+function closeCustomerPetModal() {
+  showCustomerPetModal.value = false
+}
+
+async function searchCustomerPetCustomers() {
+  if (customerPetSearchTimer) clearTimeout(customerPetSearchTimer)
+  customerPetSearchTimer = setTimeout(async () => {
+    const keyword = customerPetCustomerKeyword.value.trim()
+    if (!keyword) {
+      customerPetCustomerOptions.value = []
+      return
+    }
+    try {
+      const res = await getCustomerList({ page: 1, page_size: 20, keyword } as any)
+      customerPetCustomerOptions.value = res.data?.list || []
+    } catch {
+      customerPetCustomerOptions.value = []
+    }
+  }, 250)
+}
+
+async function selectCustomerPetCustomer(customer: any) {
+  customerPetSelectedCustomer.value = customer
+  customerPetSelectedPet.value = null
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+  await loadCustomerPetPets(Number(customer.ID || 0))
+}
+
+async function loadCustomerPetPets(customerId: number) {
+  if (!customerId) {
+    customerPetPets.value = []
+    return
+  }
+  try {
+    const res = await getCustomerPets(customerId)
+    customerPetPets.value = Array.isArray(res.data) ? res.data : []
+  } catch {
+    customerPetPets.value = []
+  }
+}
+
+function clearCustomerPetCustomer() {
+  customerPetSelectedCustomer.value = null
+  customerPetSelectedPet.value = null
+  customerPetPets.value = []
+  customerPetCustomerKeyword.value = ''
+  customerPetCustomerOptions.value = []
+}
+
+async function saveCustomerPet() {
+  if (!order.value || savingCustomerPet.value) return
+  savingCustomerPet.value = true
+  try {
+    const res = await updateOrderCustomerPet(order.value.ID, {
+      customer_id: customerPetSelectedCustomer.value?.ID || null,
+      pet_id: customerPetSelectedPet.value?.ID || null,
+    })
+    order.value = res.data
+    remarkDraft.value = resolveEditableRemark(order.value)
+    closeCustomerPetModal()
+    uni.showToast({ title: '归属已保存', icon: 'success' })
+  } catch (e: any) {
+    uni.showToast({ title: e?.msg || e?.message || '保存失败', icon: 'none' })
+  } finally {
+    savingCustomerPet.value = false
+  }
+}
+
+function resolveEditableRemark(target?: Order | null) {
+  if (!target) return ''
+  const remark = (target.remark || '').trim()
+  if (!remark) return ''
+  const isBoardingSystemRemark = remark.startsWith('寄养订单 · ')
+    && !!target.items?.length
+    && target.items.every((item) => [4, 5, 6].includes(item.item_type))
+  return isBoardingSystemRemark ? '' : remark
+}
+
+async function refreshCustomerCard() {
   memberBalance.value = 0
+  customerCard.value = null
   if (order.value?.customer_id) {
     try {
       const cardRes = await getCustomerCard(order.value.customer_id)
-      if (cardRes.data && cardRes.data.balance > 0) {
-        memberBalance.value = cardRes.data.balance
+      if (cardRes.data) {
+        customerCard.value = cardRes.data
+        memberBalance.value = Number(cardRes.data.balance || 0)
       }
     } catch {}
   }
+
+}
+
+async function openPayModal() {
+  try {
+    await reload()
+  } catch {
+    uni.showToast({ title: '刷新订单失败，请重试', icon: 'none' })
+    return
+  }
+  if (
+    customerCard.value &&
+    memberBalance.value >= Number(order.value?.pay_amount || 0) &&
+    !canChooseBalancePayment.value
+  ) {
+    await payWithBalance()
+    return
+  }
+
   showPayModal.value = true
 }
 
-async function doPay(method: string) {
+function confirmPayMethod(method: string) {
+  if (paying.value) return
+  const label = payMethodConfirmMap[method] || method
+  uni.showModal({
+    title: '确认收款方式',
+    content: `确认使用「${label}」收款 ¥${Number(order.value?.pay_amount || 0).toFixed(2)}？`,
+    confirmText: label,
+    success: async (res) => {
+      if (res.confirm) {
+        await doPay(method, true)
+      }
+    },
+  })
+}
+
+async function doPay(method: string, confirmed = false, cashPayMethod?: string) {
+  if (paying.value) return
+  if (!confirmed) {
+    confirmPayMethod(method)
+    return
+  }
+  paying.value = true
   try {
-    await payOrder(order.value.ID, method, undefined, remarkDraft.value.trim())
+    await payOrder(order.value.ID, method, undefined, remarkDraft.value.trim(), cashPayMethod)
     showPayModal.value = false
     uni.showToast({ title: '收款成功', icon: 'success' })
     await reload()
   } catch (e: any) {
     uni.showToast({ title: e.message || '收款失败', icon: 'none' })
+  } finally {
+    paying.value = false
   }
 }
 
@@ -697,22 +1323,40 @@ async function payWithBalance() {
     uni.showToast({ title: '该客户未开通会员卡', icon: 'none' })
     return
   }
-  if (memberBalance.value < order.value.pay_amount) {
-    uni.showModal({
-      title: '余额不足',
-      content: `会员余额¥${memberBalance.value.toFixed(2)}，应付¥${order.value.pay_amount.toFixed(2)}，余额不足。`,
-      showCancel: false,
-    })
+  if (memberBalance.value < balancePaymentPreviewAmount.value) {
+    payWithMixedBalance()
     return
   }
   uni.showModal({
     title: '确认扣款',
-    content: `从会员余额中扣除¥${order.value.pay_amount.toFixed(2)}？\n扣后余额：¥${(memberBalance.value - order.value.pay_amount).toFixed(2)}`,
+    content: `从会员余额中扣除¥${balancePaymentPreviewAmount.value.toFixed(2)}？\n扣后余额：¥${(memberBalance.value - balancePaymentPreviewAmount.value).toFixed(2)}`,
     success: async (res) => {
       if (res.confirm) {
-        await doPay('balance')
+        await doPay('balance', true)
       }
     }
+  })
+}
+
+function payWithMixedBalance() {
+  const itemList = mixedBalanceCashPayMethods.map((item) => item.label)
+  uni.showActionSheet({
+    itemList,
+    success: (res) => {
+      const selected = mixedBalanceCashPayMethods[res.tapIndex]
+      if (!selected) return
+      const label = payMethodMap[selected.method] || selected.method
+      uni.showModal({
+        title: '余额补差收款',
+        content: `会员余额 ¥${memberBalance.value.toFixed(2)} 将全部扣除，未覆盖部分不再享受会员折扣，由后端重新计算后使用「${label}」补差。`,
+        confirmText: label,
+        success: async (modalRes) => {
+          if (modalRes.confirm) {
+            await doPay('mixed_balance', true, selected.method)
+          }
+        },
+      })
+    },
   })
 }
 
@@ -751,10 +1395,60 @@ function goEditOrder() {
   uni.navigateTo({ url })
 }
 
-function goPetDetail(id?: number) {
+async function goPetDetail(id?: number, petName?: string) {
   const petId = Number(id || 0)
-  if (petId <= 0) return
-  uni.navigateTo({ url: `/pages/pet/edit?id=${petId}` })
+  if (petId > 0) {
+    uni.navigateTo({ url: `/pages/pet/edit?id=${petId}` })
+    return
+  }
+  const fallbackPetId = await resolvePetIdByName(petName)
+  if (fallbackPetId > 0) {
+    uni.navigateTo({ url: `/pages/pet/edit?id=${fallbackPetId}` })
+    return
+  }
+  uni.showToast({ title: '未找到这只猫咪档案', icon: 'none' })
+}
+
+function shouldShowPetGroupHead(group: any) {
+  if (!group) return false
+  if (group.pet_name === '零售商品') return true
+  return petGroups.value.length > 1
+}
+
+function goCustomerDetail(id?: number) {
+  const customerId = Number(id || 0)
+  if (customerId <= 0) return
+  uni.navigateTo({ url: `/pages/customer/detail?id=${customerId}` })
+}
+
+async function resolvePetIdByName(petName?: string) {
+  const keyword = String(petName || '').trim()
+  if (!keyword || resolvingPetName.value === keyword) return 0
+  resolvingPetName.value = keyword
+  uni.showLoading({ title: '查找猫咪中', mask: true })
+  try {
+    const res = await getPetList({ keyword, page: 1, page_size: 20 })
+    const list = Array.isArray(res.data?.list) ? res.data.list : []
+    const exactMatches = list.filter((pet) => String(pet.name || '').trim() === keyword)
+    if (!exactMatches.length) return 0
+
+    const orderCustomerId = Number(order.value?.customer_id || 0)
+    const orderCustomerPhone = String(order.value?.customer?.phone || '').trim()
+
+    const sameCustomer = exactMatches.find((pet) => Number(pet.customer_id || 0) === orderCustomerId)
+    if (sameCustomer?.ID) return sameCustomer.ID
+
+    const samePhone = exactMatches.find((pet) => String(pet.customer?.phone || '').trim() === orderCustomerPhone)
+    if (samePhone?.ID) return samePhone.ID
+
+    if (exactMatches.length === 1) return exactMatches[0].ID
+    return 0
+  } catch {
+    return 0
+  } finally {
+    resolvingPetName.value = ''
+    uni.hideLoading()
+  }
 }
 
 async function doDelete() {
@@ -819,6 +1513,28 @@ async function saveRemark() {
   max-width: 70%;
   text-align: right;
 }
+.late-flag {
+  color: #C2410C;
+  font-weight: 600;
+}
+.pet-row {
+  align-items: flex-start;
+}
+.pet-name-list {
+  max-width: 70%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  text-align: right;
+  gap: 0;
+}
+.pet-name-link {
+  display: inline-block;
+}
+.pet-name-separator {
+  color: #94A3B8;
+}
 .pet-group + .pet-group {
   margin-top: 18rpx;
 }
@@ -840,7 +1556,8 @@ async function saveRemark() {
 .group-retail { color: #7C3AED; text-decoration: none; }
 .pet-link {
   color: #4F46E5;
-  text-decoration: underline;
+  cursor: pointer;
+  text-decoration: none;
 }
 .pet-group-count {
   font-size: 22rpx;
@@ -887,15 +1604,15 @@ async function saveRemark() {
 }
 .remark-input {
   width: 100%;
-  min-height: 108rpx;
-  padding: 18rpx 20rpx;
+  height: 112rpx;
+  padding: 14rpx 20rpx;
   border-radius: 18rpx;
   background: #F8FAFC;
   border: 2rpx solid #E2E8F0;
   box-sizing: border-box;
   font-size: 26rpx;
   color: #111827;
-  line-height: 1.6;
+  line-height: 42rpx;
   box-shadow: 0 8rpx 20rpx rgba(15, 23, 42, 0.04);
 }
 .actions {
@@ -924,6 +1641,7 @@ async function saveRemark() {
 .cancel { background: #fff; color: #64748B; border-color: #CBD5E1; }
 .refund { background: #FFF1F2; color: #DC2626; border-color: #FECDD3; }
 .delete { background: #FFF1F2; color: #DC2626; border-color: #FCA5A5; }
+.btn.link { background: #F5F3FF; color: #4F46E5; border-color: #DDD6FE; }
 
 /* Pay modal */
 .modal-mask {
@@ -938,7 +1656,7 @@ async function saveRemark() {
   justify-content: center;
   padding: 24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  z-index: 5000;
+  z-index: 900;
   overscroll-behavior: contain;
 }
 .pay-modal {
@@ -960,6 +1678,157 @@ async function saveRemark() {
   font-weight: 800;
   color: #111827;
   display: block;
+}
+.link-modal {
+  width: min(92vw, 720rpx);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 28rpx;
+  padding: 28rpx;
+  box-sizing: border-box;
+  box-shadow: 0 24rpx 60rpx rgba(15, 23, 42, 0.24);
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+.modal-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #94A3B8;
+}
+.modal-close {
+  width: 56rpx;
+  height: 56rpx;
+  line-height: 52rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #F3F4F6;
+  color: #64748B;
+  font-size: 34rpx;
+  flex-shrink: 0;
+}
+.link-section {
+  padding: 18rpx 0;
+  border-top: 1rpx solid #F1F5F9;
+}
+.link-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14rpx;
+}
+.link-section-title {
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.link-clear {
+  font-size: 24rpx;
+  color: #4F46E5;
+}
+.selected-link-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  margin-bottom: 14rpx;
+}
+.selected-link-name {
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.selected-link-meta,
+.link-option-meta,
+.pet-choice-meta {
+  font-size: 23rpx;
+  color: #64748B;
+}
+.link-search {
+  position: relative;
+  height: 72rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #E2E8F0;
+  background: #F8FAFC;
+}
+.link-search-input {
+  width: 100%;
+  height: 72rpx;
+  padding: 0 22rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  color: #111827;
+}
+.link-search-placeholder {
+  position: absolute;
+  left: 22rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 24rpx;
+  color: #94A3B8;
+  pointer-events: none;
+}
+.link-options,
+.pet-choice-list {
+  display: grid;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.link-option,
+.pet-choice {
+  padding: 18rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #E2E8F0;
+  background: #fff;
+}
+.link-option-name,
+.pet-choice-name {
+  display: block;
+  margin-bottom: 6rpx;
+  font-size: 27rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.pet-choice.active {
+  border-color: #4F46E5;
+  background: #F5F3FF;
+}
+.link-empty {
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  color: #64748B;
+  font-size: 24rpx;
+}
+.link-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}
+.link-btn {
+  margin: 0;
+  height: 84rpx;
+  border-radius: 18rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+.link-btn.ghost {
+  background: #fff;
+  color: #64748B;
+  border: 1rpx solid #CBD5E1;
+}
+.link-btn.primary {
+  background: #4F46E5;
+  color: #fff;
 }
 .pay-modal-subtitle {
   display: block;
@@ -998,6 +1867,26 @@ async function saveRemark() {
   line-height: 1;
   font-weight: 900;
   color: #4338CA;
+}
+.pay-choice-tip {
+  margin: -10rpx 0 22rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+}
+.pay-choice-title {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #334155;
+}
+.pay-choice-desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #64748B;
+  line-height: 1.5;
 }
 .pay-remark-panel {
   margin: 0 0 22rpx;
@@ -1064,12 +1953,13 @@ async function saveRemark() {
 .pay-card-sub.warn { color: #DC2626; }
 
 /* Receipt button */
-.btn.receipt { background: #F8FAFC; color: #334155; border-color: #CBD5E1; }
+.btn.receipt { background: #FBF5E6; color: #8A6B2F; border-color: #E8D5A0; }
+.btn.report { background: #EEF9F1; color: #2E7A48; border-color: #CFE7D7; }
 
 /* ===== Receipt Modal ===== */
 .receipt-outer {
-  width: 94%;
-  max-width: 760rpx;
+  width: min(97vw, 840rpx);
+  max-width: 840rpx;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -1083,258 +1973,311 @@ async function saveRemark() {
   touch-action: pan-y;
 }
 
-/* 小票卡片主体 — 奶油色背景，暖调阴影 */
 .receipt {
-  background: #FDFBF7;
-  border-radius: 24rpx;
-  box-shadow: 0 8rpx 40rpx rgba(139, 109, 56, 0.13);
-  overflow: hidden;
+  background: #FDF8ED;
+  border-radius: 32rpx;
+  box-shadow: 0 18rpx 48rpx rgba(116, 86, 36, 0.14);
+  padding: 16rpx;
   font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
-}
-
-/* ---- 头部 — 参照微信公众号排版 ---- */
-.receipt-header {
-  background: #FAF5E8;
-  padding: 20rpx 24rpx 12rpx;
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-}
-.receipt-logo {
-  width: 96rpx; height: 96rpx; min-width: 96rpx;
-  border-radius: 50%; overflow: hidden;
-  border: 2rpx solid #E8D9B5;
-  background: #fff;
-}
-.receipt-logo-emoji { font-size: 48rpx; line-height: 96rpx; text-align: center; display: block; }
-.receipt-logo-img { width: 96rpx; height: 96rpx; border-radius: 50%; }
-.receipt-brand {
-  flex: 1;
-  padding-left: 12rpx;
-}
-.receipt-shop { font-size: 30rpx; font-weight: 600; color: #3D3D3D; letter-spacing: 1rpx; display: block; }
-.receipt-sub { font-size: 22rpx; color: #B8A88A; font-weight: 300; display: block; margin-top: 9rpx; }
-.receipt-sub2 { display: none; }
-
-/* ---- 虚线分隔 — 极浅金色 ---- */
-.receipt-dashed {
-  margin: 0 24rpx;
-  border-top: 1rpx dashed #DED0AA;
-}
-
-/* ---- 客户信息区 ---- */
-.receipt-info {
-  padding: 24rpx 36rpx;
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 12rpx;
 }
-.receipt-info-row {
+.receipt-lite-render {
+  background: #FDF8ED !important;
+  box-shadow: none !important;
+}
+.receipt-lite-render .receipt-card,
+.receipt-lite-render .receipt-logo,
+.receipt-lite-render .receipt-member-badge {
+  background: #FFFDF8 !important;
+  box-shadow: none !important;
+}
+.receipt-lite-render .receipt-logo-img {
+  display: none !important;
+}
+.receipt-card {
+  background: linear-gradient(180deg, #FFFDF8, #FFF9EE);
+  border-radius: 24rpx;
+  padding: 18rpx;
+  border: 1rpx solid #F0E1BD;
+  box-shadow: 0 10rpx 26rpx rgba(117, 89, 42, 0.08);
+}
+.receipt-brand-card {
+  padding: 20rpx 18rpx 18rpx;
+}
+.receipt-brand-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  margin-bottom: 30rpx;
+}
+.receipt-logo {
+  width: 84rpx;
+  height: 84rpx;
+  min-width: 84rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
+  background: linear-gradient(135deg, #F4DE9A, #E8C46B);
+  color: #6B5531;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.receipt-logo-emoji {
+  font-size: 36rpx;
+  line-height: 1;
+  text-align: center;
+  display: block;
+  font-weight: 700;
+}
+.receipt-logo-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999rpx;
+}
+.receipt-brand-main {
+  flex: 1;
+  min-width: 0;
+  margin-top: -2rpx;
+}
+.receipt-shop {
+  margin: 0;
+  font-size: 32rpx;
+  line-height: 1.12;
+  font-weight: 700;
+  color: #2F2A26;
+  display: block;
+}
+.receipt-sub {
+  margin-top: 2rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.receipt-sub-line {
+  font-size: 20rpx;
+  line-height: 1.24;
+  color: #8F7950;
+  display: block;
+}
+.receipt-brand-tag {
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  background: #F7E5B5;
+  color: #8A6B2F;
+  font-size: 18rpx;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.receipt-brand-tag.muted {
+  background: #F7EEDB;
+  color: #9B8760;
+}
+.receipt-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.receipt-meta-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12rpx;
 }
-.receipt-info-label {
-  font-size: 24rpx;
-  color: #B8A88A;
-  font-weight: 300;
+.receipt-meta-label {
+  font-size: 20rpx;
+  color: #8F7950;
 }
-.receipt-info-value {
-  font-size: 24rpx;
-  color: #4A3F2F;
-  font-weight: 400;
-}
-/* 当前余额 — 金色标签 */
-.receipt-balance-badge {
-  background: #FBF5E6;
-  border: 1rpx solid #E8D5A0;
-  color: #A07830;
+.receipt-meta-value {
   font-size: 22rpx;
-  font-weight: 500;
-  padding: 4rpx 18rpx;
-  border-radius: 999rpx;
+  color: #2F2A26;
+  text-align: right;
+}
+.receipt-meta-value-strong {
+  font-weight: 700;
+  color: #7A602E;
 }
 .receipt-member-badge {
   display: inline-flex;
   align-items: center;
-  gap: 12rpx;
-  padding: 8rpx 18rpx;
+  gap: 8rpx;
+  padding: 6rpx 14rpx;
   border-radius: 999rpx;
-  background: #FBF5E6;
-  border: 1rpx solid #E8D5A0;
+  background: #FCF2D9;
+  border: 1rpx solid #E7CB82;
 }
 .receipt-member-level {
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 700;
   color: #9A6A21;
   letter-spacing: 0.5rpx;
 }
 .receipt-member-amount {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #9C7426;
+}
+.receipt-group-card {
+  padding-top: 12rpx;
+}
+.receipt-group-title {
   font-size: 22rpx;
   font-weight: 600;
-  color: #A07830;
+  color: #6E5631;
+  margin-bottom: 6rpx;
+  display: block;
 }
-
-/* ---- 明细表格 ---- */
-.receipt-table {
-  padding: 0 36rpx;
-  margin: 24rpx 0;
-}
-.receipt-group + .receipt-group {
-  margin-top: 14rpx;
-}
-.receipt-group-head {
-  padding: 14rpx 12rpx 8rpx;
-}
-.receipt-group-name {
-  font-size: 24rpx;
-  font-weight: 700;
-  color: #7C6242;
-}
-.receipt-table-head {
+.receipt-item {
   display: flex;
-  font-size: 20rpx;
-  color: #B8A88A;
-  font-weight: 500;
-  padding: 10rpx 12rpx;
-  background: #FAF5E8;
-  border-radius: 8rpx;
-  margin-bottom: 4rpx;
-  letter-spacing: 1rpx;
-}
-.receipt-table-row {
-  display: flex;
-  font-size: 22rpx;
-  color: #4A3F2F;
-  padding: 12rpx 12rpx;
-  border-radius: 8rpx;
+  justify-content: space-between;
   align-items: flex-start;
-  line-height: 1.35;
+  gap: 12rpx;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid #EEE0BF;
 }
-/* 交替背景色 — 极淡奶油 */
-.receipt-table-row-alt {
-  background: #FAF5E8;
+.receipt-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
-.rt-name {
-  flex: 4.6;
+.receipt-item-main {
+  flex: 1;
   min-width: 0;
-  font-size: 21rpx;
-  word-break: break-word;
 }
-.rt-price { flex: 1.6; text-align: right; color: #8A7A62; font-size: 20rpx; }
-.rt-rate { flex: 1.2; text-align: center; font-size: 20rpx; }
-/* 折扣小标签 — 柔和绿色 */
-.rt-rate-tag {
-  background: #F0FAF5;
-  color: #3A8A62;
-  font-size: 20rpx;
-  font-weight: 500;
-  padding: 2rpx 8rpx;
-  border-radius: 999rpx;
-  border: 1rpx solid #B5DEC8;
+.receipt-item-name {
+  font-size: 22rpx;
+  line-height: 1.28;
+  color: #2F2A26;
+  margin-bottom: 4rpx;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.rt-qty { flex: 0.9; text-align: center; color: #8A7A62; font-size: 20rpx; }
-.rt-amount { flex: 1.5; text-align: right; font-weight: 600; color: #4A3F2F; font-size: 20rpx; }
-
-/* ---- 金额汇总 ---- */
-.receipt-summary {
-  padding: 24rpx 36rpx;
+.receipt-item-meta {
   display: flex;
-  flex-direction: column;
-  gap: 16rpx;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 18rpx;
+  line-height: 1.3;
+  color: #8F7950;
 }
-.receipt-row {
+.receipt-item-dot {
+  margin: 0 6rpx;
+  color: #D2BE94;
+}
+.receipt-item-price {
+  font-size: 24rpx;
+  line-height: 1.2;
+  color: #2F2A26;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.receipt-summary-card {
+  padding-top: 14rpx;
+}
+.receipt-summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-.receipt-row-label {
-  font-size: 24rpx;
-  color: #B8A88A;
-  font-weight: 300;
-}
-.receipt-row-value {
-  font-size: 24rpx;
-  color: #4A3F2F;
-}
-/* 优惠金额 — 金色标签 */
-.receipt-discount-tag {
-  background: #FBF5E6;
-  border: 1rpx solid #E8D5A0;
-  color: #A07830;
   font-size: 22rpx;
-  font-weight: 600;
-  padding: 4rpx 18rpx;
-  border-radius: 999rpx;
+  color: #3B342F;
+  padding: 5rpx 0;
 }
-/* 应付金额 — 简约金色底线装饰，无渐变块 */
-.receipt-pay-block {
-  background: transparent;
-  border-radius: 0;
-  padding: 20rpx 0 16rpx;
+.receipt-summary-row.saving {
+  color: #9A7121;
+}
+.receipt-summary-divider {
+  height: 1rpx;
+  background: #E9D8B2;
+  margin: 8rpx 0 12rpx;
+}
+.receipt-total-row {
   display: flex;
-  justify-content: space-between;
   align-items: flex-end;
-  margin-top: 8rpx;
-  border-top: 1rpx solid #DED0AA;
-  border-bottom: none;
+  justify-content: space-between;
+  gap: 12rpx;
 }
-.receipt-pay-label {
-  font-size: 26rpx;
-  color: #C4A35A;
-  font-weight: 400;
-  letter-spacing: 1rpx;
+.receipt-total-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
 }
-.receipt-pay-amount {
+.receipt-total-label {
+  font-size: 20rpx;
+  color: #8F7950;
+}
+.receipt-total-tip {
+  font-size: 18rpx;
+  color: #AF812A;
+}
+.receipt-total-price {
   font-size: 52rpx;
+  line-height: 1;
   font-weight: 300;
   color: #C4A35A;
   letter-spacing: -1rpx;
 }
-/* 消费后余额 — 金色标签 */
-/* ---- 底部信息区 ---- */
-.receipt-footer {
-  padding: 14rpx 32rpx;
-  background: #FAF5E8;
+.receipt-balance-row {
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid #E9D8B2;
   display: flex;
-  flex-direction: column;
-  gap: 6rpx;
+  justify-content: space-between;
+  align-items: center;
+}
+.receipt-footer-card {
+  padding-top: 12rpx;
+  padding-bottom: 12rpx;
 }
 .receipt-footer-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12rpx;
+  padding: 5rpx 0;
 }
 .receipt-footer-label {
-  font-size: 22rpx;
-  color: #C4B08A;
-  font-weight: 300;
+  font-size: 20rpx;
+  color: #8F7950;
 }
 .receipt-footer-value {
   font-size: 22rpx;
-  color: #6B5C42;
+  color: #2F2A26;
+  text-align: right;
 }
-/* ---- 感谢语 ---- */
 .receipt-thanks {
-  padding: 14rpx 28rpx 16rpx;
+  padding: 4rpx 8rpx 0;
   text-align: center;
 }
-.receipt-thanks-cn { font-size: 20rpx; color: #4A3F2F; letter-spacing: 1rpx; display: block; }
-.receipt-thanks-en { font-size: 17rpx; color: #C4A35A; font-weight: 300; display: block; margin-top: 2rpx; }
+.receipt-thanks-cn {
+  font-size: 18rpx;
+  color: #4A3F2F;
+  letter-spacing: 1rpx;
+  display: block;
+}
+.receipt-thanks-en {
+  font-size: 15rpx;
+  color: #B18939;
+  font-weight: 300;
+  display: block;
+  margin-top: 2rpx;
+}
 
 /* ---- 操作按钮区 ---- */
 .receipt-actions {
   display: flex;
-  gap: 16rpx;
-  padding: 20rpx 0 calc(8rpx + env(safe-area-inset-bottom));
+  gap: 12rpx;
+  padding: 12rpx 0 calc(4rpx + env(safe-area-inset-bottom));
   flex-shrink: 0;
 }
 .btn-receipt-save,
 .btn-receipt-close {
   flex: 1;
-  min-height: 92rpx;
-  border-radius: 20rpx;
-  font-size: 27rpx;
+  min-height: 76rpx;
+  border-radius: 16rpx;
+  font-size: 24rpx;
   font-weight: 700;
   text-align: center;
   display: flex;
@@ -1342,8 +2285,8 @@ async function saveRemark() {
   justify-content: center;
   box-sizing: border-box;
 }
-.btn-receipt-save { background: linear-gradient(135deg, #6366F1, #4F46E5); color: #fff; box-shadow: 0 14rpx 28rpx rgba(79, 70, 229, 0.2); }
-.btn-receipt-close { background: #F8FAFC; color: #64748B; border: 2rpx solid #CBD5E1; }
+.btn-receipt-save { background: linear-gradient(135deg, #E8C86E, #D7A843); color: #5E4617; box-shadow: 0 14rpx 28rpx rgba(164, 122, 32, 0.22); }
+.btn-receipt-close { background: #FFF6E4; color: #8A6B2F; border: 2rpx solid #E7CB82; }
 
 .btn:active,
 .btn-receipt-save:active,
@@ -1356,7 +2299,16 @@ async function saveRemark() {
 }
 
 /* Receipt image preview */
-.receipt-image-wrap { margin-top: 20rpx; text-align: center; }
-.receipt-image-hint { font-size: 26rpx; color: #C4A35A; font-weight: 500; display: block; margin-bottom: 16rpx; }
+.receipt-image-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: 20rpx;
+  text-align: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.receipt-image-hint { font-size: 26rpx; color: #B18939; font-weight: 500; display: block; margin-bottom: 16rpx; }
 .receipt-image { width: 100%; border-radius: 16rpx; box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.1); }
+.receipt-image-native { display: block; height: auto; -webkit-touch-callout: default; -webkit-user-select: auto; user-select: auto; object-fit: contain; }
 </style>

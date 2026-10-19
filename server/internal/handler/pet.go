@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -58,13 +61,14 @@ func (h *PetHandler) Create(c *gin.Context) {
 
 	// 根据手机号查找客户
 	customerID := req.CustomerID
-	if req.OwnerPhone != "" && customerID == nil {
-		cust, err := h.customerService.GetByPhone(req.OwnerPhone, shopID)
+	ownerPhone := ensureCustomerPhone(h.customerService, shopID, req.OwnerPhone)
+	if customerID == nil {
+		cust, err := h.customerService.GetByPhone(ownerPhone, shopID)
 		if err != nil {
 			// 自动创建客户
 			cust = &model.Customer{
 				ShopID: shopID,
-				Phone:  req.OwnerPhone,
+				Phone:  ownerPhone,
 			}
 			if err := h.customerService.Create(cust); err != nil {
 				response.Error(c, http.StatusInternalServerError, "创建客户失败")
@@ -140,7 +144,7 @@ func (h *PetHandler) List(c *gin.Context) {
 func (h *PetHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	pet, err := h.petService.GetByID(uint(id))
-	if err != nil {
+	if err != nil || pet.ShopID != c.GetUint("shop_id") {
 		response.Error(c, http.StatusNotFound, "宠物不存在")
 		return
 	}
@@ -151,25 +155,9 @@ func (h *PetHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 根据手机号查找/创建客户
-	if req.OwnerPhone != "" {
-		shopID := c.GetUint("shop_id")
-		cust, err := h.customerService.GetByPhone(req.OwnerPhone, shopID)
-		if err != nil {
-			cust = &model.Customer{
-				ShopID: shopID,
-				Phone:  req.OwnerPhone,
-			}
-			if err := h.customerService.Create(cust); err != nil {
-				response.Error(c, http.StatusInternalServerError, "创建客户失败")
-				return
-			}
-		}
-		pet.CustomerID = &cust.ID
-	} else if req.CustomerID != nil {
-		pet.CustomerID = req.CustomerID
-	} else {
-		pet.CustomerID = nil
+	req.OwnerPhone = strings.TrimSpace(req.OwnerPhone)
+	if req.OwnerPhone == "" && pet.CustomerID == nil && req.CustomerID == nil {
+		req.OwnerPhone = ensureCustomerPhone(h.customerService, pet.ShopID, "")
 	}
 	pet.Name = req.Name
 	if req.Species != "" {
@@ -191,7 +179,11 @@ func (h *PetHandler) Update(c *gin.Context) {
 	pet.CareNotes = req.CareNotes
 	pet.BehaviorNotes = req.BehaviorNotes
 
-	if err := h.petService.Update(pet); err != nil {
+	if err := h.petService.UpdateProfile(pet, req.OwnerPhone, req.CustomerID); err != nil {
+		if errors.Is(err, service.ErrPetOwnerPhoneConflict) || errors.Is(err, service.ErrPetOwnerChanged) {
+			response.Error(c, http.StatusConflict, err.Error())
+			return
+		}
 		response.Error(c, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -202,12 +194,64 @@ func parseBirthDate(s string) *time.Time {
 	if s == "" {
 		return nil
 	}
-	for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", time.RFC3339} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return &t
+	normalized := normalizeBirthDateInput(s)
+	for _, candidate := range []string{normalized, s} {
+		if candidate == "" {
+			continue
+		}
+		for _, layout := range []string{"2006-01-02", "2006-1-2", "2006-01", "2006-1", "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", time.RFC3339} {
+			if t, err := time.Parse(layout, candidate); err == nil {
+				return &t
+			}
 		}
 	}
 	return nil
+}
+
+func normalizeBirthDateInput(s string) string {
+	parts := strings.Split(strings.TrimSpace(s), "-")
+	if len(parts) < 2 || len(parts) > 3 {
+		return strings.TrimSpace(s)
+	}
+	year := strings.TrimSpace(parts[0])
+	month := strings.TrimSpace(parts[1])
+	if year == "" || month == "" {
+		return strings.TrimSpace(s)
+	}
+	if isNumericToken(month) {
+		month = zeroPadDateToken(month)
+	}
+	if len(parts) == 2 {
+		return year + "-" + month
+	}
+	day := strings.TrimSpace(parts[2])
+	if day == "" {
+		return year + "-" + month
+	}
+	if isNumericToken(day) {
+		day = zeroPadDateToken(day)
+	}
+	return year + "-" + month + "-" + day
+}
+
+func isNumericToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func zeroPadDateToken(value string) string {
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return value
+	}
+	return fmt.Sprintf("%02d", number)
 }
 
 func (h *PetHandler) Delete(c *gin.Context) {

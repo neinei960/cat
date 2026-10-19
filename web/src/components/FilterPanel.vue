@@ -39,6 +39,22 @@
           </view>
         </view>
 
+        <view class="fp-section" v-if="orderKinds.length > 0">
+          <text class="fp-label">订单类型</text>
+          <view class="fp-chips">
+            <view
+              v-for="kind in orderKinds" :key="kind.value"
+              :class="['fp-chip', localFilter.orderKind === kind.value ? 'active' : '']"
+              @click="localFilter.orderKind = localFilter.orderKind === kind.value ? '' : kind.value"
+            >{{ kind.label }}</view>
+          </view>
+        </view>
+
+        <view class="fp-section fp-switch-row" v-if="showSelfUse">
+          <text class="fp-label">自用</text>
+          <switch :checked="!!localFilter.selfUse" color="#4F46E5" @change="(e: any) => localFilter.selfUse = e.detail.value" />
+        </view>
+
         <view class="fp-section" v-if="showProductKeyword">
           <text class="fp-label">商品名称</text>
           <input
@@ -91,8 +107,10 @@ interface FilterState {
   status: number
   staffId: number
   payMethod: string
+  orderKind?: string
   categoryId: number
-  productKeyword: string
+  productKeyword?: string
+  selfUse?: boolean
 }
 
 const props = withDefaults(defineProps<{
@@ -101,16 +119,20 @@ const props = withDefaults(defineProps<{
   statusOptions?: { value: number; label: string }[]
   statusLabel?: string
   payMethods?: { value: string; label: string }[]
+  orderKinds?: { value: string; label: string }[]
   staffList?: any[]
   categories?: any[]
   showProductKeyword?: boolean
+  showSelfUse?: boolean
 }>(), {
   statusOptions: () => [],
   statusLabel: '状态',
   payMethods: () => [],
+  orderKinds: () => [],
   staffList: () => [],
   categories: () => [],
   showProductKeyword: false,
+  showSelfUse: false,
 })
 
 const emit = defineEmits<{
@@ -124,12 +146,14 @@ const localFilter = reactive<FilterState>({
   status: -1,
   staffId: 0,
   payMethod: '',
+  orderKind: '',
   categoryId: 0,
   productKeyword: '',
+  selfUse: false,
 })
 
 watch(() => props.visible, (v) => {
-  if (v) Object.assign(localFilter, props.filter)
+  if (v) Object.assign(localFilter, { selfUse: false }, props.filter)
 })
 
 function onReset() {
@@ -138,8 +162,10 @@ function onReset() {
   localFilter.status = -1
   localFilter.staffId = 0
   localFilter.payMethod = ''
+  localFilter.orderKind = ''
   localFilter.categoryId = 0
   localFilter.productKeyword = ''
+  localFilter.selfUse = false
 }
 function onConfirm() {
   emit('confirm', { ...localFilter })
@@ -152,6 +178,8 @@ function onConfirm() {
 .fp-panel { width: 80%; max-width: 620rpx; background: #fff; height: 100%; display: flex; flex-direction: column; }
 .fp-body { flex: 1; padding: 32rpx 28rpx; overflow-y: auto; }
 .fp-section { margin-bottom: 36rpx; }
+.fp-switch-row { display: flex; align-items: center; justify-content: space-between; }
+.fp-switch-row .fp-label { margin-bottom: 0; }
 .fp-label { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; margin-bottom: 16rpx; }
 .fp-date-row { display: flex; align-items: center; gap: 12rpx; background: #F9FAFB; border: 1rpx solid #E5E7EB; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .fp-date-btn { font-size: 26rpx; color: #374151; flex: 1; text-align: center; min-width: 140rpx; }

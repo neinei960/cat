@@ -1,11 +1,13 @@
 package repository
 
 import (
+	"errors"
 	"time"
 
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type OrderRepository struct{}
@@ -16,6 +18,38 @@ func NewOrderRepository() *OrderRepository {
 
 func (r *OrderRepository) Create(order *model.Order) error {
 	return database.DB.Create(order).Error
+}
+
+func (r *OrderRepository) FindPendingByCustomerForUpdate(tx *gorm.DB, shopID, customerID uint) ([]model.Order, error) {
+	var orders []model.Order
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Items").
+		Where("shop_id = ? AND customer_id = ? AND pay_status = 0 AND status = 0", shopID, customerID).
+		Order("id ASC").Find(&orders).Error
+	return orders, err
+}
+
+func (r *OrderRepository) UpdatePendingPricing(tx *gorm.DB, order *model.Order) error {
+	result := tx.Model(&model.Order{}).
+		Where("id = ? AND shop_id = ? AND customer_id = ? AND pay_status = 0 AND status = 0", order.ID, order.ShopID, order.CustomerID).
+		Updates(map[string]interface{}{
+			"total_amount":            order.TotalAmount,
+			"service_total":           order.ServiceTotal,
+			"product_total":           order.ProductTotal,
+			"addon_total":             order.AddonTotal,
+			"service_discount_amount": order.ServiceDiscountAmount,
+			"product_discount_amount": order.ProductDiscountAmount,
+			"discount_amount":         order.DiscountAmount,
+			"discount_rate":           order.DiscountRate,
+			"pay_amount":              order.PayAmount,
+			"commission":              order.Commission,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return errors.New("待支付订单状态已变化，请刷新重试")
+	}
+	return nil
 }
 
 func (r *OrderRepository) FindByID(id uint) (*model.Order, error) {
@@ -50,12 +84,17 @@ type OrderFilter struct {
 	CustomerID     uint
 	StaffID        uint
 	PayMethod      string
+	CategoryID     uint
 	ProductKeyword string
 	OrderKind      string
+	SelfUse        bool
 }
 
 func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) *gorm.DB {
 	db = db.Where("shop_id = ?", shopID)
+	if f.SelfUse {
+		db = db.Where("orders.remark LIKE ?", "%自用%")
+	}
 	if f.Status != nil {
 		db = db.Where("status = ?", *f.Status)
 	}
@@ -74,6 +113,9 @@ func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) 
 	if f.PayMethod != "" {
 		db = applyPayMethodFilter(db, "pay_method", f.PayMethod)
 	}
+	if f.CategoryID > 0 {
+		db = applyServiceCategoryFilter(db, "orders", f.CategoryID)
+	}
 	if f.ProductKeyword != "" {
 		like := "%" + f.ProductKeyword + "%"
 		db = db.Where(
@@ -83,10 +125,7 @@ func (r *OrderRepository) applyFilters(db *gorm.DB, shopID uint, f OrderFilter) 
 				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, like),
 		)
 	}
-	if f.OrderKind == "feeding" {
-		db = db.Where("feeding_plan_id IS NOT NULL AND feeding_plan_id > 0")
-	}
-	return db
+	return applyOrderKindFilter(db, "orders", f.OrderKind)
 }
 
 func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, pageSize int) ([]model.Order, int64, error) {
@@ -95,8 +134,7 @@ func (r *OrderRepository) FindByShopPaged(shopID uint, f OrderFilter, page, page
 	db := r.applyFilters(database.DB.Model(&model.Order{}), shopID, f)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
-		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("FeedingPlan").
 		Order("id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
 }
@@ -105,14 +143,23 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 	var orders []model.Order
 	var total int64
 	like := "%" + keyword + "%"
+	feedingPets := database.DB.Model(&model.FeedingPlanPet{}).
+		Select("1").
+		Joins("JOIN feeding_plans ON feeding_plans.id = feeding_plan_pets.feeding_plan_id AND feeding_plans.deleted_at IS NULL").
+		Joins("LEFT JOIN pets AS feeding_pet ON feeding_pet.id = feeding_plan_pets.pet_id AND feeding_pet.shop_id = feeding_plans.shop_id AND feeding_pet.deleted_at IS NULL").
+		Where("feeding_plans.id = orders.feeding_plan_id AND feeding_plans.shop_id = orders.shop_id").
+		Where("feeding_plan_pets.pet_name_snapshot LIKE ? OR feeding_pet.name LIKE ?", like, like)
 	subQuery := database.DB.Model(&model.Order{}).
 		Select("DISTINCT orders.id").
 		Joins("LEFT JOIN customers ON customers.id = orders.customer_id").
 		Joins("LEFT JOIN pets ON pets.id = orders.pet_id").
 		Joins("LEFT JOIN order_items ON order_items.order_id = orders.id AND order_items.deleted_at IS NULL").
-		Where("orders.shop_id = ? AND (orders.order_no LIKE ? OR customers.nickname LIKE ? OR customers.phone LIKE ? OR pets.name LIKE ? OR order_items.name LIKE ?)",
-			shopID, like, like, like, like, like)
+		Where("orders.shop_id = ? AND (orders.order_no LIKE ? OR customers.nickname LIKE ? OR customers.phone LIKE ? OR pets.name LIKE ? OR order_items.name LIKE ? OR EXISTS (?))",
+			shopID, like, like, like, like, like, feedingPets)
 	db := database.DB.Model(&model.Order{}).Where("orders.id IN (?)", subQuery)
+	if f.SelfUse {
+		db = db.Where("orders.remark LIKE ?", "%自用%")
+	}
 	if f.Status != nil {
 		db = db.Where("orders.status = ?", *f.Status)
 	}
@@ -131,6 +178,9 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 	if f.PayMethod != "" {
 		db = applyPayMethodFilter(db, "orders.pay_method", f.PayMethod)
 	}
+	if f.CategoryID > 0 {
+		db = applyServiceCategoryFilter(db, "orders", f.CategoryID)
+	}
 	if f.ProductKeyword != "" {
 		productLike := "%" + f.ProductKeyword + "%"
 		db = db.Where(
@@ -140,15 +190,44 @@ func (r *OrderRepository) Search(shopID uint, keyword string, f OrderFilter, pag
 				Where("order_items.order_id = orders.id AND order_items.deleted_at IS NULL AND order_items.item_type = ? AND order_items.name LIKE ?", 2, productLike),
 		)
 	}
-	if f.OrderKind == "feeding" {
-		db = db.Where("orders.feeding_plan_id IS NOT NULL AND orders.feeding_plan_id > 0")
-	}
+	db = applyOrderKindFilter(db, "orders", f.OrderKind)
 	db.Count(&total)
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("Appointment.Pets").Preload("Appointment.Pets.Pet").
-		Preload("FeedingPlan").Preload("FeedingPlan.Pets").Preload("FeedingPlan.Pets.Pet").
+	err := db.Preload("Customer").Preload("Pet").Preload("Staff").Preload("Items").Preload("Appointment").Preload("FeedingPlan").
 		Order("orders.id DESC").Offset(offset).Limit(pageSize).Find(&orders).Error
 	return orders, total, err
+}
+
+func applyOrderKindFilter(db *gorm.DB, orderTable string, orderKind string) *gorm.DB {
+	orderIDColumn := orderTable + ".id"
+	feedingPlanColumn := orderTable + ".feeding_plan_id"
+
+	switch orderKind {
+	case "feeding":
+		return db.Where(feedingPlanColumn + " IS NOT NULL AND " + feedingPlanColumn + " > 0")
+	case "boarding":
+		return db.Where(
+			"EXISTS (?)",
+			database.DB.Model(&model.OrderItem{}).
+				Select("1").
+				Where("order_items.order_id = "+orderIDColumn+" AND order_items.deleted_at IS NULL AND order_items.item_type IN ?", []int{4, 5, 6}),
+		)
+	default:
+		return db
+	}
+}
+
+func applyServiceCategoryFilter(db *gorm.DB, orderTable string, categoryID uint) *gorm.DB {
+	orderIDColumn := orderTable + ".id"
+	return db.Where(
+		"EXISTS (?)",
+		database.DB.Model(&model.OrderItem{}).
+			Select("1").
+			Joins("JOIN services ON services.id = order_items.item_id AND services.deleted_at IS NULL").
+			Joins("LEFT JOIN service_categories ON service_categories.id = services.category_id AND service_categories.deleted_at IS NULL").
+			Where("order_items.order_id = "+orderIDColumn+" AND order_items.deleted_at IS NULL AND order_items.item_type = ?", 1).
+			Where("(services.category_id = ? OR service_categories.parent_id = ?)", categoryID, categoryID),
+	)
 }
 
 func applyPayMethodFilter(db *gorm.DB, column string, payMethod string) *gorm.DB {
@@ -184,6 +263,13 @@ func (r *OrderRepository) Update(order *model.Order) error {
 
 func (r *OrderRepository) UpdateRemark(id uint, remark string) error {
 	return database.DB.Model(&model.Order{}).Where("id = ?", id).Update("remark", remark).Error
+}
+
+func (r *OrderRepository) UpdateCustomerPet(id uint, customerID *uint, petID *uint) error {
+	return database.DB.Model(&model.Order{}).Where("id = ?", id).Updates(map[string]any{
+		"customer_id": customerID,
+		"pet_id":      petID,
+	}).Error
 }
 
 func (r *OrderRepository) CreateItems(items []model.OrderItem) error {

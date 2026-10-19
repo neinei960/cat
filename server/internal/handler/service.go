@@ -80,8 +80,9 @@ func (h *ServiceHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	orderBy := c.Query("order_by")
+	customerID64, _ := strconv.ParseUint(c.DefaultQuery("customer_id", "0"), 10, 64)
 
-	list, total, err := h.serviceService.List(shopID, page, pageSize, orderBy)
+	list, total, err := h.serviceService.List(shopID, page, pageSize, orderBy, uint(customerID64))
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "查询失败")
 		return
@@ -136,12 +137,12 @@ func (h *ServiceHandler) Delete(c *gin.Context) {
 // Price rules
 
 type createPriceRuleReq struct {
-	Name     string  `json:"name"`
-	FurLevel string  `json:"fur_level"`
-	PetSize  string  `json:"pet_size"`
-	Breed    string  `json:"breed"`
-	Price    float64 `json:"price" binding:"required"`
-	Duration int     `json:"duration"`
+	Name     string   `json:"name"`
+	FurLevel string   `json:"fur_level"`
+	PetSize  string   `json:"pet_size"`
+	Breed    string   `json:"breed"`
+	Price    *float64 `json:"price" binding:"required"`
+	Duration int      `json:"duration"`
 }
 
 func (h *ServiceHandler) CreatePriceRule(c *gin.Context) {
@@ -158,7 +159,7 @@ func (h *ServiceHandler) CreatePriceRule(c *gin.Context) {
 		FurLevel:  req.FurLevel,
 		PetSize:   req.PetSize,
 		Breed:     req.Breed,
-		Price:     req.Price,
+		Price:     *req.Price,
 		Duration:  req.Duration,
 	}
 

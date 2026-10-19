@@ -2,14 +2,6 @@
   <SideLayout>
     <view class="page">
       <view class="section">
-        <view class="section-head">
-          <view>
-            <text class="section-title">客户与猫咪</text>
-            <text class="section-desc">商品可直接零售，服务需要先选猫咪。</text>
-          </view>
-          <view v-if="isEditing" class="section-badge">修改订单</view>
-        </view>
-
         <view class="selector-block">
         <view class="selector-head">
           <text class="selector-title">客户</text>
@@ -32,14 +24,16 @@
           <view v-else>
             <view class="search-shell">
               <view class="search-accent">搜客户</view>
-              <input
-                v-model="customerKeyword"
-                class="search-input search-input-centered"
-                placeholder="输入客户昵称或手机号搜索"
-                confirm-type="search"
-                @input="searchCustomers"
-                @confirm="searchCustomers"
-              />
+              <view class="search-input-wrap">
+                <input
+                  v-model="customerKeyword"
+                  class="search-input search-input-centered"
+                  confirm-type="search"
+                  @input="searchCustomers"
+                  @confirm="searchCustomers"
+                />
+                <text v-if="!customerKeyword" class="search-placeholder">输入客户昵称或手机号搜索</text>
+              </view>
             </view>
             <view v-if="customerOptions.length > 0" class="option-list">
               <view class="option-card" v-for="customer in customerOptions" :key="customer.ID" @click="selectCustomer(customer)">
@@ -79,14 +73,18 @@
           <view v-else>
             <view class="search-shell">
               <view class="search-accent">{{ selectedCustomer ? '当前客户' : '搜猫咪' }}</view>
-              <input
-                v-model="petKeyword"
-                class="search-input search-input-centered"
-                :placeholder="selectedCustomer ? '搜索该客户的猫咪' : '输入猫咪名搜索'"
-                confirm-type="search"
-                @input="searchPets"
-                @confirm="searchPets"
-              />
+              <view class="search-input-wrap">
+                <input
+                  v-model="petKeyword"
+                  class="search-input search-input-centered"
+                  confirm-type="search"
+                  @input="searchPets"
+                  @confirm="searchPets"
+                />
+                <text v-if="!petKeyword" class="search-placeholder">
+                  {{ selectedCustomer ? '搜索该客户的猫咪' : '输入猫咪名搜索' }}
+                </text>
+              </view>
             </view>
             <view v-if="selectedCustomer && petOptions.length === 0" class="inline-hint">该客户暂无猫咪档案，可直接开商品单。</view>
             <view v-if="petOptions.length > 0" class="option-list">
@@ -114,45 +112,78 @@
         <view class="section-head">
           <view>
             <text class="section-title">商品开单</text>
-            <text class="section-desc">可直接零售，也可和服务一起结算。</text>
+            <text class="section-desc">{{ isBoardingProductEdit ? '寄养期间的商品消费会和寄养费用一起收款。' : '可直接零售，也可和服务一起结算。' }}</text>
           </view>
         </view>
 
         <view class="search-shell">
           <view class="search-accent">搜商品</view>
-          <input
-            v-model="productKeyword"
-            class="search-input search-input-centered"
-            placeholder="搜索商品名称 / 品牌"
-          />
+          <view class="search-input-wrap">
+            <input
+              v-model="productKeyword"
+              class="search-input search-input-centered"
+              confirm-type="search"
+              @confirm="triggerProductSearch(true)"
+            />
+            <text v-if="!productKeyword" class="search-placeholder">搜索商品名称 / 品牌 / 分类 / 规格</text>
+          </view>
         </view>
 
         <scroll-view scroll-x class="product-tab-bar">
           <view class="product-tab-list">
-            <view :class="['product-tab', activeProductCategoryId === 0 ? 'active' : '']" @click="activeProductCategoryId = 0">全部</view>
+            <view :class="['product-tab', activeProductCategoryId === 0 ? 'active' : '']" @click="setActiveProductCategory(0)">全部</view>
             <view
               v-for="category in productCategories"
               :key="category.ID"
               :class="['product-tab', activeProductCategoryId === category.ID ? 'active' : '']"
-              @click="activeProductCategoryId = category.ID"
+              @click="setActiveProductCategory(category.ID)"
             >
               {{ category.name }}
             </view>
           </view>
         </scroll-view>
 
-        <view v-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
+        <view v-if="productLoading" class="empty-block">商品加载中...</view>
+        <view v-else-if="filteredProducts.length === 0" class="empty-block">暂无可售商品</view>
         <view v-else class="product-grid">
-          <view class="product-card" v-for="product in filteredProducts" :key="product.ID" @click="openProductPicker(product)">
+          <view class="product-card" v-for="product in visibleProductCards" :key="product.ID">
             <view class="product-card-top">
-              <text class="product-name">{{ product.name }}</text>
+              <view class="product-name-wrap" @click="openProductPicker(product)">
+                <text class="product-name">{{ product.name }}</text>
+                <view
+                  v-if="getSellableSkus(product).length > 1"
+                  :class="['product-expand-arrow', isProductExpanded(product) ? 'open' : '']"
+                >
+                  <view class="product-expand-arrow-shaft left"></view>
+                  <view class="product-expand-arrow-shaft right"></view>
+                </view>
+              </view>
               <text class="product-price">{{ formatProductPrice(product) }}</text>
+            </view>
+            <view
+              v-if="isProductExpanded(product) && getSellableSkus(product).length > 1"
+              class="product-sku-list"
+              @click.stop
+            >
+              <view
+                v-for="sku in getSellableSkus(product)"
+                :key="sku.ID"
+                class="product-sku-item"
+                @click.stop="selectProductSku(product, sku)"
+              >
+                <text class="product-sku-name">{{ sku.spec_name || '默认规格' }}</text>
+                <text class="product-sku-price">¥{{ Number(sku.price || 0).toFixed(2) }}</text>
+              </view>
             </view>
             <view class="product-card-bottom">
               <text class="product-meta">{{ product.brand || product.category?.name || '零售商品' }}</text>
               <text class="product-meta">{{ getSellableSkus(product).length }}个可售规格</text>
             </view>
             <view v-if="getProductCartCount(product.ID)" class="product-badge">{{ getProductCartCount(product.ID) }}</view>
+          </view>
+          <view v-if="filteredProducts.length > PRODUCT_COLLAPSED_LIMIT" class="product-list-toggle" @click="productListExpanded = !productListExpanded">
+            <text>{{ productListExpanded ? '收起商品' : `展开全部 ${filteredProducts.length} 个商品` }}</text>
+            <text :class="['product-list-toggle-icon', productListExpanded ? 'open' : '']">⌄</text>
           </view>
         </view>
 
@@ -177,7 +208,7 @@
         </view>
       </view>
 
-      <view class="section service-fold-section">
+      <view v-if="!isBoardingProductEdit" class="section service-fold-section">
         <view class="service-fold-trigger" @click="servicePanelExpanded = !servicePanelExpanded">
           <view class="service-fold-copy">
             <text class="section-title no-margin">服务项目</text>
@@ -229,7 +260,7 @@
                   <view
                     v-for="service in filteredServices"
                     :key="service.ID"
-                    :class="['svc-item', selectedServiceId === service.ID ? 'checked' : '']"
+                    :class="['svc-item', isServiceSelected(service.ID) ? 'checked' : '', selectedServiceId === service.ID ? 'active-service' : '']"
                     @click="selectService(service)"
                   >
                     <view class="svc-item-info">
@@ -238,15 +269,39 @@
                     </view>
                     <view class="svc-item-right">
                       <text class="svc-item-price">¥{{ service.base_price }}</text>
-                      <view :class="['svc-item-check', selectedServiceId === service.ID ? 'on' : '']"></view>
+                      <view :class="['svc-item-check', isServiceSelected(service.ID) ? 'on' : '']"></view>
                     </view>
                   </view>
                 </scroll-view>
               </view>
             </view>
 
+            <view class="selected-service-section" v-if="serviceItems.length > 0">
+              <text class="selected-service-title">已选服务</text>
+              <view class="selected-service-list">
+                <view
+                  v-for="item in serviceItems"
+                  :key="item.line_id"
+                  :class="['selected-service-chip', selectedServiceLineId === item.line_id ? 'active' : '']"
+                  @click="focusServiceItem(item)"
+                >
+                  <view class="service-line-label">
+                    <text>{{ item.name }}{{ item.spec_name ? ' · ' + item.spec_name : '' }}</text>
+                    <text class="service-line-meta">¥{{ item.unit_price.toFixed(2) }}/{{ canRepeatService(item.name + item.spec_name) ? '次' : '份' }} · {{ item.duration * item.quantity }}分钟</text>
+                  </view>
+                  <view class="service-line-controls" @click.stop>
+                    <button class="quantity-button" :disabled="item.quantity <= 1" aria-label="减少服务次数" @click="changeServiceQuantity(item, -1)">−</button>
+                    <text class="service-line-quantity">{{ item.quantity }}</text>
+                    <button class="quantity-button" :disabled="!canRepeatService(item.name + item.spec_name) || item.quantity >= 999" aria-label="增加服务次数" @click="changeServiceQuantity(item, 1)">+</button>
+                    <text class="service-line-total">¥{{ serviceLineAmount(item.unit_price, item.quantity).toFixed(2) }}</text>
+                    <text class="selected-service-remove" @click="removeServiceItem(item)">移除</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+
             <view class="spec-section" v-if="selectedServiceId && specList.length > 0">
-              <text class="spec-title">选择规格</text>
+              <text class="spec-title">选择规格{{ activeServiceItem ? ' · ' + activeServiceItem.name : '' }}</text>
               <view class="spec-picker">
                 <view
                   v-for="spec in specList"
@@ -286,32 +341,76 @@
         <view class="section-head compact">
           <view>
             <text class="section-title">金额汇总</text>
-            <text class="section-desc">服务和商品分开统计。</text>
+            <text class="section-desc">{{ showSummaryBreakdown ? '服务和商品分开统计。' : '按最终应付金额结算。' }}</text>
           </view>
         </view>
-        <view class="summary-row" v-if="serviceSubtotal > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && serviceSubtotal > 0">
           <text>服务小计</text>
           <text>¥{{ serviceSubtotal.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="serviceDiscountAmount > 0">
+        <view class="summary-row" v-if="serviceItems.length">
+          <text>预计时长</text><text>{{ serviceDuration }}分钟</text>
+        </view>
+        <view class="summary-row" v-if="showSummaryBreakdown && serviceDiscountAmount > 0">
           <text>服务优惠</text>
           <text class="discount">-¥{{ serviceDiscountAmount.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="productSubtotal > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && productSubtotal > 0">
           <text>商品小计</text>
           <text>¥{{ productSubtotal.toFixed(2) }}</text>
         </view>
-        <view class="summary-row" v-if="productDiscountAmount > 0">
+        <view class="summary-row" v-if="showSummaryBreakdown && productDiscountAmount > 0">
           <text>商品优惠</text>
           <text class="discount">-¥{{ productDiscountAmount.toFixed(2) }}</text>
         </view>
-        <view class="summary-row">
+        <view class="summary-row" v-if="showSummaryBreakdown">
           <text>订单总价</text>
           <text>¥{{ totalAmount.toFixed(2) }}</text>
         </view>
+        <view v-if="hasAppointmentContext" class="appointment-late-block">
+          <text class="summary-inline-label">到店状态</text>
+          <view :class="['arrival-toggle', !canEditAppointmentLate ? 'disabled' : '']">
+            <view
+              :class="['arrival-chip', !appointmentIsLate ? 'active' : '']"
+              @click="setAppointmentLate(false)"
+            >正常</view>
+            <view
+              :class="['arrival-chip', appointmentIsLate ? 'active warn' : 'warn']"
+              @click="setAppointmentLate(true)"
+            >迟到</view>
+          </view>
+          <text v-if="appointmentIsLate" class="appointment-late-tip">迟到扣除预约金30%</text>
+        </view>
+        <view class="summary-row" v-if="appointmentDepositDeduction > 0">
+          <text>{{ appointmentDepositLabel }}</text>
+          <text class="discount">-¥{{ appointmentDepositDeduction.toFixed(2) }}</text>
+        </view>
         <view class="summary-row total">
-          <text>应付</text>
+          <text>{{ manualPayTouched ? '调整后应付' : '应付' }}</text>
           <text class="pay-amount">¥{{ payAmount.toFixed(2) }}</text>
+        </view>
+        <view class="manual-total-card">
+          <view class="manual-total-head">
+            <view>
+              <text class="manual-total-title">手动总价</text>
+              <text class="manual-total-desc">特殊算法、团购差价或临时优惠时可直接改最终应付。</text>
+            </view>
+            <text v-if="manualPayTouched" class="manual-total-reset" @click="resetManualPay">恢复自动</text>
+          </view>
+          <view class="manual-total-input-row">
+            <text class="manual-total-prefix">¥</text>
+            <input
+              v-model="manualPayInput"
+              class="manual-total-input"
+              type="digit"
+              :placeholder="calculatedPayAmount.toFixed(2)"
+              @input="onManualPayInput"
+              @blur="onManualPayBlur"
+            />
+          </view>
+          <text v-if="manualPayTouched && manualAdjustment !== 0" :class="['manual-total-tip', manualAdjustment > 0 ? 'increase' : 'decrease']">
+            {{ manualAdjustment > 0 ? '将增加' : '将减免' }} ¥{{ Math.abs(manualAdjustment).toFixed(2) }}
+          </text>
         </view>
       </view>
 
@@ -321,9 +420,6 @@
           <picker :range="staffNames" :value="selectedStaffIdx" @change="(e: any) => selectedStaffIdx = Number(e.detail.value)">
             <view :class="['picker', hasServiceItem && !selectedStaff ? 'picker-warn' : '']">{{ staffNames[selectedStaffIdx] || '请选择' }}</view>
           </picker>
-        </view>
-        <view class="staff-commission" v-if="selectedStaff">
-          <text>服务提成 {{ selectedStaff.commission_rate }}% · 商品提成 {{ selectedStaff.product_commission_rate || 0 }}%</text>
         </view>
         <view class="form-row">
           <text class="label">备注</text>
@@ -340,18 +436,21 @@
 
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getCustomer, getCustomerList, getCustomerPets } from '@/api/customer'
 import { getPetList } from '@/api/pet'
 import { getProductCategories, getProductList } from '@/api/product'
 import { createOrder, getOrder, updateOrder } from '@/api/order'
-import { priceLookup } from '@/api/addon'
 import { getServiceList, getPriceRules } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
 import { getStaffList } from '@/api/staff'
 import { getCustomerCard } from '@/api/member-card'
 import { getAppointment } from '@/api/appointment'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
+import { calculateMemberPricingPreview } from '@/utils/member-pricing'
+import { canRepeatService, serviceQuantity, serviceLineAmount, serviceSelectionKey } from '@/utils/service-quantity'
 
 type CustomerOption = Customer
 type PetOption = Pet
@@ -368,6 +467,20 @@ interface CartItem {
   unit_price: number
 }
 
+interface ServiceCartItem {
+  line_id: number
+  quantity: number
+  service_id: number
+  name: string
+  base_price: number
+  unit_price: number
+  duration: number
+  spec_id: number
+  spec_name: string
+  use_custom_price: boolean
+  custom_price_input: string
+}
+
 const customerKeyword = ref('')
 const customerOptions = ref<CustomerOption[]>([])
 const customerPets = ref<PetOption[]>([])
@@ -381,19 +494,44 @@ const productKeyword = ref('')
 const productList = ref<ProductOption[]>([])
 const productCategories = ref<any[]>([])
 const activeProductCategoryId = ref(0)
+const productLoading = ref(false)
 const cartItems = ref<CartItem[]>([])
+const PRODUCT_COLLAPSED_LIMIT = 5
+const productListExpanded = ref(false)
 
 const serviceList = ref<any[]>([])
 const categoryTree = ref<any[]>([])
 const activeCategoryId = ref(0)
 const activeSubCategoryId = ref(0)
 const selectedServiceId = ref(0)
+const selectedServiceLineId = ref(0)
+let serviceLineSequence = 0
+const serviceItems = ref<ServiceCartItem[]>([])
+const servicePriceRulesById = ref<Record<number, any[]>>({})
 const servicePanelExpanded = ref(false)
-const servicePrice = ref(0)
-const specList = ref<any[]>([])
-const selectedSpecId = ref(0)
-const useCustomPrice = ref(false)
-const customPriceInput = ref('')
+const activeServiceItem = computed(() => serviceItems.value.find((item) => item.line_id === selectedServiceLineId.value) || null)
+const servicePrice = computed({
+  get: () => Number(activeServiceItem.value?.unit_price || 0),
+  set: (value: number) => {
+    if (activeServiceItem.value) {
+      activeServiceItem.value.unit_price = roundCurrency(Number(value || 0))
+    }
+  },
+})
+const specList = computed(() => selectedServiceId.value > 0 ? servicePriceRulesById.value[selectedServiceId.value] || [] : [])
+const selectedSpecId = computed(() => Number(activeServiceItem.value?.spec_id || 0))
+const useCustomPrice = computed({
+  get: () => !!activeServiceItem.value?.use_custom_price,
+  set: (value: boolean) => {
+    if (activeServiceItem.value) activeServiceItem.value.use_custom_price = value
+  },
+})
+const customPriceInput = computed({
+  get: () => activeServiceItem.value?.custom_price_input || '',
+  set: (value: string) => {
+    if (activeServiceItem.value) activeServiceItem.value.custom_price_input = value
+  },
+})
 
 const staffList = ref<any[]>([])
 const selectedStaffIdx = ref(0)
@@ -401,8 +539,14 @@ const remark = ref('')
 const submitting = ref(false)
 const memberBalance = ref(0)
 const customerCard = ref<MemberCard | null>(null)
+const linkedAppointment = ref<any>(null)
+const appointmentIsLate = ref(false)
+const manualPayInput = ref('')
+const manualPayTouched = ref(false)
 const prefillAppointmentId = ref(0)
 const editingOrderId = ref(0)
+const editingOrderPayStatus = ref(0)
+const editingOrderKind = ref('')
 const prefillCustomerId = ref(0)
 const refreshMemberCardHint = ref(false)
 const ORDER_CREATE_REFRESH_KEY = 'order_create_refresh_member_card'
@@ -410,8 +554,13 @@ const ORDER_CREATE_RETURN_CUSTOMER_KEY = 'order_create_return_customer_id'
 
 let customerSearchTimer: ReturnType<typeof setTimeout> | null = null
 let petSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productRequestSeq = 0
 
+const authStore = useAuthStore()
 const isEditing = computed(() => editingOrderId.value > 0)
+const isBoardingProductEdit = computed(() => isEditing.value && editingOrderKind.value === 'boarding')
+const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
 const staffNames = computed(() => ['未选择', ...staffList.value.map((staff: any) => staff.name)])
 
@@ -447,34 +596,67 @@ const petOptions = computed(() => {
 })
 
 const filteredProducts = computed(() => {
-  const keyword = productKeyword.value.trim().toLowerCase()
   return productList.value.filter((product) => {
     if (product.status !== 1) return false
-    if (activeProductCategoryId.value > 0 && product.category_id !== activeProductCategoryId.value) return false
     if (getSellableSkus(product).length === 0) return false
-    if (!keyword) return true
-    const haystack = `${product.name} ${product.brand || ''}`.toLowerCase()
-    return haystack.includes(keyword)
+    if (activeProductCategoryId.value > 0 && Number(product.category_id || product.category?.ID || 0) !== activeProductCategoryId.value) return false
+    return true
   })
 })
+const visibleProductCards = computed(() => productListExpanded.value ? filteredProducts.value : filteredProducts.value.slice(0, PRODUCT_COLLAPSED_LIMIT))
 
-const serviceSubtotal = computed(() => selectedServiceId.value > 0 ? roundCurrency(servicePrice.value) : 0)
+const serviceSubtotal = computed(() => roundCurrency(serviceItems.value.reduce((sum, item) => sum + serviceLineAmount(item.unit_price, item.quantity), 0)))
+const serviceDuration = computed(() => serviceItems.value.reduce((sum, item) => sum + item.duration * item.quantity, 0))
 const productSubtotal = computed(() => roundCurrency(cartItems.value.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)))
 const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value))
 
-const serviceDiscountRate = computed(() => {
+const configuredServiceDiscountRate = computed(() => {
   const rate = Number(selectedCustomer.value?.discount_rate || 1)
   return rate > 0 && rate < 1 ? rate : 1
 })
-const productDiscountRate = computed(() => {
+const configuredProductDiscountRate = computed(() => {
   const rate = Number(customerCard.value?.product_discount_rate || 1)
   return rate > 0 && rate < 1 ? rate : 1
 })
-const serviceDiscountAmount = computed(() => roundCurrency(serviceSubtotal.value - roundCurrency(serviceSubtotal.value * serviceDiscountRate.value)))
-const productDiscountAmount = computed(() => roundCurrency(productSubtotal.value - roundCurrency(productSubtotal.value * productDiscountRate.value)))
-const payAmount = computed(() => roundCurrency(totalAmount.value - serviceDiscountAmount.value - productDiscountAmount.value))
-const hasServiceItem = computed(() => selectedServiceId.value > 0)
+const memberPricing = computed(() => calculateMemberPricingPreview({
+  serviceTotal: serviceSubtotal.value,
+  productTotal: productSubtotal.value,
+  serviceDiscountRate: configuredServiceDiscountRate.value,
+  productDiscountRate: configuredProductDiscountRate.value,
+  availableBalance: customerCard.value?.ID ? Number(customerCard.value.balance || 0) : 0,
+}))
+const serviceDiscountAmount = computed(() => memberPricing.value.serviceDiscountAmount)
+const productDiscountAmount = computed(() => memberPricing.value.productDiscountAmount)
+const serviceDiscountRate = computed(() => serviceDiscountAmount.value > 0 ? configuredServiceDiscountRate.value : 1)
+const productDiscountRate = computed(() => productDiscountAmount.value > 0 ? configuredProductDiscountRate.value : 1)
+const payAmountBeforeDeposit = computed(() => memberPricing.value.finalPayAmount)
+const hasAppointmentContext = computed(() => !!linkedAppointment.value)
+const canEditAppointmentLate = computed(() => !isEditing.value || editingOrderPayStatus.value !== 1)
+const appointmentDepositLabel = computed(() => appointmentIsLate.value ? '⚠️ 预约金抵扣' : '预约金抵扣')
+const appointmentDepositDeduction = computed(() => {
+  const appointment = linkedAppointment.value
+  const customerID = Number(selectedCustomer.value?.ID || 0)
+  const appointmentCustomerID = Number(appointment?.customer_id || appointment?.customer?.ID || 0)
+  if (!appointment || !customerID || customerID !== appointmentCustomerID) return 0
+  if (customerCard.value?.ID) return 0
+  const raw = Number(appointment?.deposit || 0)
+  if (raw <= 0) return 0
+  const allowed = appointmentIsLate.value ? raw * 0.7 : raw
+  return roundCurrency(Math.min(allowed, payAmountBeforeDeposit.value))
+})
+const calculatedPayAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
+const manualPayValue = computed(() => roundCurrency(Math.max(parseAmountInput(manualPayInput.value), 0)))
+const payAmount = computed(() => manualPayTouched.value ? manualPayValue.value : calculatedPayAmount.value)
+const manualAdjustment = computed(() => roundCurrency(payAmount.value - calculatedPayAmount.value))
+const hasServiceItem = computed(() => serviceItems.value.length > 0)
 const hasChargeItems = computed(() => hasServiceItem.value || cartItems.value.length > 0)
+const chargeBucketCount = computed(() => {
+  let count = 0
+  if (serviceSubtotal.value > 0) count += 1
+  if (productSubtotal.value > 0) count += 1
+  return count
+})
+const showSummaryBreakdown = computed(() => chargeBucketCount.value > 1)
 
 onLoad((query) => {
   if (query?.appointment_id) {
@@ -500,6 +682,7 @@ onLoad((query) => {
 onMounted(async () => {
   await Promise.all([
     loadServiceData(),
+    loadProductCategories(),
     loadProductData(),
     loadStaffs(),
   ])
@@ -527,6 +710,35 @@ onShow(async () => {
   await refreshSelectedCustomerContext()
 })
 
+function setAppointmentLate(value: boolean) {
+  if (!canEditAppointmentLate.value) return
+  appointmentIsLate.value = value
+}
+
+function parseAmountInput(value: string) {
+  const parsed = Number.parseFloat(String(value || '').replace(/[^\d.]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function onManualPayInput() {
+  manualPayTouched.value = true
+}
+
+function onManualPayBlur() {
+  if (!manualPayTouched.value) return
+  manualPayInput.value = manualPayValue.value.toFixed(2)
+}
+
+function resetManualPay() {
+  manualPayTouched.value = false
+  manualPayInput.value = calculatedPayAmount.value > 0 ? calculatedPayAmount.value.toFixed(2) : ''
+}
+
+function resetManualPayAfterProductChange() {
+  if (!manualPayTouched.value) return
+  resetManualPay()
+}
+
 async function loadServiceData() {
   try {
     const [serviceRes, categoryRes] = await Promise.all([
@@ -542,15 +754,63 @@ async function loadServiceData() {
 }
 
 async function loadProductData() {
+  const requestSeq = ++productRequestSeq
+  productLoading.value = true
   try {
-    const [categoryRes, productRes] = await Promise.all([
-      getProductCategories(),
-      getProductList({ page: 1, page_size: 500 } as any),
-    ])
-    productCategories.value = Array.isArray(categoryRes.data) ? categoryRes.data.filter((item: any) => item.status === 1) : []
+    const params: any = { page: 1, page_size: 100 }
+    if (activeProductCategoryId.value > 0) {
+      params.category_id = activeProductCategoryId.value
+    }
+    const keyword = productKeyword.value.trim()
+    if (keyword) {
+      params.keyword = keyword
+    }
+    const productRes = await getProductList(params)
+    if (requestSeq !== productRequestSeq) return
     productList.value = productRes.data?.list || []
   } catch {}
+  finally {
+    if (requestSeq === productRequestSeq) {
+      productLoading.value = false
+    }
+  }
 }
+
+async function loadProductCategories() {
+  try {
+    const categoryRes = await getProductCategories()
+    productCategories.value = Array.isArray(categoryRes.data) ? categoryRes.data.filter((item: any) => item.status === 1) : []
+  } catch {}
+}
+
+function setActiveProductCategory(categoryId: number) {
+  if (activeProductCategoryId.value === categoryId) return
+  activeProductCategoryId.value = categoryId
+  productListExpanded.value = false
+  triggerProductSearch(true)
+}
+
+function triggerProductSearch(immediate = false) {
+  if (productSearchTimer) clearTimeout(productSearchTimer)
+  if (immediate) {
+    loadProductData()
+    return
+  }
+  productSearchTimer = setTimeout(() => {
+    loadProductData()
+  }, 250)
+}
+
+watch(productKeyword, () => {
+  productListExpanded.value = false
+  triggerProductSearch(false)
+})
+
+watch(calculatedPayAmount, (value) => {
+  if (!manualPayTouched.value) {
+    manualPayInput.value = value > 0 ? value.toFixed(2) : ''
+  }
+}, { immediate: true })
 
 async function loadStaffs() {
   try {
@@ -583,6 +843,28 @@ async function searchCustomers() {
       customerOptions.value = []
     }
   }, 250)
+}
+
+function normalizePhoneInput(value: string) {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits.length >= 5 && digits.length <= 20 ? digits : ''
+}
+
+async function resolveCustomerByPhoneBeforeSubmit(phone: string) {
+  if (selectedCustomer.value?.ID || !phone) return selectedCustomer.value
+  try {
+    const res = await getCustomerList({ page: 1, page_size: 10, keyword: phone } as any)
+    const list = res.data?.list || []
+    const matched = list.find((customer: CustomerOption) => normalizePhoneInput(customer.phone || '') === phone)
+    if (!matched) return null
+    customerOptions.value = []
+    customerKeyword.value = ''
+    await applyCustomerSelection(matched)
+    uni.showToast({ title: `已自动绑定${matched.nickname || '老客户'}`, icon: 'none' })
+    return matched
+  } catch {
+    return null
+  }
 }
 
 async function selectCustomer(customer: CustomerOption) {
@@ -699,8 +981,10 @@ async function selectPet(pet: PetOption) {
   petKeyword.value = ''
   petSearchResults.value = []
 
-  if (selectedServiceId.value > 0 && pet.fur_level) {
-    await lookupPrice(selectedServiceId.value, pet.fur_level)
+  if (serviceItems.value.length > 0 && pet.fur_level) {
+    for (const item of serviceItems.value) {
+      await applyPetPriceRule(item, pet.fur_level)
+    }
   }
 }
 
@@ -709,11 +993,8 @@ function clearPet() {
   petKeyword.value = ''
   petSearchResults.value = []
   selectedServiceId.value = 0
-  selectedSpecId.value = 0
-  specList.value = []
-  servicePrice.value = 0
-  useCustomPrice.value = false
-  customPriceInput.value = ''
+  serviceItems.value = []
+  servicePriceRulesById.value = {}
 }
 
 function calcAge(birthDate: string): string {
@@ -728,45 +1009,129 @@ function calcAge(birthDate: string): string {
   return remain > 0 ? `${years}岁${remain}个月` : `${years}岁`
 }
 
-async function selectService(service: any) {
-  servicePanelExpanded.value = true
-  selectedServiceId.value = service.ID
-  selectedSpecId.value = 0
-  servicePrice.value = Number(service.base_price || 0)
-  useCustomPrice.value = false
-  customPriceInput.value = ''
-  try {
-    const res = await getPriceRules(service.ID)
-    const rules = res.data || []
-    specList.value = rules.map((item: any) => ({ ...item, name: item.name || item.fur_level || item.pet_size || '规格' }))
-    if (selectedPet.value?.fur_level && rules.length > 0) {
-      const match = rules.find((item: any) => item.fur_level === selectedPet.value?.fur_level)
-      if (match) {
-        servicePrice.value = Number(match.price || 0)
-        selectedSpecId.value = match.ID
-      }
-    }
-  } catch {
-    specList.value = []
+function isServiceSelected(serviceId: number) {
+  return serviceItems.value.some((item) => item.service_id === serviceId)
+}
+
+function createServiceCartItem(service: any): ServiceCartItem {
+  const basePrice = Number(service.base_price || 0)
+  return {
+    line_id: ++serviceLineSequence,
+    quantity: 1,
+    service_id: Number(service.ID || 0),
+    name: service.name || '服务项目',
+    base_price: basePrice,
+    unit_price: basePrice,
+    duration: Number(service.duration || 0),
+    spec_id: 0,
+    spec_name: '',
+    use_custom_price: false,
+    custom_price_input: '',
   }
 }
 
+function dedupeServicePriceRules(rules: any[]) {
+  const seen = new Set<string>()
+  const list: any[] = []
+  for (const raw of rules || []) {
+    const name = raw.name || raw.fur_level || raw.pet_size || '规格'
+    const key = [
+      name,
+      raw.fur_level || '',
+      raw.pet_size || '',
+      raw.breed || '',
+      Number(raw.price || 0).toFixed(2),
+      Number(raw.duration || 0),
+    ].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    list.push({ ...raw, name })
+  }
+  return list
+}
+
+async function ensureServicePriceRules(serviceId: number) {
+  if (servicePriceRulesById.value[serviceId]) return servicePriceRulesById.value[serviceId]
+  try {
+    const res = await getPriceRules(serviceId)
+    const rules = dedupeServicePriceRules(res.data || [])
+    servicePriceRulesById.value = { ...servicePriceRulesById.value, [serviceId]: rules }
+    return rules
+  } catch {
+    servicePriceRulesById.value = { ...servicePriceRulesById.value, [serviceId]: [] }
+    return []
+  }
+}
+
+async function applyPetPriceRule(item: ServiceCartItem, furLevel: string) {
+  if (item.use_custom_price || item.spec_id) return
+  const rules = await ensureServicePriceRules(item.service_id)
+  const match = rules.find((rule: any) => rule.fur_level === furLevel)
+  if (match) {
+    item.unit_price = Number(match.price || 0)
+    item.spec_id = Number(match.ID || 0)
+    item.spec_name = match.name || match.fur_level || match.pet_size || ''
+    item.duration = Number(match.duration ?? item.duration)
+    return
+  }
+  item.unit_price = item.base_price
+  item.spec_id = 0
+  item.spec_name = ''
+}
+
+async function selectService(service: any) {
+  servicePanelExpanded.value = true
+  selectedServiceId.value = service.ID
+  let item = serviceItems.value.find((entry) => entry.service_id === service.ID)
+  if (!item) {
+    resetManualPayAfterProductChange()
+    item = createServiceCartItem(service)
+    serviceItems.value.push(item)
+    if (selectedPet.value?.fur_level) {
+      await applyPetPriceRule(item, selectedPet.value.fur_level)
+    }
+  }
+  focusServiceItem(item)
+  await ensureServicePriceRules(service.ID)
+}
+
 function selectSpec(spec: any) {
-  selectedSpecId.value = spec.ID
-  servicePrice.value = Number(spec.price || 0)
-  useCustomPrice.value = false
-  customPriceInput.value = ''
+  if (!activeServiceItem.value) return
+  const current = activeServiceItem.value
+  const specName = spec.name || spec.fur_level || spec.pet_size || ''
+  const existing = serviceItems.value.find(item => item.service_id === current.service_id && item.spec_id === Number(spec.ID) && !item.use_custom_price)
+  if (existing) { focusServiceItem(existing); return }
+  resetManualPayAfterProductChange()
+  const next: ServiceCartItem = {
+    ...current, line_id: ++serviceLineSequence, quantity: 1,
+    spec_id: Number(spec.ID || 0), spec_name: specName, unit_price: Number(spec.price || 0),
+    duration: Number(spec.duration ?? current.duration), use_custom_price: false, custom_price_input: '',
+  }
+  if (!current.spec_id && !current.use_custom_price && current.quantity === 1) {
+    serviceItems.value = serviceItems.value.filter(item => item !== current)
+  }
+  serviceItems.value.push(next)
+  focusServiceItem(next)
 }
 
 function enableCustomPrice() {
+  if (!activeServiceItem.value) return
+  resetManualPayAfterProductChange()
+  if (!activeServiceItem.value.use_custom_price && activeServiceItem.value.spec_id) {
+    const next = { ...activeServiceItem.value, line_id: ++serviceLineSequence, quantity: 1, spec_name: '自定义' }
+    serviceItems.value.push(next)
+    focusServiceItem(next)
+  }
   useCustomPrice.value = true
-  selectedSpecId.value = 0
+  activeServiceItem.value.spec_id = 0
+  activeServiceItem.value.spec_name = ''
   if (customPriceInput.value) {
     servicePrice.value = parseFloat(customPriceInput.value) || 0
   }
 }
 
 function onCustomPriceInput() {
+  resetManualPayAfterProductChange()
   servicePrice.value = parseFloat(customPriceInput.value) || 0
 }
 
@@ -775,14 +1140,49 @@ function getBasePrice() {
   return service ? Number(service.base_price || 0).toFixed(2) : '0.00'
 }
 
-async function lookupPrice(serviceId: number, furLevel: string) {
-  try {
-    const res = await priceLookup(serviceId, furLevel)
-    servicePrice.value = Number(res.data?.price || 0)
-  } catch {
-    const service = serviceList.value.find((item: any) => item.ID === serviceId)
-    servicePrice.value = Number(service?.base_price || 0)
+function focusServiceItem(item: ServiceCartItem) {
+  selectedServiceId.value = item.service_id
+  selectedServiceLineId.value = item.line_id
+}
+
+function changeServiceQuantity(item: ServiceCartItem, delta: number) {
+  if (delta > 0 && !canRepeatService(item.name + item.spec_name)) return
+  resetManualPayAfterProductChange()
+  item.quantity = Math.min(999, Math.max(1, item.quantity + delta))
+}
+
+function removeServiceItem(target: ServiceCartItem) {
+  resetManualPayAfterProductChange()
+  serviceItems.value = serviceItems.value.filter((item) => item !== target)
+  if (selectedServiceLineId.value === target.line_id) {
+    const last = serviceItems.value[serviceItems.value.length - 1]
+    selectedServiceLineId.value = last?.line_id || 0
+    selectedServiceId.value = last?.service_id || 0
   }
+}
+
+async function restoreServiceSelection(snapshot: any) {
+  const service = serviceList.value.find((entry: any) => entry.ID === snapshot.item_id)
+    || { ID: snapshot.item_id, name: snapshot.name, base_price: snapshot.unit_price, duration: snapshot.duration || 0 }
+  const item = createServiceCartItem(service)
+  const rules = await ensureServicePriceRules(service.ID)
+  const name = String(snapshot.name || service.name)
+  const rule = rules.find((r: any) => Number(snapshot.service_spec_id) > 0
+    ? Number(r.ID) === Number(snapshot.service_spec_id)
+    : [service.name + ' · ' + r.name, service.name + '(' + r.name + ')'].includes(name) && Number(r.price) === Number(snapshot.unit_price))
+  item.unit_price = Number(snapshot.unit_price ?? service.base_price)
+  item.quantity = serviceQuantity(snapshot.quantity)
+  item.duration = Number(snapshot.duration ?? rule?.duration ?? service.duration ?? 0)
+  item.spec_id = Number(snapshot.service_spec_id || rule?.ID || 0)
+  item.spec_name = rule?.name || ''
+  if (!rule) item.name = name
+  item.use_custom_price = !rule && item.unit_price !== Number(service.base_price)
+  item.custom_price_input = item.use_custom_price ? String(item.unit_price) : ''
+  const key = serviceSelectionKey(item.service_id, item.spec_id, item.name + item.spec_name, item.unit_price)
+  const existing = serviceItems.value.find(entry => serviceSelectionKey(entry.service_id, entry.spec_id, entry.name + entry.spec_name, entry.unit_price) === key)
+  if (existing) { existing.quantity += item.quantity; focusServiceItem(existing) }
+  else { serviceItems.value.push(item); focusServiceItem(item) }
+  servicePanelExpanded.value = true
 }
 
 function getSellableSkus(product: ProductOption) {
@@ -801,6 +1201,17 @@ function formatCartDisplayName(productName: string, specName: string) {
   return specName ? `${productName} · ${specName}` : productName
 }
 
+function isProductExpanded(product: ProductOption & { __expanded?: boolean }) {
+  return !!product.__expanded
+}
+
+function collapseOtherProducts(activeId?: number) {
+  for (const item of productList.value as Array<ProductOption & { __expanded?: boolean }>) {
+    if (activeId && item.ID === activeId) continue
+    item.__expanded = false
+  }
+}
+
 function openProductPicker(product: ProductOption) {
   const skus = getSellableSkus(product)
   if (skus.length === 0) {
@@ -809,17 +1220,16 @@ function openProductPicker(product: ProductOption) {
   }
   if (skus.length === 1) {
     addProductToCart(product, skus[0])
+    collapseOtherProducts()
     return
   }
-  uni.showActionSheet({
-    itemList: skus.map((sku) => `${sku.spec_name || '默认规格'} · ¥${Number(sku.price || 0).toFixed(2)}`),
-    success: ({ tapIndex }) => {
-      const selectedSku = skus[tapIndex]
-      if (selectedSku) {
-        addProductToCart(product, selectedSku)
-      }
-    },
-  })
+  const nextExpanded = !isProductExpanded(product as ProductOption & { __expanded?: boolean })
+  collapseOtherProducts(nextExpanded ? product.ID : undefined)
+  ;(product as ProductOption & { __expanded?: boolean }).__expanded = nextExpanded
+}
+
+function selectProductSku(product: ProductOption, sku: ProductSkuOption) {
+  addProductToCart(product, sku)
 }
 
 function getProductCartCount(productId: number) {
@@ -827,6 +1237,7 @@ function getProductCartCount(productId: number) {
 }
 
 function addProductToCart(product: ProductOption, sku: ProductSkuOption) {
+  resetManualPayAfterProductChange()
   const existing = cartItems.value.find((item) => item.sku_id === sku.ID)
   if (existing) {
     existing.quantity += 1
@@ -844,6 +1255,7 @@ function addProductToCart(product: ProductOption, sku: ProductSkuOption) {
 }
 
 function changeCartQuantity(item: CartItem, delta: number) {
+  resetManualPayAfterProductChange()
   const nextQuantity = item.quantity + delta
   if (nextQuantity <= 0) {
     removeCartItem(item)
@@ -853,6 +1265,7 @@ function changeCartQuantity(item: CartItem, delta: number) {
 }
 
 function removeCartItem(target: CartItem) {
+  resetManualPayAfterProductChange()
   cartItems.value = cartItems.value.filter((item) => item !== target)
 }
 
@@ -860,22 +1273,19 @@ async function prefillFromAppointment(appointmentId: number) {
   try {
     const res = await getAppointment(appointmentId)
     const appt = res.data
+    linkedAppointment.value = appt || null
+    appointmentIsLate.value = false
     const firstPetGroup = Array.isArray(appt?.pets) && appt.pets.length > 0 ? appt.pets[0] : null
     const pet = firstPetGroup?.pet || appt?.pet
     if (pet) {
       await selectPet(pet)
     }
 
-    const firstService = firstPetGroup?.services?.[0] || appt?.services?.[0]
-    if (firstService?.service_id) {
-      const service = serviceList.value.find((item) => item.ID === firstService.service_id)
-      if (service) {
-        await selectService(service)
-        servicePanelExpanded.value = true
-        if (typeof firstService.price === 'number' && firstService.price > 0) {
-          servicePrice.value = firstService.price
-        }
-      }
+    const appointmentServices = firstPetGroup?.services || appt?.services || []
+    for (const appointmentService of appointmentServices) {
+      if (!appointmentService?.service_id) continue
+      await restoreServiceSelection({ item_id: appointmentService.service_id, name: appointmentService.service_name,
+        unit_price: appointmentService.price, duration: appointmentService.duration, quantity: 1 })
     }
 
     if (appt?.staff_id) {
@@ -897,12 +1307,22 @@ async function prefillFromOrder(orderId: number) {
   try {
     const res = await getOrder(orderId)
     const order = res.data
+    editingOrderKind.value = String(order?.order_kind || '')
+    linkedAppointment.value = order?.appointment || null
+    appointmentIsLate.value = !!order?.appointment_is_late
     if (!order) {
       uni.showToast({ title: '订单不存在', icon: 'none' })
       return
     }
-    if (order.status !== 0) {
-      uni.showToast({ title: '仅待付款订单可修改', icon: 'none' })
+    const status = Number(order.status || 0)
+    const payStatus = Number(order.pay_status || 0)
+    editingOrderPayStatus.value = payStatus
+    if ([2, 3].includes(status)) {
+      uni.showToast({ title: '当前订单不可修改', icon: 'none' })
+      return
+    }
+    if (!(payStatus === 0 || (payStatus === 1 && status === 1 && canManageOpenedOrder.value))) {
+      uni.showToast({ title: '仅店长可修改已开单订单', icon: 'none' })
       return
     }
 
@@ -914,19 +1334,10 @@ async function prefillFromOrder(orderId: number) {
       await selectPet(order.pet)
     }
 
-    const serviceItem = (order.items || []).find((item: any) => item.item_type === 1)
-    if (serviceItem?.item_id) {
-      const service = serviceList.value.find((item: any) => item.ID === serviceItem.item_id)
-      if (service) {
-        await selectService(service)
-        servicePanelExpanded.value = true
-        const nextPrice = Number(serviceItem.unit_price || 0)
-        if (nextPrice > 0 && nextPrice !== Number(servicePrice.value || 0)) {
-          useCustomPrice.value = true
-          customPriceInput.value = String(nextPrice)
-          servicePrice.value = nextPrice
-        }
-      }
+    const serviceOrderItems = (order.items || []).filter((item: any) => item.item_type === 1)
+    for (const serviceItem of serviceOrderItems) {
+      if (!serviceItem?.item_id) continue
+      await restoreServiceSelection(serviceItem)
     }
 
     cartItems.value = []
@@ -964,6 +1375,19 @@ async function prefillFromOrder(orderId: number) {
       }
     }
     remark.value = order.remark || ''
+    const persistedManualAdjustment = (order.items || [])
+      .filter((item: any) => Number(item.item_type) === 3)
+      .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0)
+    if (isBoardingProductEdit.value) {
+      manualPayTouched.value = false
+      manualPayInput.value = calculatedPayAmount.value > 0 ? calculatedPayAmount.value.toFixed(2) : ''
+    } else if (Math.abs(persistedManualAdjustment) >= 0.005 || payStatus === 1) {
+      manualPayTouched.value = true
+      manualPayInput.value = Number(order.pay_amount || 0).toFixed(2)
+    } else {
+      manualPayTouched.value = false
+      manualPayInput.value = calculatedPayAmount.value > 0 ? calculatedPayAmount.value.toFixed(2) : ''
+    }
   } catch {
     uni.showToast({ title: '订单信息带入失败', icon: 'none' })
   }
@@ -986,6 +1410,10 @@ function splitDisplayName(name: string) {
 }
 
 async function onSubmit() {
+  if (isBoardingProductEdit.value && hasServiceItem.value) {
+    uni.showToast({ title: '寄养关联订单仅支持添加商品', icon: 'none' })
+    return
+  }
   if (hasServiceItem.value && !selectedPet.value) {
     uni.showToast({ title: '请选择猫咪后再添加服务', icon: 'none' })
     return
@@ -1001,15 +1429,22 @@ async function onSubmit() {
 
   submitting.value = true
   try {
+    const typedCustomerPhone = normalizePhoneInput(customerKeyword.value)
+    await resolveCustomerByPhoneBeforeSubmit(typedCustomerPhone)
+
     const items: any[] = []
-    if (hasServiceItem.value) {
-      items.push({
-        item_type: 1,
-        item_id: selectedServiceId.value,
-        name: serviceList.value.find((item: any) => item.ID === selectedServiceId.value)?.name || '服务项目',
-        quantity: 1,
-        unit_price: Number(servicePrice.value || 0),
-      })
+    if (!isBoardingProductEdit.value) {
+      for (const item of serviceItems.value) {
+        items.push({
+          item_type: 1,
+          item_id: item.service_id,
+          name: item.spec_name ? `${item.name} · ${item.spec_name}` : item.name,
+          quantity: item.quantity,
+          service_spec_id: item.spec_id || undefined,
+          duration: item.duration,
+          unit_price: Number(item.unit_price || 0),
+        })
+      }
     }
     for (const item of cartItems.value) {
       items.push({
@@ -1021,12 +1456,23 @@ async function onSubmit() {
       })
     }
 
+    const addons = !isBoardingProductEdit.value && manualAdjustment.value !== 0
+      ? [{
+          name: manualAdjustment.value > 0 ? '手动加价' : '手动减价',
+          amount: manualAdjustment.value,
+        }]
+      : []
+
+    const customerId = selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined
     const payload = {
       pet_id: selectedPet.value?.ID || undefined,
-      customer_id: selectedCustomer.value?.ID || selectedPet.value?.customer_id || undefined,
+      customer_id: customerId,
+      customer_phone: customerId ? undefined : typedCustomerPhone || undefined,
       staff_id: selectedStaff.value?.ID || undefined,
+      appointment_is_late: hasAppointmentContext.value ? appointmentIsLate.value : undefined,
       remark: remark.value,
       items,
+      addons,
     } as any
 
     const orderRes = isEditing.value
@@ -1051,6 +1497,13 @@ function roundCurrency(value: number) {
 </script>
 
 <style scoped>
+.service-line-label { display: flex; flex-direction: column; gap: 8rpx; min-width: 0; overflow-wrap: anywhere; }
+.service-line-meta { font-size: 24rpx; color: #6B7280; }
+.service-line-controls { display: flex; align-items: center; gap: 10rpx; flex-wrap: wrap; width: 100%; }
+.quantity-button { width: 88rpx; height: 88rpx; min-width: 44px; min-height: 44px; padding: 0; margin: 0; line-height: 88rpx; border-radius: 8rpx; background: #FFF; font-size: 36rpx; }
+.quantity-button[disabled] { opacity: .4; }
+.service-line-quantity { width: 44rpx; text-align: center; font-variant-numeric: tabular-nums; }
+.service-line-total { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .page { padding: 24rpx; }
 .section {
   background: #fff;
@@ -1143,6 +1596,31 @@ function roundCurrency(value: number) {
   border-color: #A5B4FC;
   box-shadow: 0 12rpx 28rpx rgba(79, 70, 229, 0.12);
 }
+.search-shell:focus-within .search-placeholder {
+  opacity: 0;
+  visibility: hidden;
+}
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.search-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12rpx;
+  font-size: 26rpx;
+  line-height: 1.2;
+  color: #9CA3AF;
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
 .search-accent {
   flex-shrink: 0;
   min-width: 104rpx;
@@ -1211,22 +1689,10 @@ function roundCurrency(value: number) {
   padding: 0 12rpx !important;
 }
 .search-input :deep(.uni-input-placeholder) {
-  font-size: 26rpx;
-  color: #9CA3AF;
-  text-align: center;
-  width: 100%;
+  display: none !important;
 }
 .search-input-centered :deep(.uni-input-placeholder) {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-height: 88rpx !important;
-  height: 88rpx !important;
-  line-height: 88rpx !important;
-  text-align: center !important;
-  width: 100% !important;
-  padding: 0 12rpx !important;
-  box-sizing: border-box;
+  display: none !important;
 }
 .option-list {
   margin-top: 12rpx;
@@ -1454,6 +1920,7 @@ function roundCurrency(value: number) {
   border-bottom: 1rpx solid #F3F4F6;
 }
 .svc-item.checked { background: #EEF2FF; }
+.svc-item.active-service { box-shadow: inset 6rpx 0 0 #4F46E5; }
 .svc-item-info { flex: 1; min-width: 0; }
 .svc-item-name {
   display: block;
@@ -1500,6 +1967,46 @@ function roundCurrency(value: number) {
   border: solid #fff;
   border-width: 0 3rpx 3rpx 0;
   transform: translate(-50%, -50%) rotate(45deg);
+}
+.selected-service-section {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 2rpx solid #EEF2FF;
+  border-radius: 16rpx;
+  background: #F8FAFF;
+}
+.selected-service-title {
+  display: block;
+  font-size: 24rpx;
+  color: #6B7280;
+  margin-bottom: 12rpx;
+}
+.selected-service-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.selected-service-chip {
+  flex-direction: column;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: #fff;
+  border: 2rpx solid #E5E7EB;
+  font-size: 24rpx;
+  color: #111827;
+}
+.selected-service-chip.active {
+  border-color: #4F46E5;
+  background: #EEF2FF;
+}
+.selected-service-remove {
+  flex-shrink: 0;
+  color: #EF4444;
+  font-size: 24rpx;
 }
 .spec-section {
   margin-top: 18rpx;
@@ -1614,6 +2121,27 @@ function roundCurrency(value: number) {
   border-radius: 16rpx;
   padding: 18rpx 20rpx;
 }
+.product-list-toggle {
+  min-height: 72rpx;
+  border-radius: 14rpx;
+  background: #F8FAFC;
+  border: 2rpx dashed #C7D2FE;
+  color: #4F46E5;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+.product-list-toggle-icon {
+  font-size: 28rpx;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+.product-list-toggle-icon.open {
+  transform: rotate(180deg);
+}
 .product-badge {
   position: absolute;
   top: -10rpx;
@@ -1637,14 +2165,91 @@ function roundCurrency(value: number) {
   align-items: center;
 }
 .product-card-bottom { margin-top: 8rpx; }
+.product-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+  flex: 1;
+}
 .product-name {
   font-size: 28rpx;
   font-weight: 600;
   color: #111827;
+  min-width: 0;
+  flex: 1;
+}
+.product-expand-arrow {
+  position: relative;
+  flex-shrink: 0;
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  border: 1rpx solid #E5E7EB;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.product-expand-arrow.open {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+}
+.product-expand-arrow-shaft {
+  position: absolute;
+  top: 16rpx;
+  width: 10rpx;
+  height: 3rpx;
+  border-radius: 999rpx;
+  background: #6B7280;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.product-expand-arrow-shaft.left {
+  left: 9rpx;
+  transform: rotate(45deg);
+}
+.product-expand-arrow-shaft.right {
+  right: 9rpx;
+  transform: rotate(-45deg);
+}
+.product-expand-arrow.open .product-expand-arrow-shaft {
+  background: #4F46E5;
+}
+.product-expand-arrow.open .product-expand-arrow-shaft.left {
+  transform: rotate(-45deg);
+}
+.product-expand-arrow.open .product-expand-arrow-shaft.right {
+  transform: rotate(45deg);
 }
 .product-price {
   font-size: 28rpx;
   font-weight: 700;
+  color: #4F46E5;
+}
+.product-sku-list {
+  margin-top: 12rpx;
+  border-top: 1rpx solid #EEF2F7;
+  padding-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.product-sku-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: #F8FAFC;
+  border: 2rpx solid #E5E7EB;
+}
+.product-sku-name {
+  font-size: 24rpx;
+  color: #374151;
+}
+.product-sku-price {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 600;
   color: #4F46E5;
 }
 .product-meta {
@@ -1752,11 +2357,125 @@ function roundCurrency(value: number) {
   border-top: 1rpx solid #E5E7EB;
   font-weight: 700;
 }
+.appointment-late-block {
+  padding: 12rpx 0 8rpx;
+  border-top: 1rpx solid #F3F4F6;
+  margin-top: 6rpx;
+}
+.summary-inline-label {
+  display: block;
+  font-size: 24rpx;
+  color: #6B7280;
+}
+.appointment-late-tip {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #C2410C;
+}
+.arrival-toggle {
+  display: inline-flex;
+  gap: 12rpx;
+  margin-top: 10rpx;
+}
+.arrival-toggle.disabled {
+  opacity: 0.5;
+}
+.arrival-chip {
+  min-width: 110rpx;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  color: #4B5563;
+  font-size: 24rpx;
+  font-weight: 600;
+  text-align: center;
+}
+.arrival-chip.active {
+  background: #111827;
+  color: #fff;
+}
+.arrival-chip.warn {
+  background: #FFF7ED;
+  color: #C2410C;
+}
+.arrival-chip.active.warn {
+  background: #C2410C;
+  color: #fff;
+}
 .discount { color: #059669; }
 .pay-amount {
   font-size: 36rpx;
   font-weight: 800;
   color: #4F46E5;
+}
+.manual-total-card {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E2E8F0;
+}
+.manual-total-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  align-items: flex-start;
+  margin-bottom: 14rpx;
+}
+.manual-total-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #111827;
+}
+.manual-total-desc {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #64748B;
+  line-height: 1.45;
+}
+.manual-total-reset {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #4F46E5;
+  font-weight: 700;
+}
+.manual-total-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-height: 76rpx;
+  padding: 0 18rpx;
+  border-radius: 16rpx;
+  background: #fff;
+  border: 1rpx solid #DDE3EA;
+}
+.manual-total-prefix {
+  font-size: 30rpx;
+  font-weight: 800;
+  color: #4F46E5;
+}
+.manual-total-input {
+  flex: 1;
+  min-width: 0;
+  height: 76rpx;
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #111827;
+}
+.manual-total-tip {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+.manual-total-tip.increase {
+  color: #C2410C;
+}
+.manual-total-tip.decrease {
+  color: #059669;
 }
 .form-row {
   display: flex;

@@ -106,9 +106,14 @@ import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getServiceList } from '@/api/service'
 import { getCategoryTree } from '@/api/service-category'
+import {
+  filterServiceManagementCategoryTree,
+  getHiddenServiceManagementCategoryIds,
+} from '@/utils/service-category-visibility'
 
 const list = ref<ServiceItem[]>([])
 const categories = ref<ServiceCategory[]>([])
+const hiddenCategoryIds = ref<Set<number>>(new Set())
 const loading = ref(true)
 const activeCatId = ref(0) // 0=全部, -1=未分类, >0=具体分类ID
 
@@ -140,14 +145,15 @@ function getCategoryIds(catId: number): number[] {
 }
 
 const filteredList = computed(() => {
-  if (activeCatId.value === 0) return list.value
-  if (activeCatId.value === -1) return list.value.filter(s => !s.category_id)
+  const visibleList = list.value.filter(s => !s.category_id || !hiddenCategoryIds.value.has(s.category_id))
+  if (activeCatId.value === 0) return visibleList
+  if (activeCatId.value === -1) return visibleList.filter(s => !s.category_id)
   const ids = getCategoryIds(activeCatId.value)
   if (ids.length > 0) {
-    return list.value.filter(s => s.category_id && ids.includes(s.category_id))
+    return visibleList.filter(s => s.category_id && ids.includes(s.category_id))
   }
   // It's a child category
-  return list.value.filter(s => s.category_id === activeCatId.value)
+  return visibleList.filter(s => s.category_id === activeCatId.value)
 })
 
 function getCategoryName(item: ServiceItem): string {
@@ -172,7 +178,9 @@ async function loadData() {
       getCategoryTree(),
     ])
     list.value = sRes.data.list || []
-    categories.value = cRes.data || []
+    const categoryTree = cRes.data || []
+    hiddenCategoryIds.value = getHiddenServiceManagementCategoryIds(categoryTree)
+    categories.value = filterServiceManagementCategoryTree(categoryTree)
   } finally {
     loading.value = false
   }

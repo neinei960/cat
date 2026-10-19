@@ -30,6 +30,14 @@ export function openCard(customerId: number, data: { template_id: number; rechar
   return request<MemberCard>({ url: `/b/customers/${customerId}/member-card`, method: 'POST', data })
 }
 
+export function disableCard(customerId: number) {
+  return request({ url: `/b/customers/${customerId}/member-card/disable`, method: 'PUT' })
+}
+
+export function deleteCard(customerId: number) {
+  return request({ url: `/b/customers/${customerId}/member-card`, method: 'DELETE' })
+}
+
 export function recharge(customerId: number, data: { amount: number; remark?: string }) {
   return request<MemberCard>({ url: `/b/customers/${customerId}/recharge`, method: 'POST', data })
 }

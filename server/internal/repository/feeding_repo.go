@@ -79,6 +79,7 @@ func (r *FeedingRepository) ListPlans(shopID uint, filter FeedingPlanFilter) ([]
 		return nil, 0, err
 	}
 	err := db.Preload("Customer").
+		Preload("Order").
 		Preload("Pets.Pet").
 		Preload("Visits").
 		Order("id DESC").

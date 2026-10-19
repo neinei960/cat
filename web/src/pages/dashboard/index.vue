@@ -28,9 +28,19 @@
 
       <view class="kpi-grid">
         <view class="kpi-card kpi-primary">
-          <text class="kpi-label">营业额</text>
-          <text class="kpi-value">¥{{ overview.today_revenue.toFixed(2) }}</text>
-          <text class="kpi-foot">当前时间区间总营业额</text>
+          <text class="kpi-label">区间实收总额</text>
+          <text class="kpi-value">¥{{ overview.month_collection.toFixed(2) }}</text>
+          <text class="kpi-foot">订单收款 + 会员充值</text>
+        </view>
+        <view class="kpi-card">
+          <text class="kpi-label">订单营业额</text>
+          <text class="kpi-value">¥{{ overview.month_revenue.toFixed(2) }}</text>
+          <text class="kpi-foot">当前时间区间已支付订单</text>
+        </view>
+        <view class="kpi-card">
+          <text class="kpi-label">会员充值</text>
+          <text class="kpi-value">¥{{ overview.month_recharge.toFixed(2) }}</text>
+          <text class="kpi-foot">当前时间区间预充值</text>
         </view>
         <view class="kpi-card">
           <text class="kpi-label">客单价</text>
@@ -49,6 +59,41 @@
         </view>
       </view>
 
+      <view class="section">
+        <view class="section-header">
+          <view>
+            <text class="section-title">付款渠道金额</text>
+            <text class="section-subtitle">按当前时间范围内已支付订单统计各收款渠道金额和占比。</text>
+          </view>
+        </view>
+        <view class="payment-channel-list" v-if="paymentChannelRows.length > 0">
+          <view class="payment-channel-row header">
+            <text class="payment-channel-name">渠道</text>
+            <text class="payment-channel-amount">金额</text>
+            <text class="payment-channel-percent">占比</text>
+          </view>
+          <view class="payment-channel-row" v-for="item in paymentChannelRows" :key="item.key">
+            <view class="payment-channel-name">
+              <text class="payment-dot" :class="`payment-dot-${item.key}`"></text>
+              <text>{{ item.label }}</text>
+            </view>
+            <text class="payment-channel-amount">¥{{ item.amount.toFixed(2) }}</text>
+            <view class="payment-channel-percent">
+              <text>{{ item.percent.toFixed(1) }}%</text>
+              <view class="payment-bar">
+                <view class="payment-bar-fill" :style="{ width: `${item.percent}%` }"></view>
+              </view>
+            </view>
+          </view>
+          <view class="payment-channel-total">
+            <text>合计</text>
+            <text>¥{{ paymentChannelTotal.toFixed(2) }}</text>
+            <text>100%</text>
+          </view>
+        </view>
+        <view v-else class="empty-sm">暂无付款渠道数据</view>
+      </view>
+
       <view class="main-grid">
         <view class="section section-chart">
           <view class="section-header">
@@ -60,24 +105,39 @@
 
           <view class="chart-placeholder" v-if="filledData.length === 0">暂无数据</view>
           <view v-else class="line-chart-container">
+            <view class="chart-summary">
+              <view>
+                <text class="chart-summary-label">{{ selectedRevenueItem.date }}</text>
+                <text class="chart-summary-value">¥{{ selectedRevenueItem.revenue.toFixed(2) }}</text>
+              </view>
+              <text class="chart-summary-tip">点选柱子查看单日金额</text>
+            </view>
             <view class="y-labels">
               <text class="y-label" v-for="(v, i) in yLabels" :key="i">{{ v }}</text>
             </view>
-            <view class="chart-area">
-              <view class="chart-canvas" :style="{ height: '320rpx' }">
-                <view class="grid-line" v-for="i in 4" :key="'g'+i" :style="{ bottom: ((i-1) * 25) + '%' }"></view>
-                <view class="chart-bars">
-                  <view class="chart-col" v-for="d in filledData" :key="d.date">
-                    <view class="chart-bar-bg" :style="{ height: getBarPct(d.revenue) + '%' }"></view>
-                    <view class="chart-dot" :style="{ bottom: getBarPct(d.revenue) + '%' }">
-                      <view class="dot-inner"></view>
-                      <text class="dot-tooltip" v-if="d.revenue > 0">¥{{ d.revenue.toFixed(0) }}</text>
+            <view class="chart-scroll">
+              <view class="chart-area" :style="{ minWidth: chartMinWidth }">
+                <view class="chart-canvas" :style="{ height: '320rpx' }">
+                  <view class="grid-line" v-for="i in 4" :key="'g'+i" :style="{ bottom: ((i-1) * 25) + '%' }"></view>
+                  <view class="chart-bars">
+                    <view
+                      v-for="(d, i) in filledData"
+                      :key="d.date"
+                      :class="['chart-col', activeRevenueIndex === i ? 'active' : '', maxRevenueIndex === i ? 'max' : '']"
+                      @click="selectRevenueIndex(i)"
+                      @tap="selectRevenueIndex(i)"
+                    >
+                      <view class="chart-bar-bg" :style="{ height: getBarPct(d.revenue) + '%' }"></view>
+                      <view class="chart-dot" :style="{ bottom: getBarPct(d.revenue) + '%' }">
+                        <view class="dot-inner"></view>
+                        <text class="dot-tooltip" v-if="shouldShowRevenueLabel(i)">¥{{ d.revenue.toFixed(2) }}</text>
+                      </view>
                     </view>
                   </view>
                 </view>
-              </view>
-              <view class="x-labels">
-                <text class="x-label" v-for="d in filledData" :key="d.date">{{ d.date.substring(5) }}</text>
+                <view class="x-labels">
+                  <text class="x-label" v-for="(d, i) in filledData" :key="d.date">{{ showXAxisLabel(i) ? d.date.substring(5) : '' }}</text>
+                </view>
               </view>
             </view>
           </view>
@@ -87,7 +147,7 @@
           <view class="section-header">
             <view>
               <text class="section-title">经营摘要</text>
-              <text class="section-subtitle">把最常问的四件事压成一眼能扫完的摘要。</text>
+              <text class="section-subtitle">按当前月份统计客户和预约结构。</text>
             </view>
           </view>
           <view class="summary-card">
@@ -96,24 +156,12 @@
               <text class="summary-value">{{ overview.today_appointment_count }}</text>
             </view>
             <view class="summary-row">
-              <text class="summary-label">服务完成</text>
-              <text class="summary-value">{{ overview.today_service_completed_count }}</text>
-            </view>
-            <view class="summary-row">
-              <text class="summary-label">待结算</text>
-              <text class="summary-value">{{ overview.today_pending_settlement_count }}</text>
-            </view>
-            <view class="summary-row">
-              <text class="summary-label">已退款订单</text>
-              <text class="summary-value">{{ overview.today_refunded_order_count }}</text>
-            </view>
-            <view class="summary-row">
-              <text class="summary-label">待处理预约</text>
-              <text class="summary-value">{{ overview.pending_appointments }}</text>
-            </view>
-            <view class="summary-row">
-              <text class="summary-label">新客户</text>
+              <text class="summary-label">新客</text>
               <text class="summary-value">{{ overview.today_new_customers }}</text>
+            </view>
+            <view class="summary-row">
+              <text class="summary-label">老客</text>
+              <text class="summary-value">{{ overview.regular_customer_count }}</text>
             </view>
             <view class="summary-row">
               <text class="summary-label">总客户</text>
@@ -134,10 +182,6 @@
           <view class="member-card">
             <text class="member-label">有效会员</text>
             <text class="member-val">{{ memberStats.active_members }}</text>
-          </view>
-          <view class="member-card">
-            <text class="member-label">冻结会员</text>
-            <text class="member-val">{{ memberStats.frozen_members }}</text>
           </view>
           <view class="member-card">
             <text class="member-label">会员总余额</text>
@@ -174,29 +218,34 @@
         <view class="section">
           <view class="section-header">
             <view>
-              <text class="section-title">服务项目营业额</text>
-              <text class="section-subtitle">按已支付订单统计项目营收与频次。</text>
+              <text class="section-title">项目营业额</text>
+              <text class="section-subtitle">按服务、商品、上门喂养和寄养汇总，点击大类逐级展开。</text>
             </view>
           </view>
           <view class="rank-list">
-            <view class="rank-item header" v-if="serviceRanking.length > 0">
-              <text class="rank-no">#</text>
+            <view class="rank-item header" v-if="visibleProjectRevenueRows.length > 0">
+              <text class="rank-no"></text>
               <text class="rank-name">项目名称</text>
               <text class="rank-count">次数</text>
               <text class="rank-revenue">营业额</text>
             </view>
-            <view class="rank-item" v-for="(s, i) in serviceRanking" :key="s.service_name">
-              <text class="rank-no">{{ i + 1 }}</text>
-              <text class="rank-name">{{ s.service_name }}</text>
-              <text class="rank-count">{{ s.count }}次</text>
-              <text class="rank-revenue">¥{{ s.revenue.toFixed(2) }}</text>
+            <view
+              v-for="row in visibleProjectRevenueRows"
+              :key="row.node.key"
+              :class="['rank-item', 'tree-row', row.hasChildren ? 'clickable' : 'leaf']"
+              @click="toggleProjectRevenueNode(row.node)"
+            >
+              <text class="rank-no">{{ row.hasChildren ? (isProjectRevenueExpanded(row.node) ? '⌄' : '›') : '' }}</text>
+              <text class="rank-name" :style="{ paddingLeft: `${row.depth * 24}rpx` }">{{ row.node.name }}</text>
+              <text class="rank-count">{{ row.node.count }}次</text>
+              <text class="rank-revenue">¥{{ row.node.revenue.toFixed(2) }}</text>
             </view>
-            <view class="rank-total" v-if="serviceRanking.length > 0">
+            <view class="rank-total" v-if="projectRevenueTree.length > 0">
               <text class="rank-name">合计</text>
-              <text class="rank-count">{{ serviceRanking.reduce((s, r) => s + r.count, 0) }}次</text>
-              <text class="rank-revenue">¥{{ serviceRanking.reduce((s, r) => s + r.revenue, 0).toFixed(2) }}</text>
+              <text class="rank-count">{{ projectRevenueTotal.count }}次</text>
+              <text class="rank-revenue">¥{{ projectRevenueTotal.revenue.toFixed(2) }}</text>
             </view>
-            <view v-if="serviceRanking.length === 0" class="empty-sm">暂无数据</view>
+            <view v-if="projectRevenueTree.length === 0" class="empty-sm">暂无数据</view>
           </view>
         </view>
 
@@ -207,25 +256,58 @@
               <text class="section-subtitle">按已支付订单统计业绩和提成，避免和待结算混在一起。</text>
             </view>
           </view>
-          <view class="rank-list">
+          <view class="rank-list staff-performance-list">
             <view class="rank-item header" v-if="staffPerformance.length > 0">
               <text class="rank-no">#</text>
               <text class="rank-name">洗护师</text>
               <text class="rank-count">接单</text>
               <text class="rank-revenue">营业额</text>
+              <text class="rank-product">商品额</text>
+              <text class="rank-product-non-deworming">不含驱虫商品额</text>
               <text class="rank-commission">提成</text>
             </view>
-            <view class="rank-item" v-for="(s, i) in staffPerformance" :key="s.staff_name">
-              <text class="rank-no">{{ i + 1 }}</text>
-              <text class="rank-name">{{ s.staff_name }}</text>
-              <text class="rank-count">{{ s.appointment_count }}单</text>
-              <text class="rank-revenue">¥{{ s.revenue.toFixed(2) }}</text>
-              <text class="rank-commission">¥{{ (s.commission || 0).toFixed(2) }}</text>
-            </view>
+            <template v-for="(s, i) in staffPerformance" :key="s.staff_id || s.staff_name">
+              <view class="rank-item staff-row clickable" @click="toggleStaffCommissionDetails(s)">
+                <text class="rank-no">{{ i + 1 }}</text>
+                <view class="rank-name staff-name-cell">
+                  <text>{{ s.staff_name }}</text>
+                  <text class="expand-hint">{{ isStaffExpanded(s.staff_id) ? '收起' : '展开' }}</text>
+                </view>
+                <text class="rank-count">{{ s.appointment_count }}单</text>
+                <text class="rank-revenue">¥{{ s.revenue.toFixed(2) }}</text>
+                <text class="rank-product">¥{{ Number(s.product_revenue || 0).toFixed(2) }}</text>
+                <text class="rank-product-non-deworming">¥{{ Number(s.non_deworming_product_revenue || 0).toFixed(2) }}</text>
+                <text class="rank-commission">¥{{ (s.commission || 0).toFixed(2) }}</text>
+              </view>
+              <view v-if="isStaffExpanded(s.staff_id)" class="commission-detail-panel">
+                <view v-if="staffDetailLoading[s.staff_id]" class="detail-state">加载中...</view>
+                <view v-else-if="(staffCommissionDetails[s.staff_id] || []).length === 0" class="detail-state">暂无提成明细</view>
+                <view v-else class="commission-detail-list">
+                  <view class="commission-detail-toolbar">
+                    <text>共 {{ staffCommissionDetails[s.staff_id].length }} 单</text>
+                    <button class="commission-export-btn" @click.stop="exportStaffCommissionDetails(s)">导出明细</button>
+                  </view>
+                  <view class="commission-detail-row header">
+                    <text class="detail-date">日</text>
+                    <text class="detail-method">收款</text>
+                    <text class="detail-formula">计算公式</text>
+                    <text class="detail-commission">提成</text>
+                  </view>
+                  <view class="commission-detail-row clickable" v-for="item in staffCommissionDetails[s.staff_id]" :key="item.order_id" @click="goCommissionOrderDetail(item)">
+                    <text class="detail-date">{{ formatCommissionDay(item.date) }}</text>
+                    <text class="detail-method">{{ item.pay_method_label }}</text>
+                    <text class="detail-formula">{{ item.formula }}</text>
+                    <text class="detail-commission">¥{{ Number(item.commission || 0).toFixed(2) }}</text>
+                  </view>
+                </view>
+              </view>
+            </template>
             <view class="rank-total" v-if="staffPerformance.length > 0">
               <text class="rank-name">合计</text>
               <text class="rank-count">{{ staffPerformance.reduce((s, r) => s + r.appointment_count, 0) }}单</text>
               <text class="rank-revenue">¥{{ staffPerformance.reduce((s, r) => s + r.revenue, 0).toFixed(2) }}</text>
+              <text class="rank-product">¥{{ staffPerformance.reduce((s, r) => s + Number(r.product_revenue || 0), 0).toFixed(2) }}</text>
+              <text class="rank-product-non-deworming">¥{{ staffPerformance.reduce((s, r) => s + Number(r.non_deworming_product_revenue || 0), 0).toFixed(2) }}</text>
               <text class="rank-commission">¥{{ staffPerformance.reduce((s, r) => s + (r.commission || 0), 0).toFixed(2) }}</text>
             </view>
             <view v-if="staffPerformance.length === 0" class="empty-sm">暂无数据</view>
@@ -243,13 +325,11 @@
         <view class="rank-list">
         <view class="rank-item header" v-if="categoryStats.length > 0">
           <text class="rank-name">服务</text>
-          <text class="rank-fur">规格</text>
           <text class="rank-count">次数</text>
           <text class="rank-revenue">营收</text>
         </view>
           <view class="rank-item" v-for="(s, i) in categoryStats" :key="i">
             <text class="rank-name">{{ s.service_name }}</text>
-            <text class="rank-fur">{{ s.fur_level || '-' }}</text>
             <text class="rank-count">{{ s.count }}次</text>
             <text class="rank-revenue">¥{{ s.revenue.toFixed(2) }}</text>
           </view>
@@ -263,7 +343,18 @@
 <script setup lang="ts">
 import SideLayout from '@/components/SideLayout.vue'
 import { ref, onMounted, computed } from 'vue'
-import { getDashboardOverview, getRevenueChart, getServiceRanking, getStaffPerformance, getCategoryStats, getMemberStats } from '@/api/dashboard'
+import {
+  getDashboardOverview,
+  getRevenueChart,
+  getProjectRevenueTree,
+  getStaffPerformance,
+  getStaffCommissionDetails,
+  getCategoryStats,
+  getMemberStats,
+  type ProjectRevenueNode,
+  type StaffCommissionDetail,
+} from '@/api/dashboard'
+import { buildStaffCommissionExportHtml } from '@/utils/staff-commission-export'
 
 function localDateStr(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -298,14 +389,20 @@ function setQuickDate(type: string) {
 }
 
 const overview = ref({
-  today_revenue: 0, today_order_count: 0, today_appointment_count: 0,
+  today_revenue: 0, month_revenue: 0, month_recharge: 0, month_collection: 0,
+  today_order_count: 0, today_appointment_count: 0,
   today_service_completed_count: 0, today_pending_settlement_count: 0, today_refunded_order_count: 0,
-  today_new_customers: 0, pending_appointments: 0, total_customers: 0,
+  today_new_customers: 0, regular_customer_count: 0, pending_appointments: 0, total_customers: 0,
   avg_order_value: 0, no_show_rate: 0, no_show_count: 0, total_appointments: 0,
+  payment_breakdown: [] as { key: string; label: string; amount: number }[],
 })
 const revenueData = ref<any[]>([])
-const serviceRanking = ref<any[]>([])
+const projectRevenueTree = ref<ProjectRevenueNode[]>([])
+const expandedProjectRevenue = ref<Record<string, boolean>>({})
 const staffPerformance = ref<any[]>([])
+const expandedStaffId = ref<number | null>(null)
+const staffDetailLoading = ref<Record<number, boolean>>({})
+const staffCommissionDetails = ref<Record<number, StaffCommissionDetail[]>>({})
 const categoryStats = ref<any[]>([])
 const memberStats = ref({
   active_members: 0,
@@ -316,6 +413,7 @@ const memberStats = ref({
   range_consumption: 0,
   template_breakdown: [] as { template_id: number; template_name: string; count: number }[],
 })
+let loadSeq = 0
 
 function fillDateGaps(data: any[], sd: string, ed: string): any[] {
   const map = new Map(data.map(d => [d.date, d]))
@@ -332,9 +430,47 @@ function fillDateGaps(data: any[], sd: string, ed: string): any[] {
 
 const filledData = computed(() => fillDateGaps(revenueData.value, startDate.value, endDate.value))
 const maxRevenue = computed(() => Math.max(...filledData.value.map(d => d.revenue), 1))
+const activeRevenueIndex = ref(-1)
+const maxRevenueIndex = computed(() => {
+  let index = 0
+  let max = -1
+  filledData.value.forEach((item, i) => {
+    if (Number(item.revenue || 0) > max) {
+      max = Number(item.revenue || 0)
+      index = i
+    }
+  })
+  return index
+})
+const selectedRevenueItem = computed(() => {
+  const active = filledData.value[activeRevenueIndex.value]
+  return active || filledData.value[maxRevenueIndex.value] || { date: '-', revenue: 0, order_count: 0 }
+})
+const chartMinWidth = computed(() => {
+  if (filledData.value.length <= 12) return '100%'
+  return `${filledData.value.length * 54}rpx`
+})
 
 function getBarPct(revenue: number): number {
   return Math.max((revenue / maxRevenue.value) * 100, 2)
+}
+
+function shouldShowRevenueLabel(index: number): boolean {
+  const item = filledData.value[index]
+  if (!item || Number(item.revenue || 0) <= 0) return false
+  if (activeRevenueIndex.value >= 0) return activeRevenueIndex.value === index
+  return maxRevenueIndex.value === index
+}
+
+function showXAxisLabel(index: number): boolean {
+  const length = filledData.value.length
+  if (length <= 12) return true
+  const interval = length <= 20 ? 2 : 5
+  return index === 0 || index === length - 1 || index === activeRevenueIndex.value || index % interval === 0
+}
+
+function selectRevenueIndex(index: number) {
+  activeRevenueIndex.value = index
 }
 
 const yLabels = computed(() => {
@@ -342,27 +478,159 @@ const yLabels = computed(() => {
   return [max, Math.round(max * 0.66), Math.round(max * 0.33), 0].map(v => v > 0 ? '¥' + v : '0')
 })
 
+function hasProjectRevenueChildren(node: ProjectRevenueNode) {
+  return (node.children || []).length > 0
+}
+
+function isProjectRevenueExpanded(node: ProjectRevenueNode) {
+  return !!expandedProjectRevenue.value[node.key]
+}
+
+function toggleProjectRevenueNode(node: ProjectRevenueNode) {
+  if (!hasProjectRevenueChildren(node)) return
+  expandedProjectRevenue.value = {
+    ...expandedProjectRevenue.value,
+    [node.key]: !expandedProjectRevenue.value[node.key],
+  }
+}
+
+const visibleProjectRevenueRows = computed(() => {
+  const rows: Array<{ node: ProjectRevenueNode; depth: number; hasChildren: boolean }> = []
+  const walk = (nodes: ProjectRevenueNode[], depth: number) => {
+    nodes.forEach((node) => {
+      const hasChildren = hasProjectRevenueChildren(node)
+      rows.push({ node, depth, hasChildren })
+      if (hasChildren && isProjectRevenueExpanded(node)) {
+        walk(node.children || [], depth + 1)
+      }
+    })
+  }
+  walk(projectRevenueTree.value, 0)
+  return rows
+})
+
+const projectRevenueTotal = computed(() => projectRevenueTree.value.reduce((total, node) => ({
+  count: total.count + Number(node.count || 0),
+  revenue: total.revenue + Number(node.revenue || 0),
+}), { count: 0, revenue: 0 }))
+
+const paymentChannelTotal = computed(() => (overview.value.payment_breakdown || []).reduce((sum, item) => sum + Number(item.amount || 0), 0))
+const paymentChannelRows = computed(() => {
+  const total = paymentChannelTotal.value
+  return (overview.value.payment_breakdown || [])
+    .filter(item => Number(item.amount || 0) > 0)
+    .map(item => ({
+      ...item,
+      amount: Number(item.amount || 0),
+      percent: total > 0 ? Number(item.amount || 0) / total * 100 : 0,
+    }))
+})
+
+function isStaffExpanded(staffId: number) {
+  return expandedStaffId.value === staffId
+}
+
+function formatCommissionDay(date: string) {
+  const parts = String(date || '').split('-')
+  return parts.length >= 3 ? parts[2] : date
+}
+
+function goCommissionOrderDetail(item: StaffCommissionDetail) {
+  const orderId = Number(item?.order_id || 0)
+  if (!orderId) {
+    uni.showToast({ title: '订单信息缺失', icon: 'none' })
+    return
+  }
+  uni.navigateTo({ url: `/pages/order/detail?id=${orderId}` })
+}
+
+async function toggleStaffCommissionDetails(staff: any) {
+  const staffId = Number(staff?.staff_id || 0)
+  if (!staffId) return
+  if (expandedStaffId.value === staffId) {
+    expandedStaffId.value = null
+    return
+  }
+  expandedStaffId.value = staffId
+  await ensureStaffCommissionDetails(staffId)
+}
+
+async function ensureStaffCommissionDetails(staffId: number) {
+  if (staffCommissionDetails.value[staffId]) {
+    return staffCommissionDetails.value[staffId]
+  }
+  staffDetailLoading.value = { ...staffDetailLoading.value, [staffId]: true }
+  try {
+    const res = await getStaffCommissionDetails(staffId, startDate.value, endDate.value)
+    const details = res.data || []
+    staffCommissionDetails.value = {
+      ...staffCommissionDetails.value,
+      [staffId]: details,
+    }
+    return details
+  } finally {
+    staffDetailLoading.value = { ...staffDetailLoading.value, [staffId]: false }
+  }
+}
+
+async function exportStaffCommissionDetails(staff: any) {
+  const staffId = Number(staff?.staff_id || 0)
+  if (!staffId) return
+
+  const details = await ensureStaffCommissionDetails(staffId)
+  if (!details?.length) {
+    uni.showToast({ title: '暂无可导出的提成明细', icon: 'none' })
+    return
+  }
+  if (typeof document === 'undefined') {
+    uni.showToast({ title: '当前端暂不支持导出', icon: 'none' })
+    return
+  }
+
+  const html = buildStaffCommissionExportHtml(details)
+  const blob = new Blob([`\uFEFF${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const staffName = String(staff?.staff_name || '员工').replace(/[\\/:*?"<>|]/g, '_')
+  link.href = url
+  link.download = `提成明细-${staffName}-${startDate.value}_${endDate.value}.xls`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+  uni.showToast({ title: '已导出提成明细', icon: 'success' })
+}
+
 async function loadAll() {
+  const seq = ++loadSeq
   const sd = startDate.value
   const ed = endDate.value
   const [oRes, rRes, sRes, pRes, cRes, mRes] = await Promise.all([
     getDashboardOverview(sd, ed),
     getRevenueChart(sd, ed),
-    getServiceRanking(sd, ed),
+    getProjectRevenueTree(sd, ed),
     getStaffPerformance(sd, ed),
     getCategoryStats(sd, ed),
     getMemberStats(sd, ed),
   ])
+  if (seq !== loadSeq || sd !== startDate.value || ed !== endDate.value) {
+    return
+  }
   overview.value = oRes.data
   revenueData.value = rRes.data || []
-  serviceRanking.value = sRes.data || []
+  activeRevenueIndex.value = -1
+  projectRevenueTree.value = sRes.data || []
+  expandedProjectRevenue.value = {}
   staffPerformance.value = pRes.data || []
+  expandedStaffId.value = null
+  staffCommissionDetails.value = {}
+  staffDetailLoading.value = {}
   categoryStats.value = cRes.data || []
   memberStats.value = mRes.data
 }
 
 onMounted(() => {
-  setQuickDate('week')
+  setQuickDate('month')
 })
 </script>
 
@@ -524,6 +792,10 @@ onMounted(() => {
   grid-template-columns: 1fr 1fr;
 }
 
+.dual-grid > .section {
+  min-width: 0;
+}
+
 .section {
   background: rgba(255, 255, 255, 0.92);
   border-radius: 24rpx;
@@ -566,7 +838,7 @@ onMounted(() => {
 .member-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16rpx;
+  gap: 12rpx;
   margin-bottom: 20rpx;
 }
 
@@ -574,21 +846,26 @@ onMounted(() => {
   background: linear-gradient(180deg, #F8FAFC 0%, #EEF2FF 100%);
   border: 1rpx solid #E5E7EB;
   border-radius: 18rpx;
-  padding: 20rpx 16rpx;
+  padding: 18rpx 10rpx;
+  min-width: 0;
+  text-align: center;
 }
 
 .member-label {
   display: block;
   font-size: 22rpx;
   color: #6B7280;
+  text-align: center;
 }
 
 .member-val {
   display: block;
   margin-top: 12rpx;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 700;
   color: #3730A3;
+  text-align: center;
+  word-break: break-all;
 }
 
 .member-rank {
@@ -622,6 +899,103 @@ onMounted(() => {
   font-weight: 800;
 }
 
+.payment-channel-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.payment-channel-row,
+.payment-channel-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180rpx 180rpx;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #F3F4F6;
+  font-size: 26rpx;
+}
+
+.payment-channel-row.header {
+  color: #374151;
+  font-size: 24rpx;
+  font-weight: 700;
+  border-bottom: 2rpx solid #E5E7EB;
+}
+
+.payment-channel-name {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+  color: #111827;
+}
+
+.payment-channel-amount {
+  color: #C2410C;
+  font-weight: 700;
+  text-align: right;
+}
+
+.payment-channel-percent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
+  color: #6B7280;
+  font-size: 24rpx;
+}
+
+.payment-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #9CA3AF;
+  flex-shrink: 0;
+}
+
+.payment-dot-wechat {
+  background: #22C55E;
+}
+
+.payment-dot-qrcode {
+  background: #4F46E5;
+}
+
+.payment-dot-meituan {
+  background: #F97316;
+}
+
+.payment-dot-balance {
+  background: #0EA5E9;
+}
+
+.payment-bar {
+  width: 120rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
+  background: #E5E7EB;
+}
+
+.payment-bar-fill {
+  height: 100%;
+  min-width: 4rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #F97316, #4F46E5);
+}
+
+.payment-channel-total {
+  border-bottom: none;
+  margin-top: 4rpx;
+  color: #EA580C;
+  font-weight: 700;
+}
+
+.payment-channel-total text:nth-child(2),
+.payment-channel-total text:nth-child(3) {
+  text-align: right;
+}
+
 .chart-placeholder {
   text-align: center;
   padding: 40rpx;
@@ -630,9 +1004,41 @@ onMounted(() => {
 }
 
 .line-chart-container {
-  display: flex;
+  display: grid;
+  grid-template-columns: 84rpx minmax(0, 1fr);
   gap: 8rpx;
-  overflow-x: auto;
+}
+
+.chart-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 18rpx;
+  background: rgba(255, 247, 237, 0.82);
+  border: 1rpx solid #FED7AA;
+}
+
+.chart-summary-label {
+  display: block;
+  font-size: 22rpx;
+  color: #9A3412;
+}
+
+.chart-summary-value {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #C2410C;
+}
+
+.chart-summary-tip {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #9CA3AF;
 }
 
 .y-labels {
@@ -651,8 +1057,14 @@ onMounted(() => {
 }
 
 .chart-area {
-  flex: 1;
+  min-width: 100%;
+}
+
+.chart-scroll {
+  width: 100%;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .chart-canvas {
@@ -660,7 +1072,8 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.78);
   border-radius: 18rpx;
   border: 1rpx solid #F3F4F6;
-  overflow: hidden;
+  overflow: visible;
+  padding-top: 38rpx;
 }
 
 .grid-line {
@@ -678,7 +1091,7 @@ onMounted(() => {
 }
 
 .chart-col {
-  flex: 1;
+  flex: 1 0 48rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -688,11 +1101,16 @@ onMounted(() => {
 }
 
 .chart-bar-bg {
-  width: 60%;
+  width: 44%;
   background: linear-gradient(180deg, rgba(249, 115, 22, 0.3), rgba(249, 115, 22, 0.06));
   border-radius: 10rpx 10rpx 0 0;
   min-height: 4rpx;
   transition: height 0.3s;
+}
+
+.chart-col.active .chart-bar-bg,
+.chart-col.max .chart-bar-bg {
+  background: linear-gradient(180deg, rgba(234, 88, 12, 0.72), rgba(249, 115, 22, 0.14));
 }
 
 .chart-dot {
@@ -712,13 +1130,19 @@ onMounted(() => {
 
 .dot-tooltip {
   position: absolute;
-  bottom: 22rpx;
+  bottom: 26rpx;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 18rpx;
-  color: #C2410C;
+  padding: 6rpx 10rpx;
+  border-radius: 999rpx;
+  background: #FFFFFF;
+  border: 1rpx solid #FED7AA;
+  box-shadow: 0 8rpx 20rpx rgba(124, 45, 18, 0.12);
+  font-size: 20rpx;
+  color: #9A3412;
   font-weight: 700;
   white-space: nowrap;
+  z-index: 3;
 }
 
 .x-labels {
@@ -752,6 +1176,51 @@ onMounted(() => {
   font-size: 24rpx;
 }
 
+.staff-performance-list {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.staff-performance-list > .rank-item,
+.staff-performance-list > .rank-total {
+  min-width: 900rpx;
+}
+
+.staff-performance-list .rank-no,
+.staff-performance-list .rank-count,
+.staff-performance-list .rank-revenue,
+.staff-performance-list .rank-product,
+.staff-performance-list .rank-product-non-deworming,
+.staff-performance-list .rank-commission {
+  flex-shrink: 0;
+}
+
+.staff-performance-list .rank-name {
+  min-width: 120rpx;
+}
+
+.tree-row.clickable {
+  cursor: pointer;
+}
+
+.staff-row.clickable {
+  cursor: pointer;
+}
+
+.staff-row.clickable:active {
+  background: #F9FAFB;
+}
+
+.tree-row.clickable .rank-name {
+  font-weight: 600;
+}
+
+.tree-row.leaf .rank-name {
+  color: #374151;
+}
+
 .rank-total {
   display: flex;
   align-items: center;
@@ -774,6 +1243,22 @@ onMounted(() => {
   color: #111827;
 }
 
+.staff-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.expand-hint {
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  background: #EEF2FF;
+  color: #4F46E5;
+  font-size: 20rpx;
+  font-weight: 600;
+}
+
 .rank-count {
   width: 100rpx;
   color: #6B7280;
@@ -787,6 +1272,21 @@ onMounted(() => {
   text-align: right;
 }
 
+.rank-product {
+  width: 140rpx;
+  color: #2563EB;
+  font-weight: 600;
+  text-align: right;
+}
+
+.rank-product-non-deworming {
+  width: 170rpx;
+  color: #0891B2;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: right;
+}
+
 .rank-commission {
   width: 140rpx;
   color: #059669;
@@ -794,11 +1294,103 @@ onMounted(() => {
   text-align: right;
 }
 
-.rank-fur {
-  width: 100rpx;
+.commission-detail-panel {
+  margin: 0 0 10rpx 48rpx;
+  padding: 12rpx 14rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  border: 1rpx solid #E5E7EB;
+  overflow: hidden;
+}
+
+.detail-state {
+  padding: 18rpx;
   color: #6B7280;
-  text-align: center;
   font-size: 24rpx;
+  text-align: center;
+}
+
+.commission-detail-list {
+  width: 100%;
+}
+
+.commission-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56rpx;
+  color: #6B7280;
+  font-size: 22rpx;
+}
+
+.commission-export-btn {
+  width: auto;
+  min-width: 136rpx;
+  height: 48rpx;
+  margin: 0;
+  padding: 0 18rpx;
+  border: 1rpx solid #F59E0B;
+  border-radius: 8rpx;
+  background: #FFFBEB;
+  color: #B45309;
+  font-size: 22rpx;
+  line-height: 46rpx;
+}
+
+.commission-export-btn::after {
+  border: none;
+}
+
+.commission-detail-row {
+  display: grid;
+  grid-template-columns: 44rpx 76rpx minmax(0, 1fr) 112rpx;
+  align-items: center;
+  column-gap: 10rpx;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid #E5E7EB;
+  font-size: 21rpx;
+  color: #374151;
+}
+
+.commission-detail-row:last-child {
+  border-bottom: none;
+}
+
+.commission-detail-row.clickable {
+  cursor: pointer;
+}
+
+.commission-detail-row.clickable:active {
+  background: #EEF2FF;
+}
+
+.commission-detail-row.header {
+  color: #6B7280;
+  font-weight: 700;
+}
+
+.detail-date {
+  color: #6B7280;
+  font-weight: 600;
+}
+
+.detail-method {
+  color: #6B7280;
+  white-space: nowrap;
+}
+
+.detail-formula {
+  color: #4B5563;
+  line-height: 1.35;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.detail-commission {
+  text-align: right;
+  color: #059669;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .empty-sm {
@@ -810,11 +1402,28 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .hero,
-  .kpi-grid,
   .main-grid,
-  .dual-grid,
-  .member-grid {
+  .dual-grid {
     grid-template-columns: 1fr;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12rpx;
+  }
+
+  .kpi-card {
+    padding: 20rpx;
+    min-width: 0;
+  }
+
+  .kpi-value {
+    font-size: 34rpx;
+    word-break: break-all;
+  }
+
+  .kpi-foot {
+    font-size: 20rpx;
   }
 }
 </style>

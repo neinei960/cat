@@ -8,9 +8,29 @@
         <text class="summary-title">{{ isEditing ? '修改合单' : '预约合单确认' }}</text>
         <text class="summary-line">{{ appt.date }} {{ appt.start_time }} - {{ appt.end_time }}</text>
         <text class="summary-line">客户：{{ appt.customer?.nickname || appt.customer?.phone || '-' }}</text>
-        <text class="summary-line">洗护师：{{ appt.staff?.name || '待分配' }}</text>
+        <view class="summary-picker-row">
+          <text class="summary-picker-label">经手员工</text>
+          <picker :range="staffNames" :value="selectedStaffIdx" @change="onStaffChange">
+            <view :class="['staff-picker', !selectedStaff ? 'staff-picker-warn' : '']">{{ staffNames[selectedStaffIdx] || '请选择' }}</view>
+          </picker>
+        </view>
         <text class="summary-line">宠物：{{ petSummary }}</text>
-        <text class="summary-amount">{{ isEditing ? '修改后应付' : '预计生成 1 单' }} · ¥{{ totalAmount.toFixed(2) }}</text>
+        <view v-if="appt" class="arrival-block">
+          <text class="summary-line">到店状态</text>
+          <view :class="['arrival-toggle', !canEditAppointmentLate ? 'disabled' : '']">
+            <view
+              :class="['arrival-chip', !appointmentIsLate ? 'active' : '']"
+              @click="setAppointmentLate(false)"
+            >正常</view>
+            <view
+              :class="['arrival-chip', appointmentIsLate ? 'active warn' : 'warn']"
+              @click="setAppointmentLate(true)"
+            >迟到</view>
+          </view>
+          <text v-if="appointmentIsLate" class="summary-line accent">迟到扣除预约金30%</text>
+        </view>
+        <text v-if="appointmentDepositDeduction > 0" class="summary-line accent">已含{{ appointmentDepositLabel }} -¥{{ appointmentDepositDeduction.toFixed(2) }}</text>
+        <text class="summary-amount">{{ isEditing ? '修改后应付' : '预计应付' }} · ¥{{ payAmount.toFixed(2) }}</text>
       </view>
 
       <view class="draft-list">
@@ -45,7 +65,13 @@
                   @confirm="saveInlinePrice"
                 />
                 <text v-else class="service-price" @click="editPrice(di, si)">¥{{ svc.price }}</text>
-                <text class="service-dur">{{ svc.duration }}分钟</text>
+                <text class="service-dur">{{ svc.duration * svc.quantity }}分钟</text>
+                <view class="qty-ctrl service-quantity-controls">
+                  <button class="qty-btn service-quantity-button" :disabled="svc.quantity <= 1" aria-label="减少服务次数" @click="changeServiceQuantity(di, si, -1)">−</button>
+                  <text class="qty-val">{{ svc.quantity }}</text>
+                  <button class="qty-btn service-quantity-button" :disabled="!canRepeatService(svc.service_name) || svc.quantity >= 999" aria-label="增加服务次数" @click="changeServiceQuantity(di, si, 1)">+</button>
+                </view>
+                <text class="service-line-total">¥{{ serviceLineAmount(svc.price, svc.quantity).toFixed(2) }}</text>
                 <text class="service-del" @click="removeService(di, si)">✕</text>
               </view>
             </view>
@@ -69,7 +95,7 @@
               </view>
             </view>
           </view>
-          <view class="add-service-row" @click="openAddProduct(di)">
+          <view v-if="di === drafts.length - 1" class="add-service-row" @click="openAddProduct(di)">
             <text class="add-service-text">+ 添加商品</text>
           </view>
         </view>
@@ -89,7 +115,7 @@
         />
       </view>
 
-      <view class="submit-bar">
+      <view v-if="!productOrServiceModalOpen" class="submit-bar">
         <button class="submit-btn" :loading="submitting" @click="submitBatch">{{ isEditing ? '保存修改' : '确认生成订单' }}</button>
       </view>
       <!-- 添加服务弹窗（按分类） -->
@@ -163,29 +189,29 @@
             <view class="cat-tabs-inner">
               <view
                 :class="['cat-tab', activeProductCat === 0 ? 'cat-tab-active' : '']"
-                @click="setProductCategory(0)"
+                @click.stop="setProductCategory(0)"
               >全部</view>
               <view
                 v-for="cat in productCategories"
                 :key="cat.ID"
                 :class="['cat-tab', activeProductCat === cat.ID ? 'cat-tab-active' : '']"
-                @click="setProductCategory(cat.ID)"
+                @click.stop="setProductCategory(cat.ID)"
               >{{ cat.name }}</view>
             </view>
           </scroll-view>
           <view v-if="productLoading" class="modal-empty">搜索中...</view>
-          <view v-else-if="filteredProducts.length === 0" class="modal-empty">暂无商品</view>
+          <view v-else-if="visibleProducts.length === 0" class="modal-empty">暂无商品</view>
           <scroll-view scroll-y class="service-pick-list">
-            <view v-for="prod in filteredProducts" :key="prod.ID" class="service-pick-group">
+            <view v-for="prod in visibleProducts" :key="prod.ID" class="service-pick-group">
               <view class="service-pick-item" @click="toggleProductExpand(prod)">
                 <text class="service-pick-name">{{ prod.name }}</text>
-                <text class="service-pick-arrow" v-if="(prod.skus || prod.SKUs || []).filter(s => s.sellable !== false).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
+                <text class="service-pick-arrow" v-if="getSellableProductSkus(prod).length > 1">{{ expandedProductId === prod.ID ? '▾' : '▸' }}</text>
                 <text class="service-pick-price" v-else @click.stop="toggleProductExpand(prod)">¥{{ (prod.skus || prod.SKUs || [])[0]?.price ?? '-' }}</text>
               </view>
               <view v-if="expandedProductId === prod.ID" class="price-rules">
                 <view
                   class="price-rule-item"
-                  v-for="sku in (prod.skus || prod.SKUs || []).filter(s => s.sellable !== false)"
+                  v-for="sku in getSellableProductSkus(prod)"
                   :key="sku.ID"
                   @click="addProductSKU(prod, sku)"
                 >
@@ -207,11 +233,15 @@ import SideLayout from '@/components/SideLayout.vue'
 import { computed, ref, reactive } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getAppointment, updateAppointmentNotes } from '@/api/appointment'
+import { getCustomerCard } from '@/api/member-card'
 import { createBatchOrdersFromAppointment, getOrder, updateOrder } from '@/api/order'
 import { getServiceList } from '@/api/service'
+import { canRepeatService, serviceQuantity, serviceLineAmount, serviceSelectionKey } from '@/utils/service-quantity'
 import { getCategoryTree } from '@/api/service-category'
 import { getProductList, getProductCategories } from '@/api/product'
+import { getStaffList } from '@/api/staff'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
+import { calculateMemberPricingPreview } from '@/utils/member-pricing'
 
 const appointmentId = ref(0)
 const editingOrderId = ref(0)
@@ -219,10 +249,14 @@ const existingOrder = ref<any>(null)
 const appt = ref<any>(null)
 const loading = ref(true)
 const submitting = ref(false)
+const customerCard = ref<MemberCard | null>(null)
+const appointmentIsLate = ref(false)
 const allServices = ref<any[]>([])
 const categoryTree = ref<any[]>([]) // 树形：顶级分类，子分类在 children 里
 const activeCat1 = ref(0)
 const activeCat2 = ref(0)
+const staffList = ref<any[]>([])
+const selectedStaffIdx = ref(0)
 
 const topCategories = computed(() => categoryTree.value)
 const subCategories = computed(() => {
@@ -230,9 +264,7 @@ const subCategories = computed(() => {
   return top?.children || []
 })
 const filteredServices = computed(() => {
-  const existing = new Set(drafts[addingDraftIndex.value]?.services.map(s => s.service_id) || [])
-  // 有价格规则的服务不过滤（可以选不同规格），无规则的按 service_id 去重
-  let list = allServices.value.filter(s => (s.price_rules?.length > 0) || !existing.has(s.ID))
+  let list = allServices.value
   if (activeCat2.value) {
     list = list.filter(s => s.category_id === activeCat2.value)
   } else if (activeCat1.value) {
@@ -243,6 +275,8 @@ const filteredServices = computed(() => {
 })
 
 interface DraftService {
+  quantity: number
+  service_spec_id?: number
   service_id: number
   service_name: string
   price: number
@@ -311,14 +345,61 @@ function getPetTags(pet: any) {
 }
 
 function recalcAmount(draft: Draft) {
-  const svcTotal = draft.services.reduce((s, svc) => s + svc.price, 0)
+  const svcTotal = draft.services.reduce((s, svc) => s + serviceLineAmount(svc.price, svc.quantity), 0)
   const prodTotal = draft.products.reduce((s, p) => s + p.price * p.quantity, 0)
   draft.amount = svcTotal + prodTotal
 }
 
-const totalAmount = computed(() => drafts.reduce((sum, d) => sum + d.amount, 0))
+function roundCurrency(value: number) {
+  return Math.round(Number(value || 0) * 100) / 100
+}
+
+const serviceSubtotal = computed(() => roundCurrency(drafts.reduce((sum, draft) => sum + draft.services.reduce((svcSum, svc) => svcSum + serviceLineAmount(svc.price, svc.quantity), 0), 0)))
+const productSubtotal = computed(() => roundCurrency(drafts.reduce((sum, draft) => sum + draft.products.reduce((prodSum, prod) => prodSum + prod.price * prod.quantity, 0), 0)))
+const totalAmount = computed(() => roundCurrency(serviceSubtotal.value + productSubtotal.value))
+const configuredServiceDiscountRate = computed(() => {
+  const customerRate = Number(appt.value?.customer?.discount_rate || 1)
+  if (customerRate > 0 && customerRate < 1) return customerRate
+  const cardRate = Number(customerCard.value?.discount_rate || 1)
+  return cardRate > 0 && cardRate < 1 ? cardRate : 1
+})
+const configuredProductDiscountRate = computed(() => {
+  const cardRate = Number(customerCard.value?.product_discount_rate || 1)
+  return cardRate > 0 && cardRate < 1 ? cardRate : 1
+})
+const memberPricing = computed(() => calculateMemberPricingPreview({
+  serviceTotal: serviceSubtotal.value,
+  productTotal: productSubtotal.value,
+  serviceDiscountRate: configuredServiceDiscountRate.value,
+  productDiscountRate: configuredProductDiscountRate.value,
+  availableBalance: customerCard.value?.ID ? Number(customerCard.value.balance || 0) : 0,
+}))
+const serviceDiscountRate = computed(() => memberPricing.value.serviceDiscountAmount > 0 ? configuredServiceDiscountRate.value : 1)
+const productDiscountRate = computed(() => memberPricing.value.productDiscountAmount > 0 ? configuredProductDiscountRate.value : 1)
+const payAmountBeforeDeposit = computed(() => memberPricing.value.finalPayAmount)
+const appointmentDepositLabel = computed(() => appointmentIsLate.value ? '⚠️ 预约金抵扣' : '预约金抵扣')
+const appointmentDepositDeduction = computed(() => {
+  if (customerCard.value?.ID) return 0
+  const raw = Number(appt.value?.deposit || 0)
+  if (raw <= 0) return 0
+  const allowed = appointmentIsLate.value ? raw * 0.7 : raw
+  return roundCurrency(Math.min(allowed, payAmountBeforeDeposit.value))
+})
+const payAmount = computed(() => roundCurrency(Math.max(payAmountBeforeDeposit.value - appointmentDepositDeduction.value, 0)))
 const petSummary = computed(() => drafts.map((draft) => draft.petName).filter(Boolean).join(' / ') || '-')
 const isEditing = computed(() => editingOrderId.value > 0)
+const canEditAppointmentLate = computed(() => !isEditing.value || Number(existingOrder.value?.pay_status || 0) !== 1)
+const selectedStaff = computed(() => selectedStaffIdx.value > 0 ? staffList.value[selectedStaffIdx.value - 1] : null)
+const staffNames = computed(() => ['请选择', ...staffList.value.map((staff: any) => staff.name)])
+
+function setAppointmentLate(value: boolean) {
+  if (!canEditAppointmentLate.value) return
+  appointmentIsLate.value = value
+}
+
+function onStaffChange(e: any) {
+  selectedStaffIdx.value = Number(e.detail?.value || 0)
+}
 
 // === 修改价格 ===
 const editingPrice = ref<{ di: number; si: number } | null>(null)
@@ -379,11 +460,13 @@ function toggleServiceExpand(svc: any) {
 function addServiceWithRule(svc: any, rule: any) {
   const ruleName = rule.name || rule.fur_level || ''
   const name = ruleName ? `${svc.name}(${ruleName})` : svc.name
-  drafts[addingDraftIndex.value].services.push({
+  addDraftService(drafts[addingDraftIndex.value], {
+    quantity: 1,
+    service_spec_id: Number(rule.ID || 0),
     service_id: svc.ID,
     service_name: name,
     price: rule.price,
-    duration: rule.duration || svc.duration,
+    duration: Number(rule.duration ?? svc.duration),
   })
   recalcAmount(drafts[addingDraftIndex.value])
   showAddService.value = false
@@ -401,7 +484,8 @@ function openAddService(di: number) {
 }
 
 function addService(svc: any) {
-  drafts[addingDraftIndex.value].services.push({
+  addDraftService(drafts[addingDraftIndex.value], {
+    quantity: 1,
     service_id: svc.ID,
     service_name: svc.name,
     price: svc.base_price,
@@ -411,29 +495,58 @@ function addService(svc: any) {
   showAddService.value = false
 }
 
+function addDraftService(draft: Draft, next: DraftService) {
+  const key = serviceSelectionKey(next.service_id, next.service_spec_id || 0, next.service_name, next.price)
+  const existing = draft.services.find(svc => serviceSelectionKey(svc.service_id, svc.service_spec_id || 0, svc.service_name, svc.price) === key)
+  if (existing) {
+    if (!canRepeatService(next.service_name)) return
+    existing.quantity = Math.min(999, existing.quantity + next.quantity)
+  } else { draft.services.push(next) }
+}
+
+function changeServiceQuantity(di: number, si: number, delta: number) {
+  const svc = drafts[di].services[si]
+  if (delta > 0 && !canRepeatService(svc.service_name)) return
+  svc.quantity = Math.min(999, Math.max(1, svc.quantity + delta))
+  recalcAmount(drafts[di])
+}
+
 // === 添加商品 ===
 const showAddProduct = ref(false)
+const productOrServiceModalOpen = computed(() => showAddService.value || showAddProduct.value)
 const addingProductDraftIndex = ref(0)
 const productCategories = ref<any[]>([])
 const activeProductCat = ref(0)
 const expandedProductId = ref(0)
 const productKeyword = ref('')
 const filteredProducts = ref<any[]>([])
+const visibleProducts = computed(() => {
+  return filteredProducts.value.filter((product: any) => {
+    if (activeProductCat.value <= 0) return true
+    return Number(product.category_id || product.CategoryID || product.category?.ID || 0) === activeProductCat.value
+  })
+})
 const productLoading = ref(false)
 let productSearchTimer: ReturnType<typeof setTimeout> | null = null
+let productRequestSeq = 0
 
 async function loadProductOptions() {
+  const requestSeq = ++productRequestSeq
   productLoading.value = true
   try {
     const params: any = { page: 1, page_size: 100 }
     if (activeProductCat.value) params.category_id = activeProductCat.value
     if (productKeyword.value.trim()) params.keyword = productKeyword.value.trim()
     const res = await getProductList(params)
+    if (requestSeq !== productRequestSeq) return
     filteredProducts.value = (res.data?.list || []).filter((p: any) => p.status === 1)
   } catch {
+    if (requestSeq !== productRequestSeq) return
     filteredProducts.value = []
   } finally {
-    productLoading.value = false
+    if (requestSeq === productRequestSeq) {
+      productLoading.value = false
+    }
   }
 }
 
@@ -451,7 +564,9 @@ function onProductKeywordConfirm() {
 }
 
 function setProductCategory(categoryID: number) {
+  if (activeProductCat.value === categoryID) return
   activeProductCat.value = categoryID
+  expandedProductId.value = 0
   loadProductOptions()
 }
 
@@ -464,8 +579,12 @@ function openAddProduct(di: number) {
   loadProductOptions()
 }
 
+function getSellableProductSkus(prod: any) {
+  return (prod.skus || prod.SKUs || []).filter((sku: any) => sku.sellable !== false)
+}
+
 function toggleProductExpand(prod: any) {
-  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  const skus = getSellableProductSkus(prod)
   if (skus.length > 1) {
     expandedProductId.value = expandedProductId.value === prod.ID ? 0 : prod.ID
   } else if (skus.length === 1) {
@@ -476,7 +595,7 @@ function toggleProductExpand(prod: any) {
 }
 
 function addProductDirect(prod: any) {
-  const skus = (prod.skus || prod.SKUs || []).filter((s: any) => s.sellable !== false)
+  const skus = getSellableProductSkus(prod)
   const sku = skus[0]
   const price = sku?.price ?? prod.base_price ?? 0
   drafts[addingProductDraftIndex.value].products.push({
@@ -529,13 +648,29 @@ async function loadData() {
   if (!appointmentId.value) return
   loading.value = true
   try {
-    const [apptRes, orderRes] = await Promise.all([
+    const [apptRes, orderRes, staffRes] = await Promise.all([
       getAppointment(appointmentId.value),
       editingOrderId.value ? getOrder(editingOrderId.value) : Promise.resolve(null as any),
+      getStaffList({ page: 1, page_size: 50 } as any),
     ])
     appt.value = apptRes.data
+    staffList.value = (staffRes.data?.list || []).filter((staff: any) => staff.status === 1)
+    if (Number(appt.value?.customer_id || 0) > 0) {
+      try {
+        const cardRes = await getCustomerCard(appt.value.customer_id)
+        customerCard.value = cardRes.data || null
+      } catch {
+        customerCard.value = null
+      }
+    } else {
+      customerCard.value = null
+    }
     existingOrder.value = orderRes?.data || null
+    appointmentIsLate.value = !!existingOrder.value?.appointment_is_late
     noteDraft.value = appt.value?.notes || ''
+    const initialStaffId = Number(existingOrder.value?.staff_id || appt.value?.staff_id || 0)
+    const staffIdx = staffList.value.findIndex((staff: any) => Number(staff.ID) === initialStaffId)
+    selectedStaffIdx.value = staffIdx >= 0 ? staffIdx + 1 : 0
 
     // 加载服务列表、分类、商品（用于添加服务/商品）
     try {
@@ -561,7 +696,9 @@ async function loadData() {
     drafts.length = 0
     if (existingOrder.value?.pet_groups?.length) {
       for (const group of existingOrder.value.pet_groups) {
-        const petItem = petMap.get(group.pet_name)
+        const petItem = group.pet_id
+          ? pets.find((pet: any) => Number(pet.pet_id) === Number(group.pet_id))
+          : petMap.get(group.pet_name)
         const svcs: DraftService[] = []
         const prods: DraftProduct[] = []
         for (const item of (group.items || [])) {
@@ -576,17 +713,19 @@ async function loadData() {
           } else {
             const service = allServices.value.find((svc: any) => svc.ID === item.item_id)
             svcs.push({
+              quantity: serviceQuantity(item.quantity),
+              service_spec_id: Number(item.service_spec_id || 0),
               service_id: item.item_id,
               service_name: item.name,
               price: Number(item.unit_price || item.amount || 0),
-              duration: Number(service?.duration || 0),
+              duration: Number(item.duration ?? service?.duration ?? 0),
             })
           }
         }
-        const svcTotal = svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0)
+        const svcTotal = svcs.reduce((s: number, svc: DraftService) => s + serviceLineAmount(svc.price, svc.quantity), 0)
         const prodTotal = prods.reduce((s: number, p: DraftProduct) => s + p.price * p.quantity, 0)
         drafts.push({
-          petId: petItem?.pet_id || 0,
+          petId: Number(group.pet_id || petItem?.pet_id || 0),
           petName: group.pet_name,
           meta: getPetMeta(petItem?.pet),
           tags: getPetTags(petItem?.pet),
@@ -598,6 +737,7 @@ async function loadData() {
     } else {
       for (const petItem of pets) {
         const svcs = (petItem.services || []).map((s: any) => ({
+          quantity: 1,
           service_id: s.service_id,
           service_name: s.service_name,
           price: Number(s.price || 0),
@@ -610,9 +750,31 @@ async function loadData() {
           tags: getPetTags(petItem.pet),
           services: svcs,
           products: [],
-          amount: svcs.reduce((s: number, svc: DraftService) => s + svc.price, 0),
+          amount: svcs.reduce((s: number, svc: DraftService) => s + serviceLineAmount(svc.price, svc.quantity), 0),
         })
       }
+    }
+    for (const draft of drafts) {
+      const merged = new Map<string, DraftService>()
+      for (const svc of draft.services) {
+        // Older appointment snapshots contain the spec name but not its ID.
+        const service = allServices.value.find((entry: any) => entry.ID === svc.service_id)
+        const rule = (service?.price_rules || []).find((entry: any) => {
+          if (svc.service_spec_id) return Number(entry.ID) === svc.service_spec_id
+          const name = entry.name || entry.fur_level || ''
+          return Number(entry.price) === svc.price && [ `${service.name}(${name})`, `${service.name} · ${name}` ].includes(svc.service_name)
+        })
+        if (rule) {
+          svc.service_spec_id = Number(rule.ID)
+          svc.service_name = `${service.name}(${rule.name || rule.fur_level || ''})`
+        }
+        const key = serviceSelectionKey(svc.service_id, svc.service_spec_id || 0, svc.service_name, svc.price)
+        const existing = merged.get(key)
+        if (existing) existing.quantity += svc.quantity
+        else merged.set(key, { ...svc })
+      }
+      draft.services = Array.from(merged.values())
+      recalcAmount(draft)
     }
   } finally {
     loading.value = false
@@ -620,7 +782,12 @@ async function loadData() {
 }
 
 async function submitBatch() {
+  if (productOrServiceModalOpen.value) return
   if (!appointmentId.value) return
+  if (!selectedStaff.value) {
+    uni.showToast({ title: '请选择经手员工', icon: 'none' })
+    return
+  }
   submitting.value = true
   try {
     await syncAppointmentNotes()
@@ -629,13 +796,17 @@ async function submitBatch() {
     if (isEditing.value) {
       const items = drafts.flatMap((draft) => [
         ...draft.services.map((svc) => ({
+          pet_id: draft.petId || undefined,
           item_type: 1,
           item_id: svc.service_id,
           name: `${draft.petName} · ${svc.service_name}`,
-          quantity: 1,
+          quantity: svc.quantity,
+          service_spec_id: svc.service_spec_id || undefined,
+          duration: svc.duration,
           unit_price: svc.price,
         })),
         ...draft.products.map((p) => ({
+          pet_id: draft.petId || undefined,
           item_type: 2,
           item_id: p.product_id,
           name: `${draft.petName} · ${p.name}`,
@@ -645,17 +816,22 @@ async function submitBatch() {
       ])
       res = await updateOrder(editingOrderId.value, {
         customer_id: existingOrder.value?.customer_id || appt.value?.customer_id,
-        staff_id: existingOrder.value?.staff_id || appt.value?.staff_id,
+        staff_id: selectedStaff.value?.ID,
+        appointment_is_late: appointmentIsLate.value,
         remark: existingOrder.value?.remark || appt.value?.notes || '',
         items,
       } as any)
     } else {
       res = await createBatchOrdersFromAppointment(appointmentId.value, {
+        appointment_is_late: appointmentIsLate.value,
+        staff_id: selectedStaff.value?.ID,
         overrides: drafts.map(d => ({
           pet_id: d.petId,
           services: d.services.map(s => ({
             service_id: s.service_id,
             service_name: s.service_name,
+            quantity: s.quantity,
+            service_spec_id: s.service_spec_id || undefined,
             price: s.price,
             duration: s.duration,
           })),
@@ -701,11 +877,52 @@ onLoad((query) => {
 </script>
 
 <style scoped>
+.service-quantity-controls { flex-shrink: 0; }
+.service-quantity-button { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; line-height: normal; }
+.service-quantity-button::after { border: 0; }
+.service-quantity-button[disabled] { opacity: .4; }
+.service-line-total { font-size: 24rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .page { padding: 24rpx; padding-bottom: calc(220rpx + env(safe-area-inset-bottom)); }
 .state { text-align: center; padding: 120rpx 0; color: #9CA3AF; font-size: 28rpx; }
 .summary-card, .draft-card, .notes-card { background: #fff; border-radius: 18rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 4rpx 18rpx rgba(15, 23, 42, 0.06); }
 .summary-title { font-size: 32rpx; font-weight: 700; color: #111827; display: block; margin-bottom: 12rpx; }
 .summary-line { font-size: 24rpx; color: #6B7280; display: block; margin-top: 6rpx; }
+.summary-line.accent { color: #0F766E; font-weight: 600; }
+.summary-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 14rpx;
+}
+.summary-picker-label {
+  font-size: 24rpx;
+  color: #6B7280;
+}
+.staff-picker {
+  min-width: 180rpx;
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #EEF2FF;
+  color: #4338CA;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.staff-picker-warn {
+  background: #FEF2F2;
+  color: #DC2626;
+}
+.arrival-block { margin-top: 12rpx; }
+.arrival-toggle { display: inline-flex; gap: 12rpx; margin-top: 10rpx; }
+.arrival-toggle.disabled { opacity: 0.5; }
+.arrival-chip { min-width: 110rpx; padding: 12rpx 22rpx; border-radius: 999rpx; background: #F3F4F6; color: #4B5563; font-size: 24rpx; font-weight: 600; text-align: center; }
+.arrival-chip.active { background: #111827; color: #fff; }
+.arrival-chip.warn { background: #FFF7ED; color: #C2410C; }
+.arrival-chip.active.warn { background: #C2410C; color: #fff; }
 .summary-amount { font-size: 28rpx; color: #4F46E5; font-weight: 700; display: block; margin-top: 16rpx; }
 .draft-list { display: flex; flex-direction: column; gap: 16rpx; }
 .draft-head { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; }
@@ -720,10 +937,10 @@ onLoad((query) => {
 .draft-tag.tag-aggression { background: #FEF2F2; color: #DC2626; }
 
 .service-list { margin-top: 16rpx; border-top: 1rpx solid #EEF2F7; padding-top: 8rpx; }
-.service-row { display: flex; justify-content: space-between; align-items: center; gap: 16rpx; padding: 12rpx 0; border-bottom: 1rpx solid #F3F4F6; }
+.service-row { display: flex; flex-direction: column; align-items: stretch; gap: 16rpx; padding: 12rpx 0; border-bottom: 1rpx solid #F3F4F6; }
 .service-row:last-child { border-bottom: none; }
 .service-name { font-size: 24rpx; color: #1F2937; flex: 1; min-width: 0; }
-.service-edit { display: flex; align-items: center; gap: 12rpx; }
+.service-edit { display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx; }
 .service-price { font-size: 24rpx; color: #4F46E5; font-weight: 600; padding: 4rpx 12rpx; background: #EEF2FF; border-radius: 8rpx; }
 .service-price-input {
   width: 108rpx;

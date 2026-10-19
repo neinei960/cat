@@ -1,19 +1,26 @@
 package handler
 
 import (
+	"crypto/rand"
+	"errors"
+	"math/big"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/internal/service"
 	"github.com/neinei960/cat/server/pkg/response"
+	"gorm.io/gorm"
 )
 
 type CustomerHandler struct {
 	customerService *service.CustomerService
 	petService      *service.PetService
 }
+
+var errDuplicateCustomerPhone = errors.New("该手机号客户已存在")
 
 func NewCustomerHandler(customerService *service.CustomerService, petService *service.PetService) *CustomerHandler {
 	return &CustomerHandler{customerService: customerService, petService: petService}
@@ -40,12 +47,23 @@ func (h *CustomerHandler) Create(c *gin.Context) {
 		return
 	}
 
+	shopID := c.GetUint("shop_id")
+	req.Phone = ensureCustomerPhone(h.customerService, shopID, req.Phone)
+	if err := h.ensurePhoneUnique(shopID, req.Phone, 0); err != nil {
+		if errors.Is(err, errDuplicateCustomerPhone) {
+			response.Error(c, http.StatusConflict, err.Error())
+		} else {
+			response.Error(c, http.StatusInternalServerError, "校验手机号失败")
+		}
+		return
+	}
+
 	discountRate := req.DiscountRate
 	if discountRate <= 0 {
 		discountRate = 1
 	}
 	customer := &model.Customer{
-		ShopID:        c.GetUint("shop_id"),
+		ShopID:        shopID,
 		Phone:         req.Phone,
 		Nickname:      req.Nickname,
 		Gender:        req.Gender,
@@ -114,6 +132,16 @@ func (h *CustomerHandler) Update(c *gin.Context) {
 		return
 	}
 
+	req.Phone = ensureCustomerPhone(h.customerService, customer.ShopID, req.Phone)
+	if err := h.ensurePhoneUnique(customer.ShopID, req.Phone, customer.ID); err != nil {
+		if errors.Is(err, errDuplicateCustomerPhone) {
+			response.Error(c, http.StatusConflict, err.Error())
+		} else {
+			response.Error(c, http.StatusInternalServerError, "校验手机号失败")
+		}
+		return
+	}
+
 	customer.Nickname = req.Nickname
 	customer.Phone = req.Phone
 	customer.Gender = req.Gender
@@ -173,4 +201,52 @@ func (h *CustomerHandler) GetPets(c *gin.Context) {
 		return
 	}
 	response.Success(c, pets)
+}
+
+func ensureCustomerPhone(customerService *service.CustomerService, shopID uint, phone string) string {
+	if phone != "" {
+		return phone
+	}
+	for i := 0; i < 10; i++ {
+		candidate := generatedCustomerPhone(i)
+		if _, err := customerService.GetByPhone(candidate, shopID); errors.Is(err, gorm.ErrRecordNotFound) {
+			return candidate
+		}
+	}
+	return generatedCustomerPhone(99)
+}
+
+func generatedCustomerPhone(offset int) string {
+	value := randomTenDigitValue()
+	if value < 0 {
+		value = (time.Now().UnixNano() + int64(offset)) % 10000000000
+	}
+	if value < 0 {
+		value = -value
+	}
+	return "9" + strconv.FormatInt(value+10000000000, 10)[1:]
+}
+
+func randomTenDigitValue() int64 {
+	max := big.NewInt(10000000000)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return -1
+	}
+	return n.Int64()
+}
+
+func (h *CustomerHandler) ensurePhoneUnique(shopID uint, phone string, currentCustomerID uint) error {
+	if phone == "" {
+		return nil
+	}
+
+	customer, err := h.customerService.GetByPhone(phone, shopID)
+	if err == nil && customer.ID != currentCustomerID {
+		return errDuplicateCustomerPhone
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	return err
 }

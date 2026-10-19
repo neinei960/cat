@@ -231,6 +231,7 @@ interface ServiceItem {
   pricing_type: number  // 1按次 2按天
   holiday_price: number
   monthly_usage_count?: number
+  customer_usage_count?: number
   price_rules?: ServicePriceRule[]
   discounts?: ServiceDiscount[]
   service_category?: ServiceCategory
@@ -294,6 +295,7 @@ interface BoardingHoliday {
   shop_id: number
   holiday_date: string
   name: string
+  surcharge_amount: number
   CreatedAt?: string
 }
 
@@ -312,12 +314,24 @@ interface BoardingDiscountPolicy {
   rule?: any
 }
 
+interface BoardingSpecialItem {
+  ID: number
+  shop_id: number
+  name: string
+  default_daily_price: number
+  sort_order: number
+  status: number
+  remark: string
+  CreatedAt?: string
+}
+
 interface BoardingPriceLine {
   type: string
   label: string
   quantity: number
   unit_price: number
   amount: number
+  special_item_id?: number
 }
 
 interface BoardingPricePreview {
@@ -330,19 +344,78 @@ interface BoardingPricePreview {
   base_amount: number
   extra_pet_amount: number
   holiday_surcharge_amount: number
+  special_item_id?: number
+  special_item_name?: string
+  special_item_daily_price: number
+  special_item_days: number
+  special_item_amount: number
   discount_amount: number
   pay_amount: number
   policies: BoardingDiscountPolicy[]
+  lines: BoardingPriceLine[]
+  rooms?: BoardingRoomPreview[]
+}
+
+interface BoardingRoomPreview {
+  room_index: number
+  cabinet_id: number
+  cabinet_type: string
+  pet_ids?: number[]
+  pet_count: number
+  special_item_id?: number
+  special_item_name?: string
+  special_item_daily_price: number
+  special_item_days: number
+  check_in_at: string
+  check_out_at: string
+  nights: number
+  regular_nights: number
+  holiday_nights: number
+  base_amount: number
+  extra_pet_amount: number
+  holiday_surcharge_amount: number
+  special_item_amount: number
+  discount_amount: number
+  manual_discount_amount: number
+  pay_amount: number
   lines: BoardingPriceLine[]
 }
 
 interface BoardingOrderPet {
   ID: number
   boarding_order_id: number
+  boarding_order_room_id?: number
   pet_id: number
   pet_name_snapshot: string
   remark: string
   pet?: Pet
+}
+
+interface BoardingOrderRoom {
+  ID: number
+  boarding_order_id: number
+  cabinet_id: number
+  special_item_id?: number
+  special_item_name: string
+  special_item_daily_price: number
+  special_item_days: number
+  special_item_amount: number
+  room_index: number
+  check_in_at: string
+  check_out_at: string
+  actual_check_out_at: string
+  nights: number
+  base_amount: number
+  holiday_surcharge_amount: number
+  special_item_amount: number
+  discount_amount: number
+  manual_discount_amount: number
+  pay_amount: number
+  status: string
+  policy_snapshot_json: string
+  price_snapshot_json: string
+  cabinet?: BoardingCabinet
+  pets?: BoardingOrderPet[]
 }
 
 interface BoardingOrderLog {
@@ -353,6 +426,14 @@ interface BoardingOrderLog {
   content: string
   operator?: Staff
   CreatedAt?: string
+}
+
+interface BoardingPaymentLog {
+  order_id: number
+  order_no: string
+  pay_amount: number
+  pay_method: string
+  pay_time?: string
 }
 
 interface BoardingOrder {
@@ -372,6 +453,7 @@ interface BoardingOrder {
   manual_discount_amount: number
   pay_amount: number
   status: string
+  room_index?: number
   has_deworming?: boolean | null
   remark: string
   policy_snapshot_json: string
@@ -379,8 +461,10 @@ interface BoardingOrder {
   customer?: Customer
   staff?: Staff
   cabinet?: BoardingCabinet
+  rooms?: BoardingOrderRoom[]
   pets?: BoardingOrderPet[]
   logs?: BoardingOrderLog[]
+  payment_logs?: BoardingPaymentLog[]
   order?: Order
   CreatedAt?: string
 }
@@ -550,21 +634,39 @@ interface Order {
   service_discount_amount?: number
   product_discount_amount?: number
   discount_rate: number
+  appointment_is_late?: boolean
+  appointment_deposit_amount?: number
+  appointment_deposit_deduction_amount?: number
   pay_amount: number
   commission: number
+  member_balance_before?: number | null
+  member_balance_after?: number | null
+  member_balance_used?: number
+  cash_pay_amount?: number
+  cash_pay_method?: string
   pay_method: string
   pay_status: number
   status: number
   remark: string
-  order_kind?: 'service' | 'product' | 'mixed' | 'feeding'
+  order_kind?: 'service' | 'product' | 'mixed' | 'feeding' | 'boarding'
   pet_summary?: string
   pet_groups?: OrderPetGroup[]
   customer?: Customer
   pet?: Pet
+  appointment?: OrderAppointment
   staff?: Staff
   items?: OrderItem[]
   pay_time?: string
   CreatedAt?: string
+}
+
+interface OrderAppointmentPet {
+  pet_id: number
+  pet?: Pet
+}
+
+interface OrderAppointment {
+  pets?: OrderAppointmentPet[]
 }
 
 interface OrderItem {

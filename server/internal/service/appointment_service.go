@@ -53,6 +53,8 @@ type timeInterval struct {
 	end   int
 }
 
+const appointmentTimeStepMinutes = 5
+
 type AppointmentPetSelection struct {
 	PetID      uint   `json:"pet_id"`
 	ServiceIDs []uint `json:"service_ids"`
@@ -288,6 +290,7 @@ func (s *AppointmentService) Create(appt *model.Appointment, serviceIDs []uint) 
 
 // CreateMulti creates a multi-pet appointment while preserving legacy flat service snapshots.
 func (s *AppointmentService) CreateMulti(appt *model.Appointment, petSelections []AppointmentPetSelection) error {
+	normalizeAppointmentCustomerType(appt)
 	payload, err := s.buildMultiPayload(appt, petSelections, 0)
 	if err != nil {
 		return err
@@ -403,13 +406,14 @@ func (s *AppointmentService) buildMultiPayload(appt *model.Appointment, petSelec
 		if manualEndMin <= startMin {
 			return nil, errors.New("结束时间必须晚于开始时间")
 		}
-		if (manualEndMin-startMin)%30 != 0 {
-			return nil, errors.New("预约时间必须按30分钟粒度选择")
+		if (manualEndMin-startMin)%appointmentTimeStepMinutes != 0 {
+			return nil, errors.New("预约时间必须按5分钟粒度选择")
 		}
 		endMin = manualEndMin
 	}
 	appt.EndTime = minutesToTime(endMin)
 	appt.TotalAmount = totalAmount
+	appt.Deposit = normalizeAppointmentDeposit(&appt.CustomerID, appt.Deposit, appt.TotalAmount)
 	appt.PetID = petSelections[0].PetID
 
 	if appt.StaffID != nil && *appt.StaffID > 0 {
@@ -469,9 +473,14 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	appt.StartTime = updates.StartTime
 	appt.EndTime = updates.EndTime
 	appt.Notes = updates.Notes
+	appt.Deposit = updates.Deposit
 	if updates.Source > 0 {
 		appt.Source = updates.Source
 	}
+	if updates.CustomerType > 0 {
+		appt.CustomerType = updates.CustomerType
+	}
+	normalizeAppointmentCustomerType(appt)
 
 	payload, err := s.buildMultiPayload(appt, petSelections, appt.ID)
 	if err != nil {
@@ -480,15 +489,17 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 
 	tx := database.DB.Begin()
 	if err := tx.Model(&model.Appointment{}).Where("id = ?", appt.ID).Updates(map[string]interface{}{
-		"customer_id":  appt.CustomerID,
-		"pet_id":       appt.PetID,
-		"staff_id":     appt.StaffID,
-		"date":         appt.Date,
-		"start_time":   appt.StartTime,
-		"end_time":     appt.EndTime,
-		"source":       appt.Source,
-		"notes":        appt.Notes,
-		"total_amount": appt.TotalAmount,
+		"customer_id":   appt.CustomerID,
+		"pet_id":        appt.PetID,
+		"staff_id":      appt.StaffID,
+		"date":          appt.Date,
+		"start_time":    appt.StartTime,
+		"end_time":      appt.EndTime,
+		"source":        appt.Source,
+		"customer_type": appt.CustomerType,
+		"notes":         appt.Notes,
+		"total_amount":  appt.TotalAmount,
+		"deposit":       appt.Deposit,
 	}).Error; err != nil {
 		tx.Rollback()
 		return err
@@ -513,6 +524,17 @@ func (s *AppointmentService) UpdateMulti(apptID, shopID uint, updates *model.App
 	}
 
 	return tx.Commit().Error
+}
+
+func normalizeAppointmentCustomerType(appt *model.Appointment) {
+	if appt == nil {
+		return
+	}
+	switch appt.CustomerType {
+	case model.AppointmentCustomerTypeNew, model.AppointmentCustomerTypeRegular:
+	default:
+		appt.CustomerType = model.AppointmentCustomerTypeRegular
+	}
 }
 
 func (s *AppointmentService) Delete(apptID, shopID uint) error {
@@ -596,9 +618,6 @@ func (s *AppointmentService) UpdateNotes(apptID, shopID uint, notes string) erro
 	if err != nil || appt.ShopID != shopID {
 		return errors.New("预约不存在")
 	}
-	if appt.Status > 3 {
-		return errors.New("当前状态不允许修改预约备注")
-	}
 	appt.Notes = notes
 	return database.DB.Model(&model.Appointment{}).
 		Where("id = ? AND shop_id = ?", appt.ID, shopID).
@@ -647,8 +666,8 @@ func (s *AppointmentService) UpdateStatusWithOperator(id uint, newStatus int, st
 
 	valid := false
 	switch newStatus {
-	case 1: // 已确认 ← 待确认
-		valid = appt.Status == 0
+	case 1: // 已确认 ← 待确认/未到店恢复
+		valid = appt.Status == 0 || appt.Status == 5
 	case 2: // 服务中 ← 已确认（兼容历史已到店）
 		valid = appt.Status == 1 || appt.Status == 6
 	case 3: // 待结算 ← 服务中
@@ -776,8 +795,8 @@ func (s *AppointmentService) ensureStaffAvailability(staffID uint, date, startTi
 	if endMin <= startMin {
 		return errors.New("结束时间必须晚于开始时间")
 	}
-	if (endMin-startMin)%30 != 0 {
-		return errors.New("预约时间必须按30分钟粒度选择")
+	if (endMin-startMin)%appointmentTimeStepMinutes != 0 {
+		return errors.New("预约时间必须按5分钟粒度选择")
 	}
 
 	scheduleStart := timeToMinutes(schedule.StartTime)

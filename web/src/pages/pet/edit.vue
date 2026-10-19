@@ -15,7 +15,7 @@
       :src="cropperSrc"
       :visible="showCropper"
       @confirm="onCropConfirm"
-      @cancel="showCropper = false"
+      @cancel="onCropCancel"
     />
 
     <!-- 基本身份 -->
@@ -255,6 +255,8 @@ import { getShop, updateShop } from '@/api/shop'
 import { uploadFile } from '@/api/upload'
 import { safeBack } from '@/utils/navigate'
 import { useDesktopInteraction } from '@/utils/interaction'
+import { createCropperPreviewUrl } from '@/utils/image-cropper'
+import { reconcileOwnerPhone } from '@/utils/pet-owner-phone'
 import {
   addPersonalityTag,
   buildBusinessHoursWithPersonality,
@@ -463,6 +465,14 @@ const form = ref({
   neutered: false, care_notes: '', behavior_notes: '', avatar: '',
 })
 
+let profileLoaded = false
+let initialLoad: Promise<void> | null = null
+let ownerRefresh: Promise<boolean> | null = null
+let ownerPhoneBaseline = ''
+let latestOwnerPhone = ''
+let loadedOwnerId = 0
+let ownerChanged = false
+
 const avatarFullUrl = computed(() => {
   if (localAvatarPreview.value) return localAvatarPreview.value
   const v = form.value.avatar
@@ -580,7 +590,6 @@ onLoad((query) => {
   void loadPersonalityConfig()
   if (query?.id) {
     id.value = parseInt(query.id)
-    loadData()
   }
   if (query?.owner_phone) {
     form.value.owner_phone = query.owner_phone
@@ -590,7 +599,56 @@ onLoad((query) => {
 onShow(() => {
   void loadFurLevels()
   void loadPersonalityConfig()
+  if (!id.value || submitting.value) return
+  if (profileLoaded) {
+    void refreshOwnerPhone().catch(() => {})
+  } else if (!initialLoad) {
+    initialLoad = loadData().catch(() => {}).finally(() => { initialLoad = null })
+  }
 })
+
+function refreshOwnerPhone(): Promise<boolean> {
+  if (ownerRefresh) return ownerRefresh
+  ownerRefresh = getPet(id.value).then(({ data }) => {
+    ownerChanged = Number(data.customer_id || 0) !== loadedOwnerId
+    latestOwnerPhone = data.customer?.phone || ''
+    if (ownerChanged) return true
+    const result = reconcileOwnerPhone(ownerPhoneBaseline, form.value.owner_phone, latestOwnerPhone)
+    form.value.owner_phone = result.phone
+    if (!result.conflict) ownerPhoneBaseline = latestOwnerPhone
+    return result.conflict
+  }).finally(() => { ownerRefresh = null })
+  return ownerRefresh
+}
+
+async function confirmOwnerPhoneBeforeSave() {
+  if (!id.value) return true
+  if (!profileLoaded) {
+    uni.showToast({ title: '档案尚未加载完成，请稍后再试', icon: 'none' })
+    return false
+  }
+  const conflict = await refreshOwnerPhone()
+  if (ownerChanged) {
+    uni.showToast({ title: '主人关联已变更，请重新打开档案', icon: 'none' })
+    return false
+  }
+  if (!conflict) return true
+  return new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title: '主人电话已更新',
+      content: `最新电话：${latestOwnerPhone || '未填写'}\n当前输入：${form.value.owner_phone || '未填写'}\n是否保留当前输入？`,
+      confirmText: '保留输入',
+      cancelText: '使用最新',
+      success: ({ confirm }) => {
+        if (!confirm) form.value.owner_phone = latestOwnerPhone
+        ownerPhoneBaseline = latestOwnerPhone
+        // Let the user review the refreshed number before saving again.
+        resolve(confirm)
+      },
+      fail: () => resolve(false),
+    })
+  })
+}
 
 async function loadPersonalityConfig() {
   try {
@@ -615,6 +673,10 @@ async function loadData() {
     behavior_notes: d.behavior_notes || '',
     avatar: d.avatar || '',
   }
+  ownerPhoneBaseline = form.value.owner_phone
+  latestOwnerPhone = ownerPhoneBaseline
+  loadedOwnerId = Number(d.customer_id || 0)
+  profileLoaded = true
   // 反算年龄
   if (form.value.birth_date) {
     const birth = new Date(form.value.birth_date)
@@ -652,23 +714,28 @@ function chooseAvatar() {
     return
   }
 
-  // H5 使用 input[type=file]，并把 iPhone 常见的 HEIC/HEIF 统一转成 JPEG 后再上传
+  // H5 进入裁剪器前先按拍摄方向生成预览，避免 iPhone 原图在裁剪页倒立
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
   input.style.display = 'none'
   document.body.appendChild(input)
-  input.onchange = () => {
+  input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) {
       input.remove()
       return
     }
-    // 打开裁剪器
-    cropperSrc.value = URL.createObjectURL(file)
-    showCropper.value = true
-    input.value = ''
-    input.remove()
+    try {
+      clearCropperSrc()
+      cropperSrc.value = await createCropperPreviewUrl(file)
+      showCropper.value = true
+    } catch (error: any) {
+      uni.showToast({ title: error?.message || '图片读取失败', icon: 'none' })
+    } finally {
+      input.value = ''
+      input.remove()
+    }
   }
   input.click()
 }
@@ -678,10 +745,21 @@ function goBathReportPage() {
   uni.navigateTo({ url: `/pages/pet/report?id=${id.value}` })
 }
 
+function clearCropperSrc() {
+  if (cropperSrc.value && cropperSrc.value.startsWith('blob:')) {
+    URL.revokeObjectURL(cropperSrc.value)
+  }
+  cropperSrc.value = ''
+}
+
+function onCropCancel() {
+  showCropper.value = false
+  clearCropperSrc()
+}
+
 async function onCropConfirm(blob: Blob) {
   showCropper.value = false
-  // 清理裁剪源
-  if (cropperSrc.value) { URL.revokeObjectURL(cropperSrc.value); cropperSrc.value = '' }
+  clearCropperSrc()
 
   uni.showLoading({ title: '上传中...' })
   try {
@@ -835,16 +913,21 @@ function buildPetPayload() {
 
 async function persistAvatarAfterUpload() {
   if (!id.value || !form.value.name) return false
-  await updatePet(id.value, buildPetPayload())
+  if (!await confirmOwnerPhoneBeforeSave()) return false
+  const data = buildPetPayload()
+  await updatePet(id.value, data)
+  ownerPhoneBaseline = data.owner_phone.trim()
   return true
 }
 
 async function onSubmit() {
+  if (submitting.value) return
   if (!form.value.name) {
     uni.showToast({ title: '请填写猫咪名', icon: 'none' }); return
   }
   submitting.value = true
   try {
+    if (!await confirmOwnerPhoneBeforeSave()) return
     const data: any = buildPetPayload()
     if (id.value) { await updatePet(id.value, data) }
     else { await createPet(data) }

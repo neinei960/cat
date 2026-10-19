@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/neinei960/cat/server/internal/model"
 	"github.com/neinei960/cat/server/pkg/database"
 )
@@ -42,6 +44,22 @@ func (r *BoardingRepository) ListPolicies(shopID uint) ([]model.BoardingDiscount
 	return policies, err
 }
 
+func (r *BoardingRepository) ListSpecialItems(shopID uint, onlyActive bool) ([]model.BoardingSpecialItem, error) {
+	var items []model.BoardingSpecialItem
+	db := database.DB.Where("shop_id = ?", shopID)
+	if onlyActive {
+		db = db.Where("status = ?", 1)
+	}
+	err := db.Order("sort_order ASC, id ASC").Find(&items).Error
+	return items, err
+}
+
+func (r *BoardingRepository) FindSpecialItemByID(shopID, id uint) (*model.BoardingSpecialItem, error) {
+	var item model.BoardingSpecialItem
+	err := database.DB.Where("shop_id = ?", shopID).First(&item, id).Error
+	return &item, err
+}
+
 func (r *BoardingRepository) FindPoliciesByIDs(shopID uint, ids []uint) ([]model.BoardingDiscountPolicy, error) {
 	var policies []model.BoardingDiscountPolicy
 	if len(ids) == 0 {
@@ -58,6 +76,8 @@ func (r *BoardingRepository) FindBoardingOrderByID(shopID, id uint) (*model.Boar
 		Preload("Customer").
 		Preload("Staff").
 		Preload("Cabinet").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
 		Preload("Logs.Operator").
 		Where("shop_id = ?", shopID).
@@ -65,19 +85,44 @@ func (r *BoardingRepository) FindBoardingOrderByID(shopID, id uint) (*model.Boar
 	return &order, err
 }
 
-func (r *BoardingRepository) ListBoardingOrders(shopID uint, status string, page, pageSize int) ([]model.BoardingOrder, int64, error) {
+func (r *BoardingRepository) ListBoardingOrders(shopID uint, status, dateFrom, dateTo string, cabinetID uint, page, pageSize int) ([]model.BoardingOrder, int64, error) {
 	var list []model.BoardingOrder
 	var total int64
 	db := database.DB.Model(&model.BoardingOrder{}).Where("shop_id = ?", shopID)
 	if status != "" {
-		db = db.Where("status = ?", status)
+		if status == model.BoardingOrderStatusCheckedOut {
+			today := time.Now().Format("2006-01-02")
+			db = db.Where(
+				"status = ? OR (status <> ? AND COALESCE(NULLIF(actual_check_out_at, ''), check_out_at) < ?)",
+				status,
+				model.BoardingOrderStatusCancelled,
+				today,
+			)
+		} else {
+			db = db.Where("status = ?", status)
+		}
+	}
+	if dateFrom != "" {
+		db = db.Where("COALESCE(NULLIF(actual_check_out_at, ''), check_out_at) >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		db = db.Where("check_in_at <= ?", dateTo)
+	}
+	if cabinetID > 0 {
+		roomOrderIDs := database.DB.Model(&model.BoardingOrderRoom{}).
+			Select("boarding_order_id").
+			Where("cabinet_id = ?", cabinetID)
+		db = db.Where("cabinet_id = ? OR id IN (?)", cabinetID, roomOrderIDs)
 	}
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	offset := (page - 1) * pageSize
-	err := db.Preload("Customer").
+	err := db.Preload("Order").
+		Preload("Customer").
 		Preload("Cabinet").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
 		Order("id DESC").
 		Offset(offset).
@@ -90,8 +135,11 @@ func (r *BoardingRepository) ListActiveOrders(shopID uint) ([]model.BoardingOrde
 	var orders []model.BoardingOrder
 	err := database.DB.Preload("Customer").
 		Preload("Cabinet").
+		Preload("Order").
+		Preload("Rooms.Cabinet").
+		Preload("Rooms.Pets.Pet").
 		Preload("Pets.Pet").
-		Where("shop_id = ? AND status IN ?", shopID, []string{model.BoardingOrderStatusPendingCheckin, model.BoardingOrderStatusCheckedIn}).
+		Where("shop_id = ? AND status IN ?", shopID, []string{model.BoardingOrderStatusPendingCheckin, model.BoardingOrderStatusCheckedIn, model.BoardingOrderStatusMixed}).
 		Order("check_in_at ASC, id ASC").
 		Find(&orders).Error
 	return orders, err

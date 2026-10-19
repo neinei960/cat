@@ -16,7 +16,7 @@
     <view class="search-bar">
       <input
         v-model="keyword"
-        placeholder="搜索订单号 / 客户 / 猫咪 / 商品 / 服务"
+        placeholder="搜索客户 / 猫咪 / 商品 / 服务"
         class="search-input"
         confirm-type="search"
         @confirm="onSearch"
@@ -32,7 +32,6 @@
       <view :class="['tab', filter.status === 1 ? 'active' : '']" @click="filter.status = 1; loadData()">已支付</view>
       <view :class="['tab', filter.status === 3 ? 'active' : '']" @click="filter.status = 3; loadData()">已退款</view>
       <view class="tab-sep"></view>
-      <view :class="['tab tab-feeding', filter.orderKind === 'feeding' ? 'active' : '']" @click="toggleFeeding">喂养</view>
       <view :class="['tab tab-meituan', filter.payMethod === 'meituan' ? 'active' : '']" @click="toggleMeituan">美团</view>
     </view>
 
@@ -42,6 +41,9 @@
       <text v-if="filter.dateFrom || filter.dateTo" class="filter-tag">{{ filter.dateFrom || '...' }} ~ {{ filter.dateTo || '...' }} <text @click="filter.dateFrom = ''; filter.dateTo = ''; loadData()">✕</text></text>
       <text v-if="filter.staffId > 0" class="filter-tag">{{ getStaffName(filter.staffId) }} <text @click="filter.staffId = 0; loadData()">✕</text></text>
       <text v-if="filter.payMethod" class="filter-tag">{{ payMethodMap[filter.payMethod] || filter.payMethod }} <text @click="filter.payMethod = ''; loadData()">✕</text></text>
+      <text v-if="filter.orderKind" class="filter-tag">{{ getOrderKindLabel(filter.orderKind) }} <text @click="filter.orderKind = ''; loadData()">✕</text></text>
+      <text v-if="filter.selfUse" class="filter-tag">自用 <text @click="filter.selfUse = false; loadData()">✕</text></text>
+      <text v-if="filter.categoryId > 0" class="filter-tag">{{ getCategoryName(filter.categoryId) }} <text @click="filter.categoryId = 0; loadData()">✕</text></text>
       <text v-if="filter.productKeyword.trim()" class="filter-tag">商品: {{ filter.productKeyword }} <text @click="filter.productKeyword = ''; loadData()">✕</text></text>
     </view>
 
@@ -51,7 +53,9 @@
       :status-options="orderStatusOptions"
       status-label="订单状态"
       :pay-methods="orderPayMethods"
+      :order-kinds="orderKindOptions"
       :show-product-keyword="true"
+      :show-self-use="true"
       :staff-list="staffList"
       :categories="categories"
       @close="showFilter = false"
@@ -81,11 +85,11 @@
         @touchmove="clearCardLongPress"
       >
         <view class="card-top">
-          <text class="order-no">{{ item.order_no }}</text>
+          <text class="customer">{{ getOrderTitle(item) }}</text>
           <view class="card-top-right">
             <view :class="['status', `s${item.status}`]">{{ statusMap[item.status] }}</view>
             <view
-              v-if="isDesktopInteraction && item.status === 0"
+              v-if="isDesktopInteraction && canEditOrder(item)"
               class="card-action-btn primary"
               @click.stop="editOrder(item)"
             >修改</view>
@@ -97,7 +101,6 @@
           </view>
         </view>
         <view class="card-body">
-          <text class="customer">{{ getOrderTitle(item) }}</text>
           <view class="order-meta">
             <text class="order-time">{{ item.CreatedAt?.substring(0, 16).replace('T', ' ') }}</text>
             <text v-if="item.appointment?.date" class="appointment-date">预约 {{ item.appointment.date }}</text>
@@ -117,11 +120,14 @@
             >{{ payMethodBadgeMap[resolvePayMethodKey(item.pay_method)] }}</text>
           </view>
           <view class="footer-right">
-            <view v-if="item.status === 0" class="card-edit-btn" @click.stop="editOrder(item)">修改订单</view>
+            <view v-if="canEditOrder(item)" class="card-edit-btn" @click.stop="editOrder(item)">修改订单</view>
             <text class="amount">¥{{ item.pay_amount }}</text>
           </view>
         </view>
       </view>
+      <view v-if="loadingMore" class="load-more">加载中...</view>
+      <view v-else-if="hasMore" class="load-more" @click="loadMore">上滑加载更多</view>
+      <view v-else class="load-more load-more-done">已加载全部 {{ total }} 条订单</view>
     </view>
   </view>
   </SideLayout>
@@ -131,14 +137,21 @@
 import SideLayout from '@/components/SideLayout.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import { ref, reactive, computed, onMounted } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onReachBottom } from '@dcloudio/uni-app'
 import { deleteOrder, getOrderList } from '@/api/order'
 import { getStaffList } from '@/api/staff'
 import { getCategoryTree } from '@/api/service-category'
 import { useDesktopInteraction } from '@/utils/interaction'
+import { useAuthStore } from '@/store/auth'
+import { hasStaffRoleAtLeast } from '@/utils/staff-role'
 
+const PAGE_SIZE = 20
 const list = ref<any[]>([])
+const total = ref(0)
+const currentPage = ref(1)
 const loading = ref(true)
+const loadingMore = ref(false)
+const hasMore = ref(true)
 const keyword = ref('')
 const showFilter = ref(false)
 const staffList = ref<any[]>([])
@@ -147,7 +160,10 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 let suppressCardClickUntil = 0
 let cardLongPressTimer: ReturnType<typeof setTimeout> | null = null
 let cardLongPressTriggered = false
+let latestLoadRequestId = 0
 const { isDesktopInteraction } = useDesktopInteraction()
+const authStore = useAuthStore()
+const canManageOpenedOrder = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const statusMap: Record<number, string> = { 0: '待付款', 1: '已支付', 2: '已取消', 3: '已退款' }
 const payMethodMap: Record<string, string> = {
   qrcode: '扫码',
@@ -180,6 +196,11 @@ const orderPayMethods = [
   { value: 'balance', label: '会员余额' },
   { value: 'other', label: '其他' },
 ]
+const orderKindOptions = [
+  { value: 'feeding', label: '上门喂养' },
+  { value: 'boarding', label: '寄养' },
+]
+const hiddenServiceCategoryNames = new Set(['寄养托管', '上门喂养'])
 
 const filter = reactive({
   dateFrom: '',
@@ -190,6 +211,7 @@ const filter = reactive({
   categoryId: 0,
   productKeyword: '',
   orderKind: '',
+  selfUse: false,
 })
 
 const activeFilterCount = computed(() => {
@@ -197,6 +219,8 @@ const activeFilterCount = computed(() => {
   if (filter.dateFrom || filter.dateTo) c++
   if (filter.staffId > 0) c++
   if (filter.payMethod) c++
+  if (filter.orderKind) c++
+  if (filter.selfUse) c++
   if (filter.categoryId > 0) c++
   if (filter.productKeyword.trim()) c++
   return c
@@ -206,9 +230,8 @@ function getStaffName(id: number) {
   return staffList.value.find((s: any) => s.ID === id)?.name || '未知'
 }
 
-function toggleFeeding() {
-  filter.orderKind = filter.orderKind === 'feeding' ? '' : 'feeding'
-  loadData()
+function getCategoryName(id: number) {
+  return categories.value.find((c: any) => c.ID === id)?.name || '服务分类'
 }
 
 function toggleMeituan() {
@@ -227,6 +250,9 @@ function getOrderTitle(item: any) {
   if (item.order_kind === 'product') {
     return `${customerName} · 商品零售`
   }
+  if (item.order_kind === 'boarding') {
+    return `${customerName} · 寄养订单`
+  }
   return customerName
 }
 
@@ -234,6 +260,7 @@ function getOrderKindLabel(kind: string) {
   if (kind === 'mixed') return '服务 + 商品'
   if (kind === 'product') return '商品零售'
   if (kind === 'feeding') return '上门喂养'
+  if (kind === 'boarding') return '寄养'
   return '服务订单'
 }
 
@@ -249,21 +276,61 @@ function onFilterConfirm(f: any) {
   loadData()
 }
 
+function buildListParams(page: number) {
+  const params: any = { page, page_size: PAGE_SIZE }
+  if (filter.status >= 0) params.status = filter.status
+  if (keyword.value.trim()) params.keyword = keyword.value.trim()
+  if (filter.dateFrom) params.date_from = filter.dateFrom
+  if (filter.dateTo) params.date_to = filter.dateTo
+  if (filter.staffId > 0) params.staff_id = filter.staffId
+  if (filter.payMethod) params.pay_method = filter.payMethod
+  if (filter.categoryId > 0) params.category_id = filter.categoryId
+  if (filter.productKeyword.trim()) params.product_keyword = filter.productKeyword.trim()
+  if (filter.orderKind) params.order_kind = filter.orderKind
+  if (filter.selfUse) params.self_use = 1
+  return params
+}
+
+function applyPageResult(items: any[], nextTotal: number) {
+  total.value = nextTotal || list.value.length
+  hasMore.value = list.value.length < total.value && items.length > 0
+}
+
 async function loadData() {
+  const requestId = ++latestLoadRequestId
   loading.value = true
+  loadingMore.value = false
+  currentPage.value = 1
   try {
-    const params: any = { page: 1, page_size: 50 }
-    if (filter.status >= 0) params.status = filter.status
-    if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    if (filter.dateFrom) params.date_from = filter.dateFrom
-    if (filter.dateTo) params.date_to = filter.dateTo
-    if (filter.staffId > 0) params.staff_id = filter.staffId
-    if (filter.payMethod) params.pay_method = filter.payMethod
-    if (filter.productKeyword.trim()) params.product_keyword = filter.productKeyword.trim()
-    if (filter.orderKind) params.order_kind = filter.orderKind
-    const res = await getOrderList(params)
-    list.value = res.data.list || []
-  } finally { loading.value = false }
+    const res = await getOrderList(buildListParams(1))
+    if (requestId !== latestLoadRequestId) return
+    const items = res.data.list || []
+    list.value = items
+    applyPageResult(items, res.data.total || 0)
+  } finally {
+    if (requestId === latestLoadRequestId) {
+      loading.value = false
+    }
+  }
+}
+
+async function loadMore() {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  const requestId = latestLoadRequestId
+  const nextPage = currentPage.value + 1
+  loadingMore.value = true
+  try {
+    const res = await getOrderList(buildListParams(nextPage))
+    if (requestId !== latestLoadRequestId) return
+    const items = res.data.list || []
+    currentPage.value = nextPage
+    list.value = [...list.value, ...items]
+    applyPageResult(items, res.data.total || 0)
+  } finally {
+    if (requestId === latestLoadRequestId) {
+      loadingMore.value = false
+    }
+  }
 }
 
 function onSearch() { loadData() }
@@ -281,6 +348,18 @@ function getEditUrl(item: any) {
   return isBatchOrder
     ? `/pages/order/batch-create?appointment_id=${item.appointment_id}&order_id=${item.ID}`
     : `/pages/order/create?order_id=${item.ID}`
+}
+
+function canEditOrder(item: any) {
+  const orderKind = String(item?.order_kind || '')
+  if (orderKind === 'feeding' || orderKind === 'boarding' || Number(item?.feeding_plan_id || 0) > 0) {
+    return false
+  }
+  const status = Number(item?.status || 0)
+  const payStatus = Number(item?.pay_status || 0)
+  if ([2, 3].includes(status)) return false
+  if (payStatus === 0) return true
+  return payStatus === 1 && status === 1 && canManageOpenedOrder.value
 }
 
 function editOrder(item: any) {
@@ -333,7 +412,7 @@ function clearCardLongPress() {
 function openCardActions(item: any) {
   clearCardLongPress()
   suppressCardClickUntil = Date.now() + 800
-  const actions = item.status === 0 ? ['修改订单', '删除订单'] : ['删除订单']
+  const actions = canEditOrder(item) ? ['修改订单', '删除订单'] : ['删除订单']
   uni.showActionSheet({
     itemList: actions,
     success: ({ tapIndex }) => {
@@ -351,7 +430,10 @@ async function loadFilterOptions() {
       getCategoryTree(),
     ])
     staffList.value = (stRes.data?.list || []).filter((s: any) => s.status === 1)
-    categories.value = (catRes.data || []).filter((c: any) => !c.parent_id && c.status === 1)
+    categories.value = (catRes.data || []).filter((c: any) => !c.parent_id && c.status === 1 && !hiddenServiceCategoryNames.has(String(c.name || '').trim()))
+    if (filter.categoryId > 0 && !categories.value.some((c: any) => c.ID === filter.categoryId)) {
+      filter.categoryId = 0
+    }
   } catch {}
 }
 
@@ -363,8 +445,9 @@ onLoad((query) => {
   }
 })
 
-onMounted(() => { loadData(); loadFilterOptions() })
+onMounted(() => { loadFilterOptions() })
 onShow(loadData)
+onReachBottom(loadMore)
 </script>
 
 <style scoped>
@@ -398,8 +481,6 @@ onShow(loadData)
 .tab { font-size: 24rpx; padding: 10rpx 20rpx; border-radius: 20rpx; background: #F3F4F6; color: #6B7280; }
 .tab.active { background: #4F46E5; color: #fff; }
 .tab-sep { width: 1rpx; height: 28rpx; background: #E5E7EB; }
-.tab-feeding { background: #F0FDF4; color: #15803D; border: 1rpx solid #BBF7D0; }
-.tab-feeding.active { background: #15803D; color: #fff; border-color: #15803D; }
 .tab-meituan { background: #FFF7ED; color: #EA580C; border: 1rpx solid #FED7AA; }
 .tab-meituan.active { background: #EA580C; color: #fff; border-color: #EA580C; }
 .loading, .empty { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 16rpx; }
@@ -409,32 +490,31 @@ onShow(loadData)
 .empty-title { font-size: 30rpx; font-weight: 500; color: #4B5563; }
 .empty-desc { font-size: 24rpx; color: #9CA3AF; }
 @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12rpx); } }
-.card { background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
-.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12rpx; gap: 12rpx; }
+.card { background: #fff; border-radius: 16rpx; padding: 18rpx 20rpx; margin-bottom: 12rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04); }
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8rpx; gap: 12rpx; }
 .card-top-right { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
-.order-no { font-size: 24rpx; color: #9CA3AF; }
-.status { font-size: 22rpx; padding: 6rpx 16rpx; border-radius: 16rpx; }
+.status { font-size: 20rpx; padding: 5rpx 14rpx; border-radius: 16rpx; }
 .s0 { background: #FEF3C7; color: #92400E; }
 .s1 { background: #D1FAE5; color: #059669; }
 .s2 { background: #F3F4F6; color: #6B7280; }
 .s3 { background: #FEE2E2; color: #DC2626; }
-.card-action-btn { padding: 8rpx 16rpx; border-radius: 999rpx; font-size: 22rpx; font-weight: 700; }
+.card-action-btn { padding: 6rpx 14rpx; border-radius: 999rpx; font-size: 20rpx; font-weight: 700; }
 .card-action-btn.primary { color: #4F46E5; background: #EEF2FF; }
 .card-action-btn.danger { color: #DC2626; background: #FEF2F2; }
-.card-body { margin-bottom: 12rpx; }
-.customer { font-size: 28rpx; font-weight: 600; color: #1F2937; display: block; }
+.card-body { margin-bottom: 10rpx; }
+.customer { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 600; color: #1F2937; display: block; line-height: 1.35; }
 .customer-pet { font-size: 24rpx; font-weight: 400; color: #6B7280; }
-.order-meta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 4rpx; }
-.order-time { font-size: 22rpx; color: #9CA3AF; display: block; }
-.appointment-date { font-size: 22rpx; color: #4F46E5; background: #EEF2FF; border-radius: 999rpx; padding: 4rpx 12rpx; flex-shrink: 0; }
-.items-summary { font-size: 24rpx; color: #6B7280; display: block; margin-top: 4rpx; }
-.card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12rpx; border-top: 1rpx solid #F3F4F6; }
+.order-meta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 2rpx; }
+.order-time { font-size: 20rpx; color: #9CA3AF; display: block; }
+.appointment-date { font-size: 20rpx; color: #4F46E5; background: #EEF2FF; border-radius: 999rpx; padding: 3rpx 10rpx; flex-shrink: 0; }
+.items-summary { font-size: 22rpx; color: #6B7280; display: block; margin-top: 2rpx; line-height: 1.35; }
+.card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 10rpx; border-top: 1rpx solid #F3F4F6; }
 .footer-left { display: flex; align-items: center; gap: 10rpx; flex-wrap: wrap; }
 .order-kind { font-size: 20rpx; color: #4F46E5; background: #EEF2FF; padding: 4rpx 10rpx; border-radius: 8rpx; }
 .pay-method {
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 700;
-  padding: 6rpx 14rpx;
+  padding: 5rpx 12rpx;
   border-radius: 999rpx;
   border: 1rpx solid transparent;
 }
@@ -496,9 +576,11 @@ onShow(loadData)
   border-color: #CBD5E1;
 }
 .footer-right { display: flex; align-items: center; gap: 16rpx; }
-.card-edit-btn { font-size: 22rpx; color: #4F46E5; padding: 6rpx 16rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
+.card-edit-btn { font-size: 20rpx; color: #4F46E5; padding: 5rpx 14rpx; border: 1rpx solid #C7D2FE; border-radius: 999rpx; background: #EEF2FF; font-weight: 600; }
 .card-edit-btn:active { background: #C7D2FE; }
-.amount { font-size: 36rpx; font-weight: 700; color: #4F46E5; }
+.amount { font-size: 32rpx; font-weight: 700; color: #4F46E5; }
+.load-more { text-align: center; padding: 24rpx 0 36rpx; color: #9CA3AF; font-size: 24rpx; }
+.load-more-done { color: #D1D5DB; }
 
 @media (max-width: 768px) {
   .header {

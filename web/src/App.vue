@@ -116,6 +116,20 @@ uni-page-head {
 .uni-modal__btn:active {
   background: #F3F4F6;
 }
+/* uni.showActionSheet 需要显式压过全局 .uni-mask，否则遮罩会盖住菜单项 */
+.uni-actionsheet__mask {
+  z-index: 5999 !important;
+}
+.uni-actionsheet {
+  z-index: 6001 !important;
+}
+.uni-actionsheet__menu,
+.uni-actionsheet__action,
+.uni-actionsheet__cell {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto !important;
+}
 /* #endif */
 
 button {
@@ -169,6 +183,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea,
 .form-input-sm,
 .form-textarea,
+.notes-textarea,
 .notes-input {
   text-align: left !important;
 }
@@ -188,6 +203,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea::placeholder,
 .form-input-sm::placeholder,
 .form-textarea::placeholder,
+.notes-textarea::placeholder,
 .notes-input::placeholder,
 .search-input::-webkit-input-placeholder,
 .input::-webkit-input-placeholder,
@@ -204,6 +220,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea::-webkit-input-placeholder,
 .form-input-sm::-webkit-input-placeholder,
 .form-textarea::-webkit-input-placeholder,
+.notes-textarea::-webkit-input-placeholder,
 .notes-input::-webkit-input-placeholder {
   text-align: left !important;
 }
@@ -226,6 +243,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea .uni-textarea-textarea,
 .form-input-sm .uni-input-input,
 .form-textarea .uni-textarea-textarea,
+.notes-textarea .uni-textarea-textarea,
 .notes-input .uni-textarea-textarea {
   text-align: left !important;
 }
@@ -245,6 +263,7 @@ textarea::-webkit-input-placeholder {
 .field-textarea .uni-textarea-placeholder,
 .form-input-sm .uni-input-placeholder,
 .form-textarea .uni-textarea-placeholder,
+.notes-textarea .uni-textarea-placeholder,
 .notes-input .uni-textarea-placeholder {
   text-align: left !important;
 }
@@ -378,6 +397,7 @@ textarea::-webkit-input-placeholder {
 
 .field-textarea .uni-textarea-textarea,
 .form-textarea .uni-textarea-textarea,
+.notes-textarea .uni-textarea-textarea,
 .notes-input .uni-textarea-textarea {
   width: 100%;
   min-height: 100%;

@@ -43,6 +43,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { computePinchTransform, getMinCropScale } from '@/utils/image-cropper'
 
 const props = defineProps<{
   src: string
@@ -74,6 +75,8 @@ const cropTop = ref(0)
 // Viewport
 const vpW = ref(375)
 const vpH = ref(500)
+const MAX_SCALE = 6
+const PINCH_SENSITIVITY = 1.18
 
 function initLayout() {
   if (typeof window !== 'undefined') {
@@ -92,10 +95,7 @@ function onImgLoad(e: any) {
 
   initLayout()
 
-  // Scale image to fit: fill the crop frame
-  const scaleW = cropSize.value / natW.value
-  const scaleH = cropSize.value / natH.value
-  scale.value = Math.max(scaleW, scaleH)
+  scale.value = getMinScale()
 
   // Center image on crop frame
   const dispW = natW.value * scale.value
@@ -114,6 +114,12 @@ function resetImageState() {
   lastTouchX = 0
   lastTouchY = 0
   touching = false
+  pinching = false
+  pinchStartScale = 1
+  pinchStartOffsetX = 0
+  pinchStartOffsetY = 0
+  pinchStartCenterX = 0
+  pinchStartCenterY = 0
 }
 
 function revokeGeneratedSrc() {
@@ -184,10 +190,7 @@ function clampOffset() {
 
 // 锁边：缩放不能小于裁剪框
 function clampScale() {
-  const minScaleW = cropSize.value / natW.value
-  const minScaleH = cropSize.value / natH.value
-  const minScale = Math.max(minScaleW, minScaleH)
-  if (scale.value < minScale) scale.value = minScale
+  if (scale.value < getMinScale()) scale.value = getMinScale()
 }
 
 // Touch handling
@@ -195,17 +198,39 @@ let lastTouchDist = 0
 let lastTouchX = 0
 let lastTouchY = 0
 let touching = false
+let pinching = false
+let pinchStartScale = 1
+let pinchStartOffsetX = 0
+let pinchStartOffsetY = 0
+let pinchStartCenterX = 0
+let pinchStartCenterY = 0
+
+function getMinScale() {
+  return getMinCropScale(natW.value, natH.value, cropSize.value)
+}
+
+function beginPinch(touches: TouchList) {
+  lastTouchDist = Math.hypot(
+    touches[1].clientX - touches[0].clientX,
+    touches[1].clientY - touches[0].clientY
+  )
+  pinchStartScale = scale.value
+  pinchStartOffsetX = offsetX.value
+  pinchStartOffsetY = offsetY.value
+  pinchStartCenterX = (touches[0].clientX + touches[1].clientX) / 2
+  pinchStartCenterY = (touches[0].clientY + touches[1].clientY) / 2
+  pinching = true
+  touching = false
+}
 
 function onTouchStart(e: TouchEvent) {
   if (e.touches.length === 1) {
     lastTouchX = e.touches[0].clientX
     lastTouchY = e.touches[0].clientY
     touching = true
+    pinching = false
   } else if (e.touches.length === 2) {
-    lastTouchDist = Math.hypot(
-      e.touches[1].clientX - e.touches[0].clientX,
-      e.touches[1].clientY - e.touches[0].clientY
-    )
+    beginPinch(e.touches)
   }
 }
 
@@ -219,28 +244,50 @@ function onTouchMove(e: TouchEvent) {
     lastTouchY = e.touches[0].clientY
     clampOffset()
   } else if (e.touches.length === 2) {
+    if (!pinching) {
+      beginPinch(e.touches)
+    }
+
     const dist = Math.hypot(
       e.touches[1].clientX - e.touches[0].clientX,
       e.touches[1].clientY - e.touches[0].clientY
     )
-    if (lastTouchDist > 0) {
-      const ratio = dist / lastTouchDist
-      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2
-      const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+    const nextState = computePinchTransform({
+      startScale: pinchStartScale,
+      startOffsetX: pinchStartOffsetX,
+      startOffsetY: pinchStartOffsetY,
+      startDistance: lastTouchDist,
+      currentDistance: dist,
+      startCenterX: pinchStartCenterX,
+      startCenterY: pinchStartCenterY,
+      currentCenterX: centerX,
+      currentCenterY: centerY,
+      minScale: getMinScale(),
+      maxScale: MAX_SCALE,
+      sensitivity: PINCH_SENSITIVITY,
+    })
 
-      const newScale = Math.max(0.2, Math.min(5, scale.value * ratio))
-      offsetX.value = centerX - (centerX - offsetX.value) * (newScale / scale.value)
-      offsetY.value = centerY - (centerY - offsetY.value) * (newScale / scale.value)
-      scale.value = newScale
-      clampScale()
-      clampOffset()
-    }
-    lastTouchDist = dist
+    scale.value = nextState.scale
+    offsetX.value = nextState.offsetX
+    offsetY.value = nextState.offsetY
+    clampScale()
+    clampOffset()
   }
 }
 
-function onTouchEnd() {
+function onTouchEnd(e: TouchEvent) {
+  if (e.touches.length === 1) {
+    pinching = false
+    touching = true
+    lastTouchX = e.touches[0].clientX
+    lastTouchY = e.touches[0].clientY
+    return
+  }
+
   touching = false
+  pinching = false
   lastTouchDist = 0
 }
 
@@ -328,6 +375,7 @@ watch(() => props.visible, (v) => {
 .cropper-img {
   position: absolute; top: 0; left: 0;
   user-select: none; pointer-events: none;
+  image-orientation: from-image;
   filter: drop-shadow(0 18px 42px rgba(0, 0, 0, 0.42));
 }
 .overlay {

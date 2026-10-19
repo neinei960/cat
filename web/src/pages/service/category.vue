@@ -54,6 +54,7 @@ import { ref, reactive } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import SideLayout from '@/components/SideLayout.vue'
 import { getCategoryTree, createCategory, updateCategory, deleteCategory } from '@/api/service-category'
+import { filterServiceManagementCategoryTree } from '@/utils/service-category-visibility'
 
 const loading = ref(false)
 const categories = ref<ServiceCategory[]>([])
@@ -67,7 +68,7 @@ async function loadTree() {
   loading.value = true
   try {
     const res = await getCategoryTree()
-    categories.value = res.data || []
+    categories.value = filterServiceManagementCategoryTree(res.data || [])
     // Auto-expand all
     categories.value.forEach(c => { expanded[c.ID] = true })
   } finally {

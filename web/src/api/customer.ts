@@ -12,7 +12,7 @@ export function createCustomer(data: Partial<Customer>) {
   return request<Customer>({ url: '/b/customers', method: 'POST', data })
 }
 
-export function updateCustomer(id: number, data: Partial<Customer>) {
+export function updateCustomer(id: number, data: Partial<Customer> & { customer_tag_ids?: number[] }) {
   return request<Customer>({ url: `/b/customers/${id}`, method: 'PUT', data })
 }
 

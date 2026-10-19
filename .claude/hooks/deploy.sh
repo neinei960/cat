@@ -88,7 +88,8 @@ deploy_server() {
     chmod +x server
     systemctl start cat
     ok=false
-    for _ in 1 2 3 4 5; do
+    # Database initialization can exceed the previous five-second window.
+    for ((attempt = 1; attempt <= 60; attempt++)); do
       if systemctl is-active --quiet cat && curl -fsS --max-time 3 http://127.0.0.1:8080/api/v1/health >/dev/null; then
         ok=true
         break

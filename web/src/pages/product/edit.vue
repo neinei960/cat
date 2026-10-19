@@ -63,7 +63,7 @@
               type="digit"
               placeholder="0.00"
               class="input input-amount"
-              @input="singleSku.price = $event.detail.value"
+              @input="(e: any) => singleSku.price = e.detail.value"
             />
           </view>
           <view class="col-item">
@@ -73,7 +73,7 @@
               type="digit"
               placeholder="0"
               class="input"
-              @input="singleSku.weight = $event.detail.value"
+              @input="(e: any) => singleSku.weight = e.detail.value"
             />
           </view>
         </view>
@@ -95,7 +95,7 @@
             <text class="sku-name" @click="renameSpecItem(idx)">{{ sku.spec_name || '规格' + (idx + 1) }}</text>
             <view class="sku-sellable-row">
               <text class="sku-sellable-label">可售</text>
-              <switch :checked="sku.sellable" @change="sku.sellable = $event.detail.value" color="#4F46E5" />
+              <switch :checked="sku.sellable" @change="(e: any) => sku.sellable = e.detail.value" color="#4F46E5" />
             </view>
           </view>
           <view class="two-col">
@@ -106,7 +106,7 @@
                 type="digit"
                 placeholder="0.00"
                 class="input input-amount"
-                @input="sku.price = $event.detail.value"
+                @input="(e: any) => sku.price = e.detail.value"
               />
             </view>
             <view class="col-item">
@@ -116,7 +116,7 @@
                 type="digit"
                 placeholder="0"
                 class="input"
-                @input="sku.weight = $event.detail.value"
+                @input="(e: any) => sku.weight = e.detail.value"
               />
             </view>
           </view>
@@ -385,8 +385,30 @@ async function onDelete() {
 .form-item { padding: 24rpx 0; border-bottom: 1rpx solid #F3F4F6; position: relative; }
 .form-item:last-child { border-bottom: none; }
 .label { font-size: 28rpx; color: #374151; display: block; margin-bottom: 12rpx; }
-.input { background: #F9FAFB; border-radius: 8rpx; height: 72rpx; padding: 0 16rpx; font-size: 28rpx; color: #1F2937; }
-.textarea { background: #F9FAFB; border-radius: 8rpx; padding: 16rpx; font-size: 28rpx; color: #1F2937; width: 100%; height: 160rpx; }
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #F9FAFB;
+  border-radius: 8rpx;
+  height: 72rpx;
+  padding: 0 16rpx;
+  font-size: 28rpx;
+  color: #1F2937;
+  text-align: left;
+}
+.input :deep(.uni-input-wrapper) { width: 100%; }
+.input :deep(.uni-input-input),
+.input :deep(.uni-input-placeholder) { text-align: left !important; }
+.textarea {
+  background: #F9FAFB;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  font-size: 28rpx;
+  color: #1F2937;
+  width: 100%;
+  height: 160rpx;
+  box-sizing: border-box;
+}
 .picker { background: #F9FAFB; border-radius: 8rpx; height: 72rpx; line-height: 72rpx; padding: 0 16rpx; font-size: 28rpx; color: #1F2937; }
 .brand-suggestions {
   position: absolute; left: 0; right: 0; top: 100%; z-index: 100;

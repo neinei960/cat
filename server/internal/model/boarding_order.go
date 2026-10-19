@@ -1,12 +1,17 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 const (
 	BoardingOrderStatusPendingCheckin = "pending_checkin"
 	BoardingOrderStatusCheckedIn      = "checked_in"
 	BoardingOrderStatusCheckedOut     = "checked_out"
 	BoardingOrderStatusCancelled      = "cancelled"
+	BoardingOrderStatusMixed          = "mixed"
 )
 
 type BoardingOrder struct {
@@ -22,6 +27,7 @@ type BoardingOrder struct {
 	Nights                 int     `json:"nights" gorm:"default:0"`
 	BaseAmount             float64 `json:"base_amount" gorm:"type:decimal(10,2);default:0"`
 	HolidaySurchargeAmount float64 `json:"holiday_surcharge_amount" gorm:"type:decimal(10,2);default:0"`
+	SpecialItemAmount      float64 `json:"special_item_amount" gorm:"type:decimal(10,2);default:0"`
 	DiscountAmount         float64 `json:"discount_amount" gorm:"type:decimal(10,2);default:0"`
 	ManualDiscountAmount   float64 `json:"manual_discount_amount" gorm:"type:decimal(10,2);default:0"`
 	PayAmount              float64 `json:"pay_amount" gorm:"type:decimal(10,2);default:0"`
@@ -31,20 +37,60 @@ type BoardingOrder struct {
 	PolicySnapshotJSON     string  `json:"policy_snapshot_json" gorm:"type:text"`
 	PriceSnapshotJSON      string  `json:"price_snapshot_json" gorm:"type:text"`
 
-	Order    *Order             `json:"order,omitempty" gorm:"foreignKey:OrderID"`
-	Customer *Customer          `json:"customer,omitempty" gorm:"foreignKey:CustomerID"`
-	Staff    *Staff             `json:"staff,omitempty" gorm:"foreignKey:StaffID"`
-	Cabinet  *BoardingCabinet   `json:"cabinet,omitempty" gorm:"foreignKey:CabinetID"`
-	Pets     []BoardingOrderPet `json:"pets,omitempty" gorm:"foreignKey:BoardingOrderID"`
-	Logs     []BoardingOrderLog `json:"logs,omitempty" gorm:"foreignKey:BoardingOrderID"`
+	Order    *Order              `json:"order,omitempty" gorm:"foreignKey:OrderID"`
+	Customer *Customer           `json:"customer,omitempty" gorm:"foreignKey:CustomerID"`
+	Staff    *Staff              `json:"staff,omitempty" gorm:"foreignKey:StaffID"`
+	Cabinet  *BoardingCabinet    `json:"cabinet,omitempty" gorm:"foreignKey:CabinetID"`
+	Rooms    []BoardingOrderRoom `json:"rooms,omitempty" gorm:"foreignKey:BoardingOrderID"`
+	Pets     []BoardingOrderPet  `json:"pets,omitempty" gorm:"foreignKey:BoardingOrderID"`
+	Logs     []BoardingOrderLog  `json:"logs,omitempty" gorm:"foreignKey:BoardingOrderID"`
+
+	PaymentLogs []BoardingPaymentLog `json:"payment_logs,omitempty" gorm:"-"`
+	RoomIndex   int                  `json:"room_index,omitempty" gorm:"-"`
+}
+
+type BoardingPaymentLog struct {
+	OrderID   uint       `json:"order_id"`
+	OrderNo   string     `json:"order_no"`
+	PayAmount float64    `json:"pay_amount"`
+	PayMethod string     `json:"pay_method"`
+	PayTime   *time.Time `json:"pay_time"`
+}
+
+type BoardingOrderRoom struct {
+	gorm.Model
+	BoardingOrderID        uint    `json:"boarding_order_id" gorm:"not null;index"`
+	CabinetID              uint    `json:"cabinet_id" gorm:"not null;index"`
+	SpecialItemID          *uint   `json:"special_item_id" gorm:"index"`
+	SpecialItemName        string  `json:"special_item_name" gorm:"size:100"`
+	SpecialItemDailyPrice  float64 `json:"special_item_daily_price" gorm:"type:decimal(10,2);default:0"`
+	SpecialItemDays        int     `json:"special_item_days" gorm:"default:0"`
+	SpecialItemAmount      float64 `json:"special_item_amount" gorm:"type:decimal(10,2);default:0"`
+	RoomIndex              int     `json:"room_index" gorm:"default:1"`
+	CheckInAt              string  `json:"check_in_at" gorm:"size:10;not null;index"`
+	CheckOutAt             string  `json:"check_out_at" gorm:"size:10;not null;index"`
+	ActualCheckOutAt       string  `json:"actual_check_out_at" gorm:"size:10"`
+	Nights                 int     `json:"nights" gorm:"default:0"`
+	BaseAmount             float64 `json:"base_amount" gorm:"type:decimal(10,2);default:0"`
+	HolidaySurchargeAmount float64 `json:"holiday_surcharge_amount" gorm:"type:decimal(10,2);default:0"`
+	DiscountAmount         float64 `json:"discount_amount" gorm:"type:decimal(10,2);default:0"`
+	ManualDiscountAmount   float64 `json:"manual_discount_amount" gorm:"type:decimal(10,2);default:0"`
+	PayAmount              float64 `json:"pay_amount" gorm:"type:decimal(10,2);default:0"`
+	Status                 string  `json:"status" gorm:"size:30;default:pending_checkin;index"`
+	PolicySnapshotJSON     string  `json:"policy_snapshot_json" gorm:"type:text"`
+	PriceSnapshotJSON      string  `json:"price_snapshot_json" gorm:"type:text"`
+
+	Cabinet *BoardingCabinet   `json:"cabinet,omitempty" gorm:"foreignKey:CabinetID"`
+	Pets    []BoardingOrderPet `json:"pets,omitempty" gorm:"foreignKey:BoardingOrderRoomID"`
 }
 
 type BoardingOrderPet struct {
 	gorm.Model
-	BoardingOrderID uint   `json:"boarding_order_id" gorm:"not null;index"`
-	PetID           uint   `json:"pet_id" gorm:"not null;index"`
-	PetNameSnapshot string `json:"pet_name_snapshot" gorm:"size:100"`
-	Remark          string `json:"remark" gorm:"size:500"`
+	BoardingOrderID     uint   `json:"boarding_order_id" gorm:"not null;index"`
+	BoardingOrderRoomID *uint  `json:"boarding_order_room_id" gorm:"index"`
+	PetID               uint   `json:"pet_id" gorm:"not null;index"`
+	PetNameSnapshot     string `json:"pet_name_snapshot" gorm:"size:100"`
+	Remark              string `json:"remark" gorm:"size:500"`
 
 	Pet *Pet `json:"pet,omitempty" gorm:"foreignKey:PetID"`
 }

@@ -2,12 +2,14 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
+	"github.com/neinei960/cat/server/internal/service"
 	"github.com/neinei960/cat/server/pkg/database"
 	"github.com/neinei960/cat/server/pkg/response"
 	"gorm.io/gorm"
@@ -179,7 +181,7 @@ func (h *MemberCardHandler) UpdateTemplate(c *gin.Context) {
 	}
 
 	if err := tx.Model(&model.MemberCard{}).
-		Where("template_id = ? AND status = 1", tpl.ID).
+		Where("template_id = ? AND status = ?", tpl.ID, model.MemberCardStatusActive).
 		Updates(map[string]interface{}{
 			"discount_rate":         tpl.DiscountRate,
 			"product_discount_rate": tpl.ProductDiscountRate,
@@ -191,7 +193,7 @@ func (h *MemberCardHandler) UpdateTemplate(c *gin.Context) {
 
 	activeCardIDs := tx.Model(&model.MemberCard{}).
 		Select("id").
-		Where("template_id = ? AND status = 1", tpl.ID)
+		Where("template_id = ? AND status = ?", tpl.ID, model.MemberCardStatusActive)
 	if err := tx.Model(&model.Customer{}).
 		Where("member_card_id IN (?)", activeCardIDs).
 		Update("discount_rate", tpl.DiscountRate).Error; err != nil {
@@ -208,7 +210,7 @@ func (h *MemberCardHandler) DeleteTemplate(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	// Check if any active cards use this template
 	var count int64
-	database.DB.Model(&model.MemberCard{}).Where("template_id = ? AND status = 1", id).Count(&count)
+	database.DB.Model(&model.MemberCard{}).Where("template_id = ? AND status = ?", id, model.MemberCardStatusActive).Count(&count)
 	if count > 0 {
 		response.Error(c, http.StatusBadRequest, "有会员正在使用此卡，无法删除")
 		return
@@ -245,7 +247,7 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 
 	// Check no existing card
 	var existingCount int64
-	database.DB.Model(&model.MemberCard{}).Where("customer_id = ? AND status = 1", customerID).Count(&existingCount)
+	database.DB.Model(&model.MemberCard{}).Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).Count(&existingCount)
 	if existingCount > 0 {
 		response.Error(c, http.StatusBadRequest, "该客户已有会员卡")
 		return
@@ -291,7 +293,7 @@ func (h *MemberCardHandler) OpenCard(c *gin.Context) {
 		TotalTimes:          tpl.TotalTimes,
 		UsedTimes:           0,
 		ExpireAt:            expireAt,
-		Status:              1,
+		Status:              model.MemberCardStatusActive,
 	}
 	if err := tx.Create(card).Error; err != nil {
 		tx.Rollback()
@@ -341,7 +343,7 @@ func (h *MemberCardHandler) Recharge(c *gin.Context) {
 	}
 
 	var card model.MemberCard
-	if err := database.DB.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
+	if err := database.DB.Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).First(&card).Error; err != nil {
 		response.Error(c, http.StatusNotFound, "该客户没有会员卡")
 		return
 	}
@@ -375,7 +377,7 @@ func (h *MemberCardHandler) Recharge(c *gin.Context) {
 func (h *MemberCardHandler) GetCard(c *gin.Context) {
 	customerID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var card model.MemberCard
-	if err := database.DB.Preload("Template").Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
+	if err := database.DB.Preload("Template").Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).First(&card).Error; err != nil {
 		response.Success(c, nil) // No card, not an error
 		return
 	}
@@ -413,7 +415,7 @@ func (h *MemberCardHandler) AdjustBalance(c *gin.Context) {
 	}
 
 	var card model.MemberCard
-	if err := database.DB.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
+	if err := database.DB.Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).First(&card).Error; err != nil {
 		response.Error(c, http.StatusNotFound, "该客户没有会员卡")
 		return
 	}
@@ -451,36 +453,383 @@ func (h *MemberCardHandler) AdjustBalance(c *gin.Context) {
 	response.Success(c, card)
 }
 
+// ========== Disable/Delete Card (manager/admin only) ==========
+
+func findActiveMemberCard(tx *gorm.DB, shopID uint, customerID uint) (model.MemberCard, error) {
+	var card model.MemberCard
+	err := tx.Where("shop_id = ? AND customer_id = ? AND status = ?", shopID, customerID, model.MemberCardStatusActive).First(&card).Error
+	return card, err
+}
+
+func hasMemberCardHistory(tx *gorm.DB, shopID uint, customerID uint, cardID uint) (bool, error) {
+	var recordCount int64
+	if err := tx.Model(&model.RechargeRecord{}).Where("shop_id = ? AND card_id = ?", shopID, cardID).Count(&recordCount).Error; err != nil {
+		return false, err
+	}
+	if recordCount > 0 {
+		return true, nil
+	}
+
+	var orderCount int64
+	err := tx.Model(&model.Order{}).
+		Where("shop_id = ? AND customer_id = ? AND (member_balance_used > 0 OR pay_method IN ?)", shopID, customerID, []string{"balance", "mixed_balance"}).
+		Count(&orderCount).Error
+	if err != nil {
+		return false, err
+	}
+	return orderCount > 0, nil
+}
+
+func clearCustomerMemberCard(tx *gorm.DB, shopID uint, customerID uint) error {
+	return tx.Model(&model.Customer{}).
+		Where("id = ? AND shop_id = ?", customerID, shopID).
+		Updates(map[string]interface{}{
+			"member_card_id": nil,
+			"member_balance": 0,
+			"discount_rate":  1,
+		}).Error
+}
+
+func (h *MemberCardHandler) DisableCard(c *gin.Context) {
+	customerID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	customerID := uint(customerID64)
+	shopID := c.GetUint("shop_id")
+
+	card, err := findActiveMemberCard(database.DB, shopID, customerID)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "该客户没有会员卡")
+		return
+	}
+	if roundMemberCardMoney(card.Balance) > 0 {
+		response.Error(c, http.StatusBadRequest, "会员卡还有余额，请先退款或调整余额后再作废")
+		return
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.MemberCard{}).
+			Where("id = ? AND shop_id = ? AND status = ? AND balance <= 0", card.ID, shopID, model.MemberCardStatusActive).
+			Update("status", model.MemberCardStatusDisabled)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("会员卡状态或余额已变化，请刷新重试")
+		}
+		if err := clearCustomerMemberCard(tx, shopID, customerID); err != nil {
+			return err
+		}
+		return service.RepricePendingOrdersAfterCardDisabled(tx, shopID, customerID)
+	}); err != nil {
+		response.Error(c, http.StatusInternalServerError, "作废失败")
+		return
+	}
+
+	response.Success(c, gin.H{"id": card.ID, "status": model.MemberCardStatusDisabled})
+}
+
+func (h *MemberCardHandler) DeleteCard(c *gin.Context) {
+	customerID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	customerID := uint(customerID64)
+	shopID := c.GetUint("shop_id")
+
+	card, err := findActiveMemberCard(database.DB, shopID, customerID)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "该客户没有会员卡")
+		return
+	}
+	if roundMemberCardMoney(card.Balance) > 0 {
+		response.Error(c, http.StatusBadRequest, "会员卡还有余额，请先退款或调整余额后再删除")
+		return
+	}
+	hasHistory, err := hasMemberCardHistory(database.DB, shopID, customerID, card.ID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "校验会员卡记录失败")
+		return
+	}
+	if hasHistory {
+		response.Error(c, http.StatusBadRequest, "该会员卡已有充值或消费记录，只能作废")
+		return
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := clearCustomerMemberCard(tx, shopID, customerID); err != nil {
+			return err
+		}
+		return tx.Unscoped().Where("id = ? AND shop_id = ?", card.ID, shopID).Delete(&model.MemberCard{}).Error
+	}); err != nil {
+		response.Error(c, http.StatusInternalServerError, "删除失败")
+		return
+	}
+
+	response.Success(c, nil)
+}
+
 // BalancePayment deducts from member card balance for order payment
 func BalancePayment(shopID, customerID, orderID uint, amount float64, staffID uint) error {
-	var card model.MemberCard
-	if err := database.DB.Where("customer_id = ? AND status = 1", customerID).First(&card).Error; err != nil {
-		return fmt.Errorf("该客户没有会员卡")
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		var order model.Order
+		if err := tx.Where("id = ? AND shop_id = ?", orderID, shopID).First(&order).Error; err != nil {
+			return fmt.Errorf("订单不存在")
+		}
+		if order.PayStatus == 1 {
+			return fmt.Errorf("订单已支付")
+		}
+
+		var card model.MemberCard
+		if err := tx.Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).First(&card).Error; err != nil {
+			return fmt.Errorf("该客户没有会员卡")
+		}
+
+		var customer model.Customer
+		_ = tx.Select("id", "discount_rate").First(&customer, customerID).Error
+		breakdown := calculateMemberBalanceBreakdown(order, card, customer.DiscountRate, !isMemberServiceDiscountExcludedOrder(tx, order))
+		amount = breakdown.FinalPayAmount
+		order.TotalAmount = breakdown.TotalAmount
+		order.ServiceDiscountAmount = breakdown.ServiceDiscountAmount
+		order.ProductDiscountAmount = breakdown.ProductDiscountAmount
+		order.DiscountAmount = breakdown.DiscountAmount
+		order.DiscountRate = breakdown.DiscountRate
+		order.PayAmount = breakdown.FinalPayAmount
+		amount = roundMemberCardMoney(amount)
+
+		if card.Balance < amount {
+			return fmt.Errorf("会员余额不足（余额:%.2f 需付:%.2f）", card.Balance, amount)
+		}
+
+		balanceBefore := card.Balance
+		card.Balance = math.Round((card.Balance-amount)*100) / 100
+		card.TotalSpent = math.Round((card.TotalSpent+amount)*100) / 100
+		if err := tx.Save(&card).Error; err != nil {
+			return err
+		}
+
+		record := &model.RechargeRecord{
+			ShopID:       shopID,
+			CustomerID:   customerID,
+			CardID:       card.ID,
+			Type:         2,
+			Amount:       amount,
+			BalanceAfter: card.Balance,
+			OrderID:      &orderID,
+			Remark:       "订单消费",
+			OperatorID:   &staffID,
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance).Error; err != nil {
+			return err
+		}
+
+		return tx.Model(&model.Order{}).Where("id = ? AND shop_id = ?", orderID, shopID).Updates(map[string]any{
+			"total_amount":            order.TotalAmount,
+			"service_discount_amount": order.ServiceDiscountAmount,
+			"product_discount_amount": order.ProductDiscountAmount,
+			"discount_amount":         order.DiscountAmount,
+			"discount_rate":           order.DiscountRate,
+			"pay_amount":              order.PayAmount,
+			"member_balance_used":     amount,
+			"member_balance_before":   balanceBefore,
+			"member_balance_after":    card.Balance,
+			"commission":              calculateMemberPaymentCommission(tx, order, order.ServiceDiscountAmount, order.ProductDiscountAmount),
+		}).Error
+	})
+}
+
+type MixedBalancePaymentResult struct {
+	BalanceUsed    float64
+	CashPayAmount  float64
+	FinalPayAmount float64
+}
+
+func MixedBalancePayment(shopID, customerID, orderID uint, cashPayMethod string, staffID uint) (*MixedBalancePaymentResult, error) {
+	cashPayMethod = normalizeMixedCashPayMethod(cashPayMethod)
+	if cashPayMethod == "" {
+		return nil, fmt.Errorf("请选择补差收款方式")
 	}
 
-	if card.Balance < amount {
-		return fmt.Errorf("会员余额不足（余额:%.2f 需付:%.2f）", card.Balance, amount)
+	var result MixedBalancePaymentResult
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var order model.Order
+		if err := tx.Where("id = ? AND shop_id = ?", orderID, shopID).First(&order).Error; err != nil {
+			return fmt.Errorf("订单不存在")
+		}
+		if order.PayStatus == 1 {
+			return fmt.Errorf("订单已支付")
+		}
+
+		var card model.MemberCard
+		if err := tx.Where("customer_id = ? AND status = ?", customerID, model.MemberCardStatusActive).First(&card).Error; err != nil {
+			return fmt.Errorf("该客户没有会员卡")
+		}
+		if card.Balance <= 0 {
+			return fmt.Errorf("会员余额不足")
+		}
+		var customer model.Customer
+		_ = tx.Select("id", "discount_rate").First(&customer, customerID).Error
+		breakdown := calculateMemberBalanceBreakdown(order, card, customer.DiscountRate, !isMemberServiceDiscountExcludedOrder(tx, order))
+		if card.Balance >= breakdown.FinalPayAmount {
+			return fmt.Errorf("会员余额足够支付，请使用会员余额全额支付")
+		}
+		if breakdown.BalanceUsed <= 0 || breakdown.CashPayAmount <= 0 {
+			return fmt.Errorf("无需补差支付")
+		}
+
+		balanceBefore := card.Balance
+		card.Balance = math.Round((card.Balance-breakdown.BalanceUsed)*100) / 100
+		card.TotalSpent = math.Round((card.TotalSpent+breakdown.BalanceUsed)*100) / 100
+		if err := tx.Save(&card).Error; err != nil {
+			return err
+		}
+
+		record := &model.RechargeRecord{
+			ShopID:       shopID,
+			CustomerID:   customerID,
+			CardID:       card.ID,
+			Type:         2,
+			Amount:       breakdown.BalanceUsed,
+			BalanceAfter: card.Balance,
+			OrderID:      &orderID,
+			Remark:       "订单消费-余额补差",
+			OperatorID:   &staffID,
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&model.Order{}).Where("id = ? AND shop_id = ?", orderID, shopID).Updates(map[string]any{
+			"total_amount":            breakdown.TotalAmount,
+			"service_discount_amount": breakdown.ServiceDiscountAmount,
+			"product_discount_amount": breakdown.ProductDiscountAmount,
+			"discount_amount":         breakdown.DiscountAmount,
+			"discount_rate":           breakdown.DiscountRate,
+			"commission":              calculateMemberPaymentCommission(tx, order, breakdown.ServiceDiscountAmount, breakdown.ProductDiscountAmount),
+			"pay_amount":              breakdown.FinalPayAmount,
+			"pay_method":              "mixed_balance",
+			"cash_pay_method":         cashPayMethod,
+			"cash_pay_amount":         breakdown.CashPayAmount,
+			"member_balance_used":     breakdown.BalanceUsed,
+			"member_balance_before":   balanceBefore,
+			"member_balance_after":    card.Balance,
+		}).Error; err != nil {
+			return err
+		}
+
+		result = MixedBalancePaymentResult{
+			BalanceUsed:    breakdown.BalanceUsed,
+			CashPayAmount:  breakdown.CashPayAmount,
+			FinalPayAmount: breakdown.FinalPayAmount,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func calculateMemberPaymentCommission(tx *gorm.DB, order model.Order, serviceDiscountAmount, productDiscountAmount float64) float64 {
+	if order.StaffID == nil || *order.StaffID == 0 {
+		return 0
+	}
+	if isBoardingPayOrder(tx, order.ID) {
+		return 0
 	}
 
-	card.Balance -= amount
-	card.TotalSpent += amount
-	database.DB.Save(&card)
-
-	record := &model.RechargeRecord{
-		ShopID:       shopID,
-		CustomerID:   customerID,
-		CardID:       card.ID,
-		Type:         2,
-		Amount:       amount,
-		BalanceAfter: card.Balance,
-		OrderID:      &orderID,
-		Remark:       "订单消费",
-		OperatorID:   &staffID,
+	serviceBase := roundMemberCardMoney(math.Max(order.ServiceTotal-serviceDiscountAmount, 0))
+	productBase := roundMemberCardMoney(math.Max(order.ProductTotal-productDiscountAmount, 0))
+	var items []model.OrderItem
+	if err := tx.Where("order_id = ? AND deleted_at IS NULL", order.ID).Order("id ASC").Find(&items).Error; err != nil {
+		return 0
 	}
-	database.DB.Create(record)
+	return service.CalculateOrderCommission(tx, order.StaffID, items, serviceBase, productBase)
+}
 
-	database.DB.Model(&model.Customer{}).Where("id = ?", customerID).Update("member_balance", card.Balance)
-	return nil
+func isBoardingPayOrder(tx *gorm.DB, orderID uint) bool {
+	if orderID == 0 {
+		return false
+	}
+	var count int64
+	if err := tx.Model(&model.OrderItem{}).
+		Where("order_id = ? AND item_type IN ? AND deleted_at IS NULL", orderID, []int{4, 5}).
+		Count(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
+}
+
+func isMemberServiceDiscountExcludedOrder(tx *gorm.DB, order model.Order) bool {
+	if order.FeedingPlanID != nil && *order.FeedingPlanID > 0 {
+		return true
+	}
+	return isBoardingPayOrder(tx, order.ID)
+}
+
+type mixedBalanceBreakdown struct {
+	TotalAmount           float64
+	ServiceDiscountAmount float64
+	ProductDiscountAmount float64
+	DiscountAmount        float64
+	DiscountRate          float64
+	BalanceUsed           float64
+	CashPayAmount         float64
+	FinalPayAmount        float64
+}
+
+func calculateMixedBalanceBreakdown(order model.Order, card model.MemberCard, customerDiscountRate float64) mixedBalanceBreakdown {
+	return calculateMemberBalanceBreakdown(order, card, customerDiscountRate, true)
+}
+
+func calculateMemberBalanceBreakdown(order model.Order, card model.MemberCard, customerDiscountRate float64, serviceDiscountEligible bool) mixedBalanceBreakdown {
+	serviceTotal := roundMemberCardMoney(order.ServiceTotal)
+	productTotal := roundMemberCardMoney(order.ProductTotal)
+	addonTotal := roundMemberCardMoney(order.AddonTotal)
+	if serviceTotal == 0 && productTotal == 0 && addonTotal == 0 {
+		serviceTotal = roundMemberCardMoney(order.TotalAmount)
+	}
+
+	serviceRate := card.DiscountRate
+	if customerDiscountRate > 0 && customerDiscountRate < 1 {
+		serviceRate = customerDiscountRate
+	}
+	pricing := service.CalculateMemberPricing(service.MemberPricingInput{
+		ServiceTotal:                      serviceTotal,
+		ProductTotal:                      productTotal,
+		AddonTotal:                        addonTotal,
+		AppointmentDepositDeductionAmount: order.AppointmentDepositDeductionAmount,
+		ServiceDiscountRate:               serviceRate,
+		ProductDiscountRate:               card.ProductDiscountRate,
+		AvailableBalance:                  card.Balance,
+		ServiceDiscountEligible:           serviceDiscountEligible,
+	})
+
+	return mixedBalanceBreakdown{
+		TotalAmount:           pricing.TotalAmount,
+		ServiceDiscountAmount: pricing.ServiceDiscountAmount,
+		ProductDiscountAmount: pricing.ProductDiscountAmount,
+		DiscountAmount:        pricing.DiscountAmount,
+		DiscountRate:          pricing.DiscountRate,
+		BalanceUsed:           pricing.BalanceUsed,
+		CashPayAmount:         pricing.CashPayAmount,
+		FinalPayAmount:        pricing.FinalPayAmount,
+	}
+}
+
+func roundMemberCardMoney(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func normalizeMixedCashPayMethod(method string) string {
+	switch method {
+	case "qrcode", "wechat", "meituan", "other", "cash", "alipay":
+		return method
+	default:
+		return ""
+	}
 }
 
 // ========== Edit Recharge Record (admin only) ==========

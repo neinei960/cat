@@ -132,12 +132,23 @@ export function parsePetTemplate(text: string): ParsedPetInfo {
 
   const sectionHeaders = ['基本信息', '健康情况', '性格小秘密']
   const normalizeFieldLabel = (value: string) => value.replace(/^[^\u4e00-\u9fa5A-Za-z0-9]+/, '').trim()
-  const normalizeDateValue = (value: string) => value
-    .replace(/[年./]/g, '-')
-    .replace(/月/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .trim()
+  const normalizeDateValue = (value: string) => {
+    const normalized = value
+      .replace(/[年./]/g, '-')
+      .replace(/月/g, '-')
+      .replace(/日/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .trim()
+    if (!normalized) return ''
+    const parts = normalized.split('-').map((part) => part.trim()).filter(Boolean)
+    if (parts.length < 2 || parts.length > 3) return normalized
+    const [year, month, day] = parts
+    const paddedMonth = /^\d+$/.test(month) ? month.padStart(2, '0') : month
+    if (!day) return `${year}-${paddedMonth}`
+    const paddedDay = /^\d+$/.test(day) ? day.padStart(2, '0') : day
+    return `${year}-${paddedMonth}-${paddedDay}`
+  }
   const normalizeBooleanValue = (value: string) => value.trim()
   const fieldMap = {
     ...COMMON_TEMPLATE_FIELD_MAP,

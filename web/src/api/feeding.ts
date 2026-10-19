@@ -24,6 +24,7 @@ export function createFeedingPlan(data: {
   pets: Array<{ pet_id: number; remark?: string }>
   rules: Array<{ weekday: number; window_code: string; visit_count: number }>
   item_codes: string[]
+  deposit?: number
 }) {
   return request<FeedingPlan>({ url: '/b/feeding/plans', method: 'POST', data })
 }
@@ -40,6 +41,7 @@ export function updateFeedingPlan(id: number, data: {
   pets: Array<{ pet_id: number; remark?: string }>
   rules: Array<{ weekday: number; window_code: string; visit_count: number }>
   item_codes: string[]
+  deposit?: number
 }) {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}`, method: 'PUT', data })
 }
@@ -50,6 +52,10 @@ export function getFeedingPlans(params?: PageParams & { status?: string; custome
 
 export function getFeedingPlan(id: number) {
   return request<FeedingPlan>({ url: `/b/feeding/plans/${id}` })
+}
+
+export function deleteFeedingPlan(id: number) {
+  return request({ url: `/b/feeding/plans/${id}`, method: 'DELETE' })
 }
 
 export function updateFeedingDeposit(id: number, deposit: number) {

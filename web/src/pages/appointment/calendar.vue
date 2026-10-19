@@ -70,7 +70,6 @@
           <view :class="['p-tab', pendingFilter.status === -1 ? 'active' : '']" @click="pendingFilter.status = -1; loadPending()">全部</view>
           <view :class="['p-tab', pendingFilter.status === 0 ? 'active' : '']" @click="pendingFilter.status = 0; loadPending()">待确认</view>
           <view :class="['p-tab', pendingFilter.status === 1 ? 'active' : '']" @click="pendingFilter.status = 1; loadPending()">已确认</view>
-          <view :class="['p-tab', pendingFilter.status === 2 ? 'active' : '']" @click="pendingFilter.status = 2; loadPending()">服务中</view>
           <view :class="['p-tab', pendingFilter.status === 3 ? 'active' : '']" @click="pendingFilter.status = 3; loadPending()">待结算</view>
           <view :class="['p-tab', pendingFilter.status === 7 ? 'active' : '']" @click="pendingFilter.status = 7; loadPending()">已开单</view>
         </view>
@@ -127,6 +126,10 @@
       </view>
     </view>
 
+    <view v-if="calendarLoading" class="calendar-loading">
+      正在加载 {{ formatDateDisplay(loadingDate || currentDate) }} 的预约...
+    </view>
+
     <!-- Stats bar -->
     <view class="stats-bar" v-if="appointments.length > 0">
       <text class="stats-text">共 {{ appointments.length }} 个预约</text>
@@ -159,10 +162,18 @@
                 <text class="appt-new-tag-lg" v-if="index === 0 && isNewCustomer(appt)">新客</text>
               </view>
               <text class="appt-pet-detail">{{ petInfo.meta }}</text>
-              <view class="appt-tag-row" v-if="petInfo.tags.length > 0">
+              <view class="appt-tag-row" v-if="petInfo.petTags.length > 0">
                 <text
-                  v-for="tag in petInfo.tags"
-                  :key="`${appt.ID}-${petInfo.id}-${tag.text}`"
+                  v-for="tag in petInfo.petTags"
+                  :key="`${appt.ID}-${petInfo.id}-pet-${tag.text}`"
+                  :class="['appt-tag', tag.className]"
+                  :style="tag.style"
+                >{{ tag.text }}</text>
+              </view>
+              <view class="appt-tag-row appt-owner-tag-row" v-if="petInfo.ownerTags.length > 0">
+                <text
+                  v-for="tag in petInfo.ownerTags"
+                  :key="`${appt.ID}-${petInfo.id}-owner-${tag.text}`"
                   :class="['appt-tag', tag.className]"
                   :style="tag.style"
                 >{{ tag.text }}</text>
@@ -180,7 +191,7 @@
 
     <!-- Staff calendar grid -->
     <scroll-view scroll-x class="calendar-scroll" v-if="staffList.length > 0">
-      <view class="calendar-grid" :style="{ width: gridWidth }">
+      <view class="calendar-grid" :style="calendarGridStyle">
         <!-- Header row: staff names -->
         <view class="grid-header">
           <view class="time-col header-cell">时间</view>
@@ -189,9 +200,8 @@
               'staff-col',
               'header-cell',
               'staff-header-cell',
-              canReorderStaff ? 'reorderable' : '',
+              'reorderable',
               draggingStaffId === staff.ID ? 'dragging' : '',
-              savingStaffOrder ? 'saving' : '',
             ]"
             v-for="(staff, index) in staffList"
             :key="staff.ID"
@@ -201,12 +211,12 @@
           >
             <view class="staff-name-row">
               <text
-                :class="['staff-move-arrow', index === 0 || savingStaffOrder ? 'disabled' : '']"
+                :class="['staff-move-arrow', index === 0 ? 'disabled' : '']"
                 @click.stop="moveStaffByArrow(index, -1)"
               >‹</text>
               <text class="staff-name">{{ staff.name }}</text>
               <text
-                :class="['staff-move-arrow', index === staffList.length - 1 || savingStaffOrder ? 'disabled' : '']"
+                :class="['staff-move-arrow', index === staffList.length - 1 ? 'disabled' : '']"
                 @click.stop="moveStaffByArrow(index, 1)"
               >›</text>
             </view>
@@ -244,10 +254,18 @@
                   >
                     <text class="appt-pet">{{ petInfo.name }} <text class="appt-new-tag" v-if="index === 0 && isNewCustomer(appt)">新客</text></text>
                     <text class="appt-pet-info">{{ petInfo.meta }}</text>
-                    <view class="appt-tag-row compact" v-if="petInfo.tags.length > 0">
+                    <view class="appt-tag-row compact" v-if="petInfo.petTags.length > 0">
                       <text
-                        v-for="tag in petInfo.tags"
-                        :key="`${appt.ID}-grid-${petInfo.id}-${tag.text}`"
+                        v-for="tag in petInfo.petTags"
+                        :key="`${appt.ID}-grid-${petInfo.id}-pet-${tag.text}`"
+                        :class="['appt-tag', 'compact', tag.className]"
+                        :style="tag.style"
+                      >{{ tag.text }}</text>
+                    </view>
+                    <view class="appt-tag-row appt-owner-tag-row compact" v-if="petInfo.ownerTags.length > 0">
+                      <text
+                        v-for="tag in petInfo.ownerTags"
+                        :key="`${appt.ID}-grid-${petInfo.id}-owner-${tag.text}`"
                         :class="['appt-tag', 'compact', tag.className]"
                         :style="tag.style"
                       >{{ tag.text }}</text>
@@ -296,15 +314,13 @@ import CalendarPicker from '@/components/CalendarPicker.vue'
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import FilterPanel from '@/components/FilterPanel.vue'
-import { deleteAppointment, getAppointmentCalendar, getAppointmentCalendarSummary, getAppointmentList, setAppointmentCalendarMark } from '@/api/appointment'
+import { deleteAppointment, getAppointmentCalendar, getAppointmentCalendarResources, getAppointmentCalendarSummary, getAppointmentList, setAppointmentCalendarMark } from '@/api/appointment'
 import { getDashboardOverview } from '@/api/dashboard'
-import { getStaffList, getStaffSchedule, updateStaffOrder } from '@/api/staff'
+import { getStaffList } from '@/api/staff'
 import { getCategoryTree } from '@/api/service-category'
 import { getShop } from '@/api/shop'
 import { getPersonalityBg, getPersonalityColor } from '@/utils/personality'
-import { compareStaffRole, hasStaffRoleAtLeast } from '@/utils/staff-role'
 import { useDesktopInteraction } from '@/utils/interaction'
-import { useAuthStore } from '@/store/auth'
 import {
   getAppointmentStatusMeta,
   APPOINTMENT_STATUS_META,
@@ -312,6 +328,7 @@ import {
   getAppointmentStatusBlockStyle,
   getAppointmentStatusLabel,
 } from '@/utils/appointment-status'
+import { sanitizeAppointmentNotes } from '@/utils/appointment-notes'
 
 function localDateStr(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -326,13 +343,14 @@ function offsetDateStr(offsetDays: number): string {
 const currentDate = ref(localDateStr())
 const staffList = ref<Staff[]>([])
 const appointments = ref<any[]>([])
+const calendarLoading = ref(false)
+const loadingDate = ref('')
 const { isDesktopInteraction } = useDesktopInteraction()
-const authStore = useAuthStore()
-const canReorderStaff = computed(() => hasStaffRoleAtLeast(authStore.staffInfo?.role, 'manager'))
 const draggingStaffId = ref<number | null>(null)
-const savingStaffOrder = ref(false)
 let staffDragMoved = false
-let staffDragSnapshot: Staff[] = []
+let latestCalendarLoadId = 0
+const staffOrderCachePrefix = 'appointment_calendar_staff_order:'
+const staffOrderExpireMs = 24 * 60 * 60 * 1000
 
 // 待处理面板
 const showPendingPanel = ref(false)
@@ -348,12 +366,11 @@ const pendingConfirmDelete = ref(false)
 let pendingLongPressTimer: ReturnType<typeof setTimeout> | null = null
 let pendingLongPressTriggered = false
 const pendingFilter = reactive({
-  status: -1, dateFrom: '', dateTo: '', staffId: 0, payMethod: '', categoryId: 0,
+  status: -1, dateFrom: '', dateTo: '', staffId: 0, payMethod: '', orderKind: '', categoryId: 0, productKeyword: '',
 })
 const pendingStatusOptions = [
   { value: 0, label: '待确认' },
   { value: 1, label: '已确认' },
-  { value: 2, label: '服务中' },
   { value: 3, label: '待结算' },
   { value: 7, label: '已开单' },
   { value: 4, label: '已取消' },
@@ -564,10 +581,20 @@ const timeSlots = computed(() => {
   return slots
 })
 
+const visibleStaffColumns = 2
+const timeColumnWidthRpx = 96
+const staffColumnWidthRpx = (750 - timeColumnWidthRpx) / visibleStaffColumns
+
 const gridWidth = computed(() => {
   const cols = staffList.value.length || 1
-  return (116 + cols * 340) + 'rpx'
+  return `${timeColumnWidthRpx + cols * staffColumnWidthRpx}rpx`
 })
+
+const calendarGridStyle = computed(() => ({
+  width: gridWidth.value,
+  '--time-col-width': `${timeColumnWidthRpx}rpx`,
+  '--staff-col-width': `${staffColumnWidthRpx}rpx`,
+}))
 
 // Unassigned appointments (no staff_id)
 const unassignedAppts = computed(() =>
@@ -584,18 +611,56 @@ onBeforeUnmount(() => {
   removeStaffDragListeners()
 })
 
-function sortStaffList(list: Staff[]) {
+function sortStaffByAppointmentCount(list: Staff[], appts: any[]) {
+  const baseIndex = new Map(list.map((staff, index) => [staff.ID, index]))
   return [...list].sort((a, b) => {
-    const aSort = Number(a.sort_order || 0)
-    const bSort = Number(b.sort_order || 0)
-    const aHasSort = aSort > 0
-    const bHasSort = bSort > 0
-    if (aHasSort && bHasSort && aSort !== bSort) return aSort - bSort
-    if (aHasSort !== bHasSort) return aHasSort ? -1 : 1
-    const roleDiff = compareStaffRole(a.role, b.role)
-    if (roleDiff !== 0) return roleDiff
-    return a.ID - b.ID
+    const countDiff = getStaffApptCountFromList(appts, b.ID) - getStaffApptCountFromList(appts, a.ID)
+    if (countDiff !== 0) return countDiff
+    return (baseIndex.get(a.ID) || 0) - (baseIndex.get(b.ID) || 0)
   })
+}
+
+function getStaffOrderCacheKey(date: string) {
+  return `${staffOrderCachePrefix}${date}`
+}
+
+function getCachedStaffOrder(date: string): number[] {
+  try {
+    const raw = uni.getStorageSync(getStaffOrderCacheKey(date))
+    if (!raw) return []
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const savedAt = Number(parsed?.savedAt || 0)
+    const staffIds = Array.isArray(parsed?.staffIds) ? parsed.staffIds.map((id: unknown) => Number(id)).filter(Boolean) : []
+    if (!savedAt || Date.now() - savedAt > staffOrderExpireMs) {
+      uni.removeStorageSync(getStaffOrderCacheKey(date))
+      return []
+    }
+    return staffIds
+  } catch {
+    uni.removeStorageSync(getStaffOrderCacheKey(date))
+    return []
+  }
+}
+
+function saveStaffOrderForDate(date: string) {
+  uni.setStorageSync(getStaffOrderCacheKey(date), JSON.stringify({
+    savedAt: Date.now(),
+    staffIds: staffList.value.map((staff) => staff.ID),
+  }))
+}
+
+function applyCachedStaffOrder(list: Staff[], date: string) {
+  const cachedIds = getCachedStaffOrder(date)
+  if (cachedIds.length === 0) return list
+  const staffById = new Map(list.map((staff) => [staff.ID, staff]))
+  const ordered: Staff[] = []
+  cachedIds.forEach((id) => {
+    const staff = staffById.get(id)
+    if (!staff) return
+    ordered.push(staff)
+    staffById.delete(id)
+  })
+  return [...ordered, ...list.filter((staff) => staffById.has(staff.ID))]
 }
 
 function moveStaffColumn(list: Staff[], fromIndex: number, toIndex: number) {
@@ -607,9 +672,7 @@ function moveStaffColumn(list: Staff[], fromIndex: number, toIndex: number) {
 
 function getEventPoint(event: any) {
   const touch = event?.touches?.[0] || event?.changedTouches?.[0]
-  if (touch) {
-    return { x: touch.clientX, y: touch.clientY }
-  }
+  if (touch) return { x: touch.clientX, y: touch.clientY }
   if (typeof event?.clientX === 'number' && typeof event?.clientY === 'number') {
     return { x: event.clientX, y: event.clientY }
   }
@@ -627,10 +690,8 @@ function removeStaffDragListeners() {
 }
 
 function beginStaffDrag(index: number, event: any) {
-  if (!canReorderStaff.value || savingStaffOrder.value || typeof window === 'undefined') return
-  if (!staffList.value[index] || staffList.value.length < 2) return
+  if (typeof window === 'undefined' || !staffList.value[index] || staffList.value.length < 2) return
   draggingStaffId.value = staffList.value[index].ID
-  staffDragSnapshot = [...staffList.value]
   staffDragMoved = false
   document.body.style.userSelect = 'none'
   window.addEventListener('touchmove', handleStaffDragMove as EventListener, { passive: false })
@@ -645,9 +706,7 @@ function handleStaffDragMove(event: Event) {
   if (draggingStaffId.value == null || typeof document === 'undefined') return
   const point = getEventPoint(event)
   if (!point) return
-  if ('preventDefault' in event) {
-    event.preventDefault()
-  }
+  if ('preventDefault' in event) event.preventDefault()
   const element = document.elementFromPoint(point.x, point.y) as HTMLElement | null
   const headerCell = element?.closest('.staff-header-cell') as HTMLElement | null
   const targetId = Number(headerCell?.dataset?.staffId || 0)
@@ -659,42 +718,19 @@ function handleStaffDragMove(event: Event) {
   staffDragMoved = true
 }
 
-async function handleStaffDragEnd() {
-  const activeId = draggingStaffId.value
+function handleStaffDragEnd() {
   removeStaffDragListeners()
   draggingStaffId.value = null
-  if (!activeId || !staffDragMoved) return
-  await persistStaffOrder(staffDragSnapshot)
+  if (!staffDragMoved) return
+  saveStaffOrderForDate(currentDate.value)
+  staffDragMoved = false
 }
 
-async function persistStaffOrder(snapshot: Staff[]) {
-  savingStaffOrder.value = true
-  try {
-    await updateStaffOrder(staffList.value.map((staff) => staff.ID))
-    staffList.value = staffList.value.map((staff, index) => ({
-      ...staff,
-      sort_order: index + 1,
-    }))
-    uni.showToast({ title: '员工顺序已更新', icon: 'success' })
-  } catch {
-    staffList.value = [...snapshot]
-    uni.showToast({ title: '保存顺序失败', icon: 'none' })
-  } finally {
-    savingStaffOrder.value = false
-    staffDragSnapshot = []
-    staffDragMoved = false
-  }
-}
-
-async function moveStaffByArrow(index: number, step: -1 | 1) {
-  if (!canReorderStaff.value || savingStaffOrder.value) return
+function moveStaffByArrow(index: number, step: -1 | 1) {
   const targetIndex = index + step
   if (targetIndex < 0 || targetIndex >= staffList.value.length) return
-  const snapshot = [...staffList.value]
   staffList.value = moveStaffColumn(staffList.value, index, targetIndex)
-  staffDragSnapshot = snapshot
-  staffDragMoved = true
-  await persistStaffOrder(snapshot)
+  saveStaffOrderForDate(currentDate.value)
 }
 
 function prevDay() {
@@ -712,6 +748,8 @@ function nextDay() {
 function setCurrentDate(date: string) {
   if (!date || currentDate.value === date) return
   currentDate.value = date
+  appointments.value = []
+  staffScheduleMap.value = {}
   loadData()
 }
 
@@ -772,7 +810,11 @@ function hasApptAtSlot(slot: string): boolean {
 }
 
 function getStaffApptCount(staffId: number): number {
-  return appointments.value.filter(a => a.staff_id === staffId && a.status !== 4).length
+  return getStaffApptCountFromList(appointments.value, staffId)
+}
+
+function getStaffApptCountFromList(list: any[], staffId: number): number {
+  return list.filter(a => a.staff_id === staffId && a.status !== 4).length
 }
 
 function getApptSlots(appt: any): number {
@@ -788,7 +830,8 @@ function estimateApptContentRpx(appt: any): number {
   let h = 50
   for (const pet of pets) {
     h += 42 + 30
-    if (pet.tags.length > 0) h += 40
+    if (pet.petTags.length > 0) h += 40
+    if (pet.ownerTags.length > 0) h += 36
     if (pet.services.length > 0) h += 44
     if (pet.noteText) h += 18 + estimateWrappedLineCount(pet.noteText) * 28
     h += 16
@@ -881,29 +924,41 @@ function ceilToHalfHour(totalMinutes: number) {
 }
 
 async function loadData() {
-  const [staffRes, apptRes, shopRes] = await Promise.all([
-    getStaffList({ page: 1, page_size: 100 }),
-    getAppointmentCalendar(currentDate.value, currentDate.value),
-    getShop(),
-  ])
-  if (shopRes.data?.open_time) shopOpenTime.value = shopRes.data.open_time
-  if (shopRes.data?.close_time) shopCloseTime.value = shopRes.data.close_time
-  staffList.value = sortStaffList((staffRes.data.list || []).filter((s: Staff) => s.status === 1))
-  appointments.value = apptRes.data || []
-
-  // 加载每个员工当天的排班
-  const scheduleMap: Record<number, { start: string; end: string; dayOff: boolean }> = {}
+  const requestId = ++latestCalendarLoadId
   const date = currentDate.value
-  await Promise.all(staffList.value.map(async (staff) => {
-    try {
-      const res = await getStaffSchedule(staff.ID, date, date)
-      const s = (res.data || [])[0]
-      if (s) {
-        scheduleMap[staff.ID] = { start: s.start_time || '12:00', end: s.end_time || '22:00', dayOff: s.is_day_off }
-      }
-    } catch { /* no schedule */ }
-  }))
-  staffScheduleMap.value = scheduleMap
+  calendarLoading.value = true
+  loadingDate.value = date
+  try {
+    const [resourceRes, apptRes, shopRes] = await Promise.all([
+      getAppointmentCalendarResources(date),
+      getAppointmentCalendar(date, date),
+      getShop(),
+    ])
+    if (requestId !== latestCalendarLoadId || date !== currentDate.value) return
+
+    if (shopRes.data?.open_time) shopOpenTime.value = shopRes.data.open_time
+    if (shopRes.data?.close_time) shopCloseTime.value = shopRes.data.close_time
+    const activeStaff = resourceRes.data?.staffs || []
+    const dayAppointments = apptRes.data || []
+    appointments.value = dayAppointments
+    staffList.value = applyCachedStaffOrder(sortStaffByAppointmentCount(activeStaff, dayAppointments), date)
+
+    const scheduleMap: Record<number, { start: string; end: string; dayOff: boolean }> = {}
+    ;(resourceRes.data?.schedules || []).forEach((s) => {
+      scheduleMap[s.staff_id] = { start: s.start_time || '12:00', end: s.end_time || '22:00', dayOff: s.is_day_off }
+    })
+    if (requestId !== latestCalendarLoadId || date !== currentDate.value) return
+    staffScheduleMap.value = scheduleMap
+  } catch (error: any) {
+    if (requestId === latestCalendarLoadId) {
+      uni.showToast({ title: error?.msg || error?.message || '加载预约失败', icon: 'none' })
+    }
+  } finally {
+    if (requestId === latestCalendarLoadId) {
+      calendarLoading.value = false
+      loadingDate.value = ''
+    }
+  }
 }
 
 function isOffDuty(staffId: number, timeSlot: string): boolean {
@@ -979,27 +1034,94 @@ function getPetTagItems(pet: any) {
   return tags
 }
 
+function getCustomerTagItems(appt: any) {
+  const customer = appt?.customer || {}
+  const tags: Array<{ text: string; className: string; style?: string }> = []
+  const seen = new Set<string>()
+  const addTag = (name?: string) => {
+    const text = String(name || '').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    tags.push({ text, className: 'tag-owner' })
+  }
+
+  if (Array.isArray(customer.customer_tags)) {
+    customer.customer_tags.forEach((tag: any) => addTag(tag?.name))
+  }
+  if (typeof customer.tags === 'string') {
+    customer.tags.split(/[，,]/).forEach(addTag)
+  }
+  return tags
+}
+
+function formatPetTags(pet: any) {
+  return getPetTagItems(pet).map((tag) => tag.text).join(' · ')
+}
+
+function isPricingRuleLabel(label: string) {
+  return ['短毛猫', '长毛猫', 'A', 'B', 'C', 'D'].includes(label)
+}
+
+function formatAppointmentServiceLabel(serviceName?: string) {
+  const name = String(serviceName || '').trim()
+  const match = name.match(/^(.+?)\((.+)\)$/)
+  if (!match) return name
+  const baseName = match[1].trim()
+  const ruleName = match[2].trim()
+  if (baseName === '基础洗护' && ruleName === '超重') return '超重'
+  if (isPricingRuleLabel(ruleName)) return baseName
+  if (baseName === '基础洗护') return baseName
+  return ruleName || name
+}
+
 function getPetDisplayItems(appt: any) {
   const petItems = getAppointmentPets(appt)
   if (petItems.length === 0) {
-    return [{ id: 'empty', name: '-', meta: '未填写宠物信息', tags: [] as Array<{ text: string; className: string; style?: string }>, services: [] as string[], noteText: '' }]
+    return [{
+      id: 'empty',
+      name: '-',
+      meta: '未填写宠物信息',
+      petTags: [] as Array<{ text: string; className: string; style?: string }>,
+      ownerTags: getCustomerTagItems(appt),
+      services: [] as string[],
+      noteText: '',
+    }]
   }
   const petNoteMap = getAppointmentPetNoteMap(appt)
   return petItems.map((petItem: any, index: number) => {
     const pet = petItem?.pet
     const serviceNames = (petItem.services || [])
-      .map((s: any) => s.service_name)
+      .map((s: any) => formatAppointmentServiceLabel(s.service_name))
       .filter(Boolean)
     const petName = pet?.name || `猫咪${index + 1}`
+    const noteLines = [petNoteMap[petName], getRegularCustomerPetProfileNotes(appt, pet)].filter(Boolean)
     return {
       id: pet?.ID || index,
       name: petName,
       meta: pet ? formatPetMeta(pet) : '未填写宠物信息',
-      tags: pet ? getPetTagItems(pet) : [],
+      petTags: pet ? getPetTagItems(pet) : [],
+      ownerTags: index === 0 ? getCustomerTagItems(appt) : [],
       services: serviceNames,
-      noteText: petNoteMap[petName] || '',
+      noteText: noteLines.join('\n'),
     }
   })
+}
+
+function shouldShowRegularCustomerPetProfile(appt: any): boolean {
+  const customerType = Number(appt?.customer_type || 0)
+  if (customerType === 1) return false
+  if (customerType === 2) return true
+  return !isNewCustomer(appt)
+}
+
+function getRegularCustomerPetProfileNotes(appt: any, pet: any): string {
+  if (!pet || !shouldShowRegularCustomerPetProfile(appt)) return ''
+  const lines: string[] = []
+  const forbiddenZones = normalizeNoteText(pet?.forbidden_zones)
+  const careNotes = normalizeNoteText(pet?.care_notes)
+  if (forbiddenZones) lines.push(`禁区：${forbiddenZones}`)
+  if (careNotes) lines.push(`注意事项：${careNotes}`)
+  return lines.join('\n')
 }
 
 function getPetAge(birthDate?: string) {
@@ -1057,12 +1179,24 @@ function getServiceSummary(appt: any) {
 }
 
 function isNewCustomer(appt: any): boolean {
-  const name = appt.customer?.nickname || ''
-  return name.startsWith('散客') || !appt.customer?.phone
+  const customerType = Number(appt?.customer_type || 0)
+  if (customerType === 1) return true
+  if (customerType === 2) return false
+
+  const name = String(appt.customer?.nickname || '').trim()
+  if (name.startsWith('散客')) return true
+
+  const visitCount = Number(appt.customer?.visit_count ?? appt.customer?.VisitCount ?? 0)
+  const totalSpent = Number(appt.customer?.total_spent ?? appt.customer?.TotalSpent ?? 0)
+  if (visitCount === 0 && totalSpent <= 0) {
+    return true
+  }
+
+  return !appt.customer?.phone
 }
 
 function normalizeNoteText(text?: string): string {
-  return String(text || '')
+  return sanitizeAppointmentNotes(text)
     .replace(/\r\n/g, '\n')
     .split('\n')
     .map(line => line.trim())
@@ -1153,7 +1287,7 @@ function onCellClick(staffId: number, time: string) {
   uni.navigateTo({ url: `/pages/appointment/create?date=${currentDate.value}&staff_id=${staffId}&time=${time}` })
 }
 
-onMounted(() => { loadData(); loadPendingCount() })
+onMounted(() => { loadPendingCount() })
 onShow(() => { loadData(); loadPendingCount() })
 </script>
 
@@ -1166,6 +1300,7 @@ onShow(() => { loadData(); loadPendingCount() })
 .quick-date-group { display: flex; gap: 10rpx; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .quick-date-btn { min-width: 84rpx; height: 60rpx; padding: 0 18rpx; display: flex; align-items: center; justify-content: center; border-radius: 999rpx; font-size: 24rpx; color: #475569; background: #F1F5F9; border: 1rpx solid transparent; }
 .quick-date-btn.active { color: #4338CA; background: #E0E7FF; border-color: rgba(67, 56, 202, 0.18); font-weight: 600; }
+.calendar-loading { padding: 12rpx 24rpx; background: #EEF2FF; color: #4F46E5; font-size: 24rpx; border-top: 1rpx solid #E0E7FF; }
 
 .stats-bar { display: flex; gap: 24rpx; padding: 12rpx 24rpx; background: #fff; border-top: 1rpx solid #E2E8F0; }
 .stats-text { font-size: 24rpx; color: #64748B; }
@@ -1228,7 +1363,7 @@ onShow(() => { loadData(); loadPendingCount() })
 .calendar-scroll { flex: 1; }
 .calendar-grid { min-width: 100%; padding-bottom: 32rpx; }
 .grid-header { display: flex; position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, 0.96); border-bottom: 2rpx solid #CBD5E1; box-shadow: 0 8rpx 18rpx rgba(15, 23, 42, 0.05); }
-.header-cell { padding: 18rpx 8rpx; font-size: 26rpx; font-weight: 600; color: #334155; text-align: center; background: rgba(248, 250, 252, 0.92); }
+.header-cell { padding: 18rpx 8rpx; font-size: 26rpx; font-weight: 600; color: #334155; text-align: center; background: rgba(248, 250, 252, 0.92); box-sizing: border-box; }
 .staff-header-cell {
   transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
@@ -1240,9 +1375,6 @@ onShow(() => { loadData(); loadPendingCount() })
   box-shadow: inset 0 0 0 2rpx #818CF8;
   opacity: 0.86;
   transform: scale(0.98);
-}
-.staff-header-cell.saving {
-  pointer-events: none;
 }
 .staff-name-row {
   display: flex;
@@ -1277,14 +1409,16 @@ onShow(() => { loadData(); loadPendingCount() })
 .staff-count { font-size: 20rpx; color: #64748B; font-weight: 500; }
 .staff-schedule-label { font-size: 18rpx; color: #94A3B8; display: block; font-weight: 400; }
 .time-col {
-  width: 116rpx;
-  min-width: 116rpx;
+  width: var(--time-col-width, 96rpx);
+  min-width: var(--time-col-width, 96rpx);
+  flex: 0 0 var(--time-col-width, 96rpx);
+  box-sizing: border-box;
   background: #F8FAFC;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.staff-col { width: 260rpx; min-width: 260rpx; border-left: 1rpx solid #E2E8F0; }
+.staff-col { width: var(--staff-col-width, 327rpx); min-width: var(--staff-col-width, 327rpx); flex: 0 0 var(--staff-col-width, 327rpx); box-sizing: border-box; border-left: 1rpx solid #E2E8F0; }
 
 .grid-body { position: relative; background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%); overflow: visible; }
 .time-row { display: flex; min-height: 80rpx; border-bottom: 1rpx solid #E2E8F0; background: #fff; position: relative; }
@@ -1342,6 +1476,7 @@ onShow(() => { loadData(); loadPendingCount() })
 .appt-tag.tag-fur { background: #EEF2FF; color: #4F46E5; }
 .appt-tag.tag-neutered { background: #ECFDF5; color: #047857; }
 .appt-tag.tag-aggression { background: #FEF2F2; color: #DC2626; }
+.appt-tag.tag-owner { background: #FFF7ED; color: #C2410C; border: 1rpx solid rgba(251, 146, 60, 0.32); font-weight: 700; }
 .appt-new-tag { font-size: 18rpx; color: #F59E0B; font-weight: 600; }
 .appt-new-tag-lg { font-size: 20rpx; color: #fff; background: #F59E0B; padding: 2rpx 12rpx; border-radius: 8rpx; margin-left: 8rpx; }
 .appt-pet-row { display: flex; align-items: center; }

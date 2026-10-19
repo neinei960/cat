@@ -66,7 +66,10 @@ type FeedingPlanInput struct {
 	PlayMode        string                 `json:"play_mode"`
 	PlayCount       int                    `json:"play_count"`
 	OtherPrice      float64                `json:"other_price"`
+	Deposit         *float64               `json:"deposit"`
 }
+
+const defaultFeedingHolidayDeposit = 200
 
 type FeedingUpdatePlayDatesInput struct {
 	PlayDates []string `json:"play_dates"`
@@ -193,6 +196,12 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
 	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
+	playDatesJSON, _ := json.Marshal(resolveDefaultPlayDates(normalized))
+	deposit := resolveFeedingDeposit(normalized.Deposit, selectedDatesContainHoliday(normalized.SelectedDates, pricingSnapshot.HolidayDates), 0)
+	unpaidAmount := roundMoney(pricingSnapshot.TotalAmount - deposit)
+	if unpaidAmount < 0 {
+		unpaidAmount = 0
+	}
 
 	plan := &model.FeedingPlan{
 		ShopID:              shopID,
@@ -208,11 +217,13 @@ func (s *FeedingService) CreatePlan(shopID, operatorID uint, input FeedingPlanIn
 		PricingSnapshotJSON: string(pricingJSON),
 		SelectedItemsJSON:   string(selectedItemsJSON),
 		SelectedDatesJSON:   string(selectedDatesJSON),
+		PlayDatesJSON:       string(playDatesJSON),
 		PlayMode:            normalized.PlayMode,
 		PlayCount:           normalized.PlayCount,
 		OtherPrice:          normalized.OtherPrice,
+		Deposit:             deposit,
 		TotalAmount:         pricingSnapshot.TotalAmount,
-		UnpaidAmount:        pricingSnapshot.TotalAmount,
+		UnpaidAmount:        unpaidAmount,
 	}
 
 	tx := database.DB.Begin()
@@ -304,6 +315,12 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	pricingJSON, _ := json.Marshal(pricingSnapshot)
 	selectedItemsJSON, _ := json.Marshal(resolveSelectedTemplates(settings.Items, normalized.ItemCodes))
 	selectedDatesJSON, _ := json.Marshal(normalized.SelectedDates)
+	playDatesJSON, _ := json.Marshal(resolveDefaultPlayDates(normalized))
+	deposit := resolveFeedingDeposit(normalized.Deposit, selectedDatesContainHoliday(normalized.SelectedDates, pricingSnapshot.HolidayDates), plan.Deposit)
+	unpaidAmount := roundMoney(pricingSnapshot.TotalAmount - deposit)
+	if unpaidAmount < 0 {
+		unpaidAmount = 0
+	}
 
 	tx := database.DB.Begin()
 	plan.CustomerID = normalized.CustomerID
@@ -317,11 +334,13 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 	plan.PricingSnapshotJSON = string(pricingJSON)
 	plan.SelectedItemsJSON = string(selectedItemsJSON)
 	plan.SelectedDatesJSON = string(selectedDatesJSON)
+	plan.PlayDatesJSON = string(playDatesJSON)
 	plan.PlayMode = normalized.PlayMode
 	plan.PlayCount = normalized.PlayCount
 	plan.OtherPrice = normalized.OtherPrice
+	plan.Deposit = deposit
 	plan.TotalAmount = pricingSnapshot.TotalAmount
-	plan.UnpaidAmount = pricingSnapshot.TotalAmount
+	plan.UnpaidAmount = unpaidAmount
 	if err := tx.Save(plan).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -346,6 +365,45 @@ func (s *FeedingService) UpdatePlan(shopID, operatorID, id uint, input FeedingPl
 		return nil, err
 	}
 	return s.repo.FindPlanByID(shopID, plan.ID)
+}
+
+func (s *FeedingService) DeletePlan(shopID, id uint, role string) error {
+	if !model.HasStaffRoleAtLeast(role, model.StaffRoleManager) {
+		return errors.New("仅店长可删除历史上门订单")
+	}
+	plan, err := s.repo.FindPlanByID(shopID, id)
+	if err != nil {
+		return errors.New("上门计划不存在")
+	}
+	if !isHistoricalFeedingPlan(plan) {
+		return errors.New("仅历史上门计划可删除")
+	}
+
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := deleteLinkedPayOrders(tx, shopID, plan.OrderID, &plan.ID); err != nil {
+			return err
+		}
+		visitIDs := tx.Model(&model.FeedingVisit{}).Select("id").Where("feeding_plan_id = ?", plan.ID)
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitMedia{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitLog{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_visit_id IN (?)", visitIDs).Delete(&model.FeedingVisitItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingVisit{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingPlanRule{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("feeding_plan_id = ?", plan.ID).Delete(&model.FeedingPlanPet{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.FeedingPlan{}, plan.ID).Error
+	})
 }
 
 func (s *FeedingService) PausePlan(shopID, operatorID, id uint) (*model.FeedingPlan, error) {
@@ -929,7 +987,9 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 	order.ServiceDiscountAmount = 0
 	order.ProductDiscountAmount = 0
 	order.DiscountAmount = 0
-	order.PayAmount = totalAmount
+	order.AppointmentDepositAmount = roundMoney(maxFloat(plan.Deposit, 0))
+	order.AppointmentDepositDeductionAmount = roundMoney(minFloat(order.AppointmentDepositAmount, totalAmount))
+	order.PayAmount = roundMoney(totalAmount - order.AppointmentDepositDeductionAmount)
 	order.DiscountRate = 1
 	if err := tx.Save(order).Error; err != nil {
 		tx.Rollback()
@@ -941,17 +1001,14 @@ func (s *FeedingService) GenerateOrder(shopID, operatorID, planID uint) (*model.
 			return nil, err
 		}
 	}
-	unpaidAmount := roundMoney(order.PayAmount - plan.Deposit)
-	if unpaidAmount < 0 {
-		unpaidAmount = 0
-	}
+	// PayAmount is already the remaining balance after the deposit deduction.
 	if err := tx.Model(&model.FeedingPlan{}).
 		Where("id = ?", plan.ID).
 		Updates(map[string]any{
 			"order_id":      order.ID,
 			"status":        model.FeedingPlanStatusCompleted,
-			"unpaid_amount": unpaidAmount,
-			"total_amount":  order.PayAmount,
+			"unpaid_amount": order.PayAmount,
+			"total_amount":  order.TotalAmount,
 		}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1159,9 +1216,6 @@ func (s *FeedingService) normalizePlanInput(shopID uint, input FeedingPlanInput)
 		seenCode[code] = struct{}{}
 		validCodes = append(validCodes, code)
 	}
-	if len(validCodes) == 0 {
-		return input, nil, errors.New("请至少选择 1 项服务内容")
-	}
 	input.ItemCodes = validCodes
 	return input, settings, nil
 }
@@ -1292,6 +1346,54 @@ func (s *FeedingService) appendPlanLog(tx *gorm.DB, visitID, operatorID uint, ac
 			Content:        content,
 		}
 		return tx.Create(logRecord).Error
+	}
+	return nil
+}
+
+func isHistoricalFeedingPlan(plan *model.FeedingPlan) bool {
+	if plan == nil {
+		return false
+	}
+	if plan.Status == model.FeedingPlanStatusCompleted || plan.Status == model.FeedingPlanStatusCancelled {
+		return true
+	}
+	endDate, err := time.Parse("2006-01-02", strings.TrimSpace(plan.EndDate))
+	if err != nil {
+		return false
+	}
+	today, _ := time.Parse("2006-01-02", time.Now().Format("2006-01-02"))
+	return endDate.Before(today)
+}
+
+func deleteLinkedPayOrders(tx *gorm.DB, shopID uint, orderID *uint, feedingPlanID *uint) error {
+	ordersByID := make(map[uint]model.Order)
+	if orderID != nil && *orderID > 0 {
+		var order model.Order
+		if err := tx.Where("shop_id = ?", shopID).First(&order, *orderID).Error; err == nil {
+			ordersByID[order.ID] = order
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	if feedingPlanID != nil && *feedingPlanID > 0 {
+		var orders []model.Order
+		if err := tx.Where("shop_id = ? AND feeding_plan_id = ?", shopID, *feedingPlanID).Find(&orders).Error; err != nil {
+			return err
+		}
+		for _, order := range orders {
+			ordersByID[order.ID] = order
+		}
+	}
+	for _, order := range ordersByID {
+		if err := rollbackBalancePaymentOnDelete(tx, &order); err != nil {
+			return err
+		}
+		if err := tx.Where("order_id = ?", order.ID).Delete(&model.OrderItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&model.Order{}, order.ID).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1663,6 +1765,42 @@ func listHolidayDates(shopID uint, startDate, endDate string) ([]string, error) 
 		dates = append(dates, holiday.HolidayDate)
 	}
 	return dates, nil
+}
+
+func resolveFeedingDeposit(input *float64, hasSelectedHoliday bool, current float64) float64 {
+	if input != nil {
+		return maxFloat(roundMoney(*input), 0)
+	}
+	if current > 0 {
+		return roundMoney(current)
+	}
+	if hasSelectedHoliday {
+		return defaultFeedingHolidayDeposit
+	}
+	return 0
+}
+
+func selectedDatesContainHoliday(selectedDates []string, holidayDates []string) bool {
+	if len(selectedDates) == 0 || len(holidayDates) == 0 {
+		return false
+	}
+	holidaySet := make(map[string]struct{}, len(holidayDates))
+	for _, date := range holidayDates {
+		holidaySet[date] = struct{}{}
+	}
+	for _, date := range selectedDates {
+		if _, ok := holidaySet[date]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveDefaultPlayDates(input FeedingPlanInput) []string {
+	if input.PlayMode != "daily" {
+		return []string{}
+	}
+	return append([]string{}, input.SelectedDates...)
 }
 
 func formatMonthDay(dateText string) string {

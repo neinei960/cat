@@ -1,6 +1,9 @@
 import { request } from './request'
 
 interface OrderItem {
+  service_spec_id?: number
+  duration?: number
+  pet_id?: number
   item_type: number
   item_id?: number
   name: string
@@ -16,8 +19,10 @@ interface AddonItem {
 interface CreateOrderReq {
   pet_id?: number
   customer_id?: number
+  customer_phone?: string
   staff_id?: number
   service_id?: number
+  appointment_is_late?: boolean
   discount_amount?: number
   remark?: string
   items?: OrderItem[]
@@ -32,15 +37,15 @@ export function updateOrder(id: number, data: CreateOrderReq) {
   return request<any>({ url: `/b/orders/${id}`, method: 'PUT', data })
 }
 
-export function createOrderFromAppointment(appointmentId: number) {
-  return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId } })
+export function createOrderFromAppointment(appointmentId: number, appointmentIsLate = false) {
+  return request<any>({ url: '/b/orders/from-appointment', method: 'POST', data: { appointment_id: appointmentId, appointment_is_late: appointmentIsLate } })
 }
 
 export function createBatchOrdersFromAppointment(appointmentId: number, extra?: any) {
   return request<Order>({ url: '/b/orders/from-appointment/batch', method: 'POST', data: { appointment_id: appointmentId, ...extra } })
 }
 
-export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string; customer_id?: number; order_kind?: string }) {
+export function getOrderList(params?: PageParams & { status?: number; keyword?: string; date_from?: string; date_to?: string; product_keyword?: string; customer_id?: number; order_kind?: string; category_id?: number; self_use?: number }) {
   return request<PageResult<any>>({ url: '/b/orders', data: params })
 }
 
@@ -52,12 +57,20 @@ export function getOrder(id: number, includeDeleted = false) {
   return request<any>({ url: `/b/orders/${id}`, data: includeDeleted ? { include_deleted: 1 } : undefined })
 }
 
-export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string) {
-  return request({ url: `/b/orders/${id}/pay`, method: 'PUT', data: { pay_method: payMethod, transaction_id: transactionId, remark } })
+export function payOrder(id: number, payMethod: string, transactionId?: string, remark?: string, cashPayMethod?: string) {
+  return request({
+    url: `/b/orders/${id}/pay`,
+    method: 'PUT',
+    data: { pay_method: payMethod, transaction_id: transactionId, remark, cash_pay_method: cashPayMethod },
+  })
 }
 
 export function updateOrderRemark(id: number, remark: string) {
   return request({ url: `/b/orders/${id}/remark`, method: 'PUT', data: { remark } })
+}
+
+export function updateOrderCustomerPet(id: number, data: { customer_id?: number | null; pet_id?: number | null }) {
+  return request<any>({ url: `/b/orders/${id}/customer-pet`, method: 'PUT', data })
 }
 
 export function refundOrder(id: number, remark?: string) {

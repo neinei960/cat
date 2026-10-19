@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neinei960/cat/server/internal/model"
@@ -15,27 +16,56 @@ import (
 )
 
 type OrderHandler struct {
-	orderService    *service.OrderService
-	petService      *service.PetService
-	customerService *service.CustomerService
-	serviceService  *service.ServiceService
+	orderService      *service.OrderService
+	petService        *service.PetService
+	customerService   *service.CustomerService
+	serviceService    *service.ServiceService
+	careReportService orderCareReportService
 }
 
-func NewOrderHandler(orderService *service.OrderService, petService *service.PetService, customerService *service.CustomerService, serviceService *service.ServiceService) *OrderHandler {
+type orderCareReportService interface {
+	Create(shopID, orderID uint, input service.CreateOrderCareReportInput) (*service.OrderCareReportResult, error)
+}
+
+func NewOrderHandler(orderService *service.OrderService, petService *service.PetService, customerService *service.CustomerService, serviceService *service.ServiceService, careReportService orderCareReportService) *OrderHandler {
 	return &OrderHandler{
-		orderService:    orderService,
-		petService:      petService,
-		customerService: customerService,
-		serviceService:  serviceService,
+		orderService:      orderService,
+		petService:        petService,
+		customerService:   customerService,
+		serviceService:    serviceService,
+		careReportService: careReportService,
+	}
+}
+
+func careReportServiceErrorStatus(err error) (int, string) {
+	msg := err.Error()
+	switch msg {
+	case "订单不存在",
+		"仅已支付订单可生成报告",
+		"所选猫咪不属于当前订单",
+		"请先上传护理照片",
+		"请填写建议下次护理日期",
+		"护理日期格式错误",
+		"护理照片不存在",
+		"护理照片读取失败",
+		"护理照片无效":
+		return http.StatusBadRequest, msg
+	default:
+		if strings.TrimSpace(msg) == "" {
+			return http.StatusInternalServerError, "生成护理报告失败"
+		}
+		return http.StatusInternalServerError, "生成护理报告失败"
 	}
 }
 
 // POST /b/orders/from-appointment
 type serviceOverride struct {
-	ServiceID   uint    `json:"service_id"`
-	ServiceName string  `json:"service_name"`
-	Price       float64 `json:"price"`
-	Duration    int     `json:"duration"`
+	Quantity      int     `json:"quantity" binding:"min=0,max=999"`
+	ServiceSpecID uint    `json:"service_spec_id"`
+	ServiceID     uint    `json:"service_id"`
+	ServiceName   string  `json:"service_name"`
+	Price         float64 `json:"price"`
+	Duration      int     `json:"duration"`
 }
 
 type productOverride struct {
@@ -53,8 +83,10 @@ type petOverride struct {
 }
 
 type fromApptReq struct {
-	AppointmentID uint          `json:"appointment_id" binding:"required"`
-	Overrides     []petOverride `json:"overrides"`
+	AppointmentID     uint          `json:"appointment_id" binding:"required"`
+	StaffID           *uint         `json:"staff_id"`
+	AppointmentIsLate bool          `json:"appointment_is_late"`
+	Overrides         []petOverride `json:"overrides"`
 }
 
 func (h *OrderHandler) CreateFromAppointment(c *gin.Context) {
@@ -63,7 +95,7 @@ func (h *OrderHandler) CreateFromAppointment(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
-	order, err := h.orderService.CreateFromAppointment(req.AppointmentID)
+	order, err := h.orderService.CreateFromAppointment(req.AppointmentID, req.AppointmentIsLate, req.StaffID)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -85,10 +117,12 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 		svcList := make([]service.ServiceOverride, 0, len(po.Services))
 		for _, so := range po.Services {
 			svcList = append(svcList, service.ServiceOverride{
-				ServiceID:   so.ServiceID,
-				ServiceName: so.ServiceName,
-				Price:       so.Price,
-				Duration:    so.Duration,
+				Quantity:      so.Quantity,
+				ServiceSpecID: so.ServiceSpecID,
+				ServiceID:     so.ServiceID,
+				ServiceName:   so.ServiceName,
+				Price:         so.Price,
+				Duration:      so.Duration,
 			})
 		}
 		prodList := make([]service.ProductOverride, 0, len(po.Products))
@@ -107,7 +141,7 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 		}
 	}
 
-	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, overrideMap)
+	orders, err := h.orderService.CreateSplitFromAppointment(req.AppointmentID, req.AppointmentIsLate, req.StaffID, overrideMap)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -124,15 +158,80 @@ func (h *OrderHandler) CreateBatchFromAppointment(c *gin.Context) {
 	response.Success(c, result)
 }
 
+type createOrderCareReportReq struct {
+	PetID        uint                                `json:"pet_id" binding:"required"`
+	PetName      *string                             `json:"pet_name"`
+	Breed        *string                             `json:"breed"`
+	Gender       *string                             `json:"gender"`
+	Age          *string                             `json:"age"`
+	PortraitURL  string                              `json:"portrait_url" binding:"required"`
+	Weight       string                              `json:"weight"`
+	CareDate     string                              `json:"care_date" binding:"required"`
+	NextCareDate string                              `json:"next_care_date" binding:"required"`
+	CareContent  string                              `json:"care_content"`
+	BodyShape    string                              `json:"body_shape"`
+	Skin         service.OrderCareReportSectionInput `json:"skin"`
+	Hair         service.OrderCareReportSectionInput `json:"hair"`
+	Nails        service.OrderCareReportSectionInput `json:"nails"`
+	EyesFace     service.OrderCareReportSectionInput `json:"eyes_face"`
+	Ears         service.OrderCareReportSectionInput `json:"ears"`
+	Oral         service.OrderCareReportSectionInput `json:"oral"`
+	Anus         service.OrderCareReportSectionInput `json:"anus"`
+}
+
+func (h *OrderHandler) CreateCareReport(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, http.StatusBadRequest, "订单ID错误")
+		return
+	}
+
+	var req createOrderCareReportReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	result, err := h.careReportService.Create(c.GetUint("shop_id"), uint(id), service.CreateOrderCareReportInput{
+		PetID:        req.PetID,
+		PetName:      req.PetName,
+		Breed:        req.Breed,
+		Gender:       req.Gender,
+		Age:          req.Age,
+		PortraitURL:  req.PortraitURL,
+		Weight:       req.Weight,
+		CareDate:     req.CareDate,
+		NextCareDate: req.NextCareDate,
+		CareContent:  req.CareContent,
+		BodyShape:    req.BodyShape,
+		Skin:         req.Skin,
+		Hair:         req.Hair,
+		Nails:        req.Nails,
+		EyesFace:     req.EyesFace,
+		Ears:         req.Ears,
+		Oral:         req.Oral,
+		Anus:         req.Anus,
+	})
+	if err != nil {
+		status, msg := careReportServiceErrorStatus(err)
+		response.Error(c, status, msg)
+		return
+	}
+
+	response.Success(c, result)
+}
+
 // POST /b/orders — 猫咪洗护快速开单
 type createOrderReq struct {
-	PetID      uint             `json:"pet_id"`
-	CustomerID *uint            `json:"customer_id"`
-	StaffID    *uint            `json:"staff_id"`
-	ServiceID  uint             `json:"service_id"`
-	Remark     string           `json:"remark"`
-	Addons     []addonInput     `json:"addons"`
-	Items      []orderItemInput `json:"items"`
+	PetID             uint             `json:"pet_id"`
+	CustomerID        *uint            `json:"customer_id"`
+	CustomerPhone     string           `json:"customer_phone"`
+	StaffID           *uint            `json:"staff_id"`
+	ServiceID         uint             `json:"service_id"`
+	AppointmentIsLate *bool            `json:"appointment_is_late"`
+	Remark            string           `json:"remark"`
+	Addons            []addonInput     `json:"addons"`
+	Items             []orderItemInput `json:"items"`
 }
 
 type addonInput struct {
@@ -141,22 +240,30 @@ type addonInput struct {
 }
 
 type orderItemInput struct {
-	ItemType  int     `json:"item_type"`
-	ItemID    uint    `json:"item_id"`
-	Name      string  `json:"name" binding:"required"`
-	Quantity  int     `json:"quantity"`
-	UnitPrice float64 `json:"unit_price" binding:"required"`
+	ServiceSpecID uint    `json:"service_spec_id"`
+	Duration      *int    `json:"duration" binding:"omitempty,min=0"`
+	PetID         *uint   `json:"pet_id"`
+	ItemType      int     `json:"item_type"`
+	ItemID        uint    `json:"item_id"`
+	Name          string  `json:"name" binding:"required"`
+	Quantity      int     `json:"quantity" binding:"min=0,max=999"`
+	UnitPrice     float64 `json:"unit_price" binding:"required"`
 }
 
 var (
-	errDraftPetNotFound    = errors.New("draft_pet_not_found")
-	errDraftServiceMissing = errors.New("draft_service_missing")
-	errDraftItemsMissing   = errors.New("draft_items_missing")
-	errDraftPetRequired    = errors.New("draft_pet_required_for_service")
-	errDraftStaffRequired  = errors.New("draft_staff_required_for_service")
+	errDraftPetNotFound          = errors.New("draft_pet_not_found")
+	errDraftServiceMissing       = errors.New("draft_service_missing")
+	errDraftItemsMissing         = errors.New("draft_items_missing")
+	errDraftPetRequired          = errors.New("draft_pet_required_for_service")
+	errDraftStaffRequired        = errors.New("draft_staff_required_for_service")
+	errDraftBoardingOnlyProducts = errors.New("draft_boarding_only_products")
 )
 
 func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing *model.Order) (*model.Order, []model.OrderItem, error) {
+	if existing != nil && existing.AppointmentID != nil && existing.PetID == nil {
+		return h.buildBatchOrderDraft(shopID, req, existing)
+	}
+
 	var items []model.OrderItem
 	var selectedPet *model.Pet
 	hasServiceItems := false
@@ -218,25 +325,31 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 		}
 		amount := it.UnitPrice * float64(qty)
 		items = append(items, model.OrderItem{
-			ItemType:  it.ItemType,
-			ItemID:    it.ItemID,
-			Name:      it.Name,
-			Quantity:  qty,
-			UnitPrice: it.UnitPrice,
-			Amount:    amount,
+			ItemType:      it.ItemType,
+			ServiceSpecID: it.ServiceSpecID,
+			Duration:      it.Duration,
+			ItemID:        it.ItemID,
+			Name:          it.Name,
+			Quantity:      qty,
+			UnitPrice:     it.UnitPrice,
+			Amount:        amount,
 		})
 	}
 
 	var addonTotal float64
 	for _, addon := range req.Addons {
-		if addon.Amount <= 0 {
+		if addon.Amount == 0 {
 			continue
+		}
+		name := strings.TrimSpace(addon.Name)
+		if name == "" {
+			name = "手动调价"
 		}
 		addonTotal += addon.Amount
 		items = append(items, model.OrderItem{
 			ItemType:  3,
 			ItemID:    0,
-			Name:      addon.Name,
+			Name:      name,
 			Quantity:  1,
 			UnitPrice: addon.Amount,
 			Amount:    addon.Amount,
@@ -245,6 +358,144 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 
 	if !hasServiceItems && !hasProductItems {
 		return nil, nil, errDraftItemsMissing
+	}
+
+	order, finalizedItems, err := h.finalizeOrderDraft(shopID, req, existing, items, selectedPet, hasServiceItems, addonTotal)
+	if err != nil {
+		return nil, nil, err
+	}
+	if existing != nil && existing.OrderKind == "boarding" {
+		return mergeBoardingRetailDraft(existing, order, finalizedItems)
+	}
+	return order, finalizedItems, nil
+}
+
+func (h *OrderHandler) buildBatchOrderDraft(shopID uint, req createOrderReq, existing *model.Order) (*model.Order, []model.OrderItem, error) {
+	var items []model.OrderItem
+	hasServiceItems := false
+	hasProductItems := false
+
+	for _, it := range req.Items {
+		if it.PetID != nil && *it.PetID > 0 {
+			pet, err := h.petService.GetByID(*it.PetID)
+			if err != nil || pet.ShopID != shopID {
+				return nil, nil, errDraftPetNotFound
+			}
+			customerID := req.CustomerID
+			if customerID == nil && existing != nil {
+				customerID = existing.CustomerID
+			}
+			if customerID != nil && *customerID > 0 && (pet.CustomerID == nil || *pet.CustomerID != *customerID) {
+				return nil, nil, errDraftPetNotFound
+			}
+		}
+		if it.ItemType == 1 {
+			hasServiceItems = true
+		}
+		if it.ItemType == 2 {
+			hasProductItems = true
+		}
+		qty := it.Quantity
+		if qty < 1 {
+			qty = 1
+		}
+		amount := it.UnitPrice * float64(qty)
+		items = append(items, model.OrderItem{
+			ItemType:      it.ItemType,
+			PetID:         it.PetID,
+			ServiceSpecID: it.ServiceSpecID,
+			Duration:      it.Duration,
+			ItemID:        it.ItemID,
+			Name:          it.Name,
+			Quantity:      qty,
+			UnitPrice:     it.UnitPrice,
+			Amount:        amount,
+		})
+	}
+
+	var addonTotal float64
+	for _, addon := range req.Addons {
+		if addon.Amount == 0 {
+			continue
+		}
+		name := strings.TrimSpace(addon.Name)
+		if name == "" {
+			name = "手动调价"
+		}
+		addonTotal += addon.Amount
+		items = append(items, model.OrderItem{
+			ItemType:  3,
+			ItemID:    0,
+			Name:      name,
+			Quantity:  1,
+			UnitPrice: addon.Amount,
+			Amount:    addon.Amount,
+		})
+	}
+
+	if !hasServiceItems && !hasProductItems {
+		return nil, nil, errDraftItemsMissing
+	}
+
+	return h.finalizeOrderDraft(shopID, req, existing, items, nil, hasServiceItems, addonTotal)
+}
+
+func mergeBoardingRetailDraft(existing *model.Order, draft *model.Order, draftItems []model.OrderItem) (*model.Order, []model.OrderItem, error) {
+	if existing == nil || draft == nil {
+		return draft, draftItems, nil
+	}
+	for _, item := range draftItems {
+		if item.ItemType != 2 {
+			return nil, nil, errDraftBoardingOnlyProducts
+		}
+	}
+
+	mergedItems := make([]model.OrderItem, 0, len(existing.Items)+len(draftItems))
+	for _, item := range existing.Items {
+		if item.ItemType == 2 {
+			continue
+		}
+		cloned := item
+		cloned.ID = 0
+		cloned.OrderID = 0
+		mergedItems = append(mergedItems, cloned)
+	}
+	mergedItems = append(mergedItems, draftItems...)
+
+	draft.ServiceTotal = roundDraftAmount(existing.ServiceTotal)
+	draft.AddonTotal = roundDraftAmount(existing.AddonTotal)
+	draft.TotalAmount = roundDraftAmount(draft.ServiceTotal + draft.ProductTotal + draft.AddonTotal)
+	draft.ServiceDiscountAmount = roundDraftAmount(existing.ServiceDiscountAmount)
+	draft.DiscountAmount = roundDraftAmount(draft.ServiceDiscountAmount + draft.ProductDiscountAmount)
+	draft.AppointmentDepositAmount = roundDraftAmount(existing.AppointmentDepositAmount)
+	draft.AppointmentDepositDeductionAmount = roundDraftAmount(existing.AppointmentDepositDeductionAmount)
+	payAmount := draft.ServiceTotal - draft.ServiceDiscountAmount + draft.ProductTotal - draft.ProductDiscountAmount + draft.AddonTotal - draft.AppointmentDepositDeductionAmount
+	draft.PayAmount = roundDraftAmount(math.Max(payAmount, 0))
+	draft.DiscountRate = calculateEffectiveDiscountRate(draft.TotalAmount, draft.PayAmount)
+	return draft, mergedItems, nil
+}
+
+func roundDraftAmount(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func normalizeCustomerPhoneForOrder(phone string) string {
+	digits := strings.Builder{}
+	for _, r := range strings.TrimSpace(phone) {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	normalized := digits.String()
+	if len(normalized) >= 5 && len(normalized) <= 20 {
+		return normalized
+	}
+	return ""
+}
+
+func (h *OrderHandler) finalizeOrderDraft(shopID uint, req createOrderReq, existing *model.Order, items []model.OrderItem, selectedPet *model.Pet, hasServiceItems bool, addonTotal float64) (*model.Order, []model.OrderItem, error) {
+	if err := service.ValidateServiceQuantities(items); err != nil {
+		return nil, nil, err
 	}
 
 	var customerID *uint
@@ -257,19 +508,11 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 	if selectedPet != nil && selectedPet.CustomerID != nil {
 		customerID = selectedPet.CustomerID
 	}
-
-	serviceDiscountRate := 1.0
-	productDiscountRate := 1.0
-	if customerID != nil && *customerID > 0 {
-		cust, err := h.customerService.GetByID(*customerID)
-		if err == nil && cust.DiscountRate > 0 && cust.DiscountRate < 1 {
-			serviceDiscountRate = cust.DiscountRate
-		}
-
-		var card model.MemberCard
-		if err := database.DB.Where("customer_id = ? AND status = 1", *customerID).First(&card).Error; err == nil {
-			if card.ProductDiscountRate > 0 && card.ProductDiscountRate < 1 {
-				productDiscountRate = card.ProductDiscountRate
+	if (customerID == nil || *customerID == 0) && h.customerService != nil {
+		if phone := normalizeCustomerPhoneForOrder(req.CustomerPhone); phone != "" {
+			if customer, err := h.customerService.GetByPhone(phone, shopID); err == nil && customer != nil && customer.ID > 0 {
+				matchedCustomerID := customer.ID
+				customerID = &matchedCustomerID
 			}
 		}
 	}
@@ -283,13 +526,17 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 			productTotal += it.Amount
 		}
 	}
-	totalAmount := serviceTotal + productTotal + addonTotal
-	servicePayAmount := math.Round(serviceTotal*serviceDiscountRate*100) / 100
-	productPayAmount := math.Round(productTotal*productDiscountRate*100) / 100
-	serviceDiscountAmount := serviceTotal - servicePayAmount
-	productDiscountAmount := productTotal - productPayAmount
-	payAmount := math.Round((servicePayAmount+productPayAmount+addonTotal)*100) / 100
-	discountAmount := math.Round((serviceDiscountAmount+productDiscountAmount)*100) / 100
+	pricing := service.CalculateMemberPricingForCustomer(database.DB, customerID, service.MemberPricingInput{
+		ServiceTotal:            serviceTotal,
+		ProductTotal:            productTotal,
+		AddonTotal:              addonTotal,
+		ServiceDiscountEligible: true,
+	})
+	totalAmount := pricing.TotalAmount
+	servicePayAmount := roundDraftAmount(serviceTotal - pricing.ServiceDiscountAmount)
+	productPayAmount := roundDraftAmount(productTotal - pricing.ProductDiscountAmount)
+	payAmount := pricing.FinalPayAmount
+	discountAmount := pricing.DiscountAmount
 
 	var staffID *uint
 	if existing != nil {
@@ -302,14 +549,7 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 		return nil, nil, errDraftStaffRequired
 	}
 
-	var commission float64
-	if staffID != nil && *staffID > 0 {
-		var staff model.Staff
-		if err := database.DB.First(&staff, *staffID).Error; err == nil {
-			commission += math.Round(serviceTotal*staff.CommissionRate) / 100
-			commission += math.Round(productTotal*staff.ProductCommissionRate) / 100
-		}
-	}
+	commission := service.CalculateOrderCommission(database.DB, staffID, items, servicePayAmount, productPayAmount)
 
 	var petID *uint
 	if existing != nil {
@@ -330,16 +570,20 @@ func (h *OrderHandler) buildOrderDraft(shopID uint, req createOrderReq, existing
 		ServiceTotal:          serviceTotal,
 		ProductTotal:          productTotal,
 		AddonTotal:            addonTotal,
-		DiscountRate:          calculateEffectiveDiscountRate(totalAmount, payAmount),
+		DiscountRate:          pricing.DiscountRate,
 		DiscountAmount:        discountAmount,
-		ServiceDiscountAmount: serviceDiscountAmount,
-		ProductDiscountAmount: productDiscountAmount,
+		ServiceDiscountAmount: pricing.ServiceDiscountAmount,
+		ProductDiscountAmount: pricing.ProductDiscountAmount,
 		PayAmount:             payAmount,
 		Commission:            commission,
 		Remark:                req.Remark,
 	}
 	if existing != nil {
 		order.AppointmentID = existing.AppointmentID
+		order.AppointmentIsLate = existing.AppointmentIsLate
+	}
+	if req.AppointmentIsLate != nil {
+		order.AppointmentIsLate = *req.AppointmentIsLate
 	}
 	return order, items, nil
 }
@@ -376,6 +620,9 @@ func (h *OrderHandler) Create(c *gin.Context) {
 			return
 		case errDraftStaffRequired:
 			response.Error(c, http.StatusBadRequest, "请选择洗护师")
+			return
+		case errDraftBoardingOnlyProducts:
+			response.Error(c, http.StatusBadRequest, "寄养关联订单仅支持添加商品")
 			return
 		}
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -423,12 +670,15 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		case errDraftStaffRequired:
 			response.Error(c, http.StatusBadRequest, "请选择洗护师")
 			return
+		case errDraftBoardingOnlyProducts:
+			response.Error(c, http.StatusBadRequest, "寄养关联订单仅支持添加商品")
+			return
 		}
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if err := h.orderService.UpdateDraft(c.GetUint("shop_id"), uint(id), order, items); err != nil {
+	if err := h.orderService.UpdateDraft(c.GetUint("shop_id"), c.GetString("role"), uint(id), order, items); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -492,6 +742,7 @@ func (h *OrderHandler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
 	staffID, _ := strconv.ParseUint(c.Query("staff_id"), 10, 64)
 	customerID, _ := strconv.ParseUint(c.Query("customer_id"), 10, 64)
+	categoryID, _ := strconv.ParseUint(c.Query("category_id"), 10, 64)
 
 	f := repository.OrderFilter{
 		DateFrom:       c.Query("date_from"),
@@ -499,8 +750,10 @@ func (h *OrderHandler) List(c *gin.Context) {
 		CustomerID:     uint(customerID),
 		StaffID:        uint(staffID),
 		PayMethod:      c.Query("pay_method"),
+		CategoryID:     uint(categoryID),
 		ProductKeyword: c.Query("product_keyword"),
 		OrderKind:      c.Query("order_kind"),
+		SelfUse:        c.Query("self_use") == "1" || c.Query("self_use") == "true",
 	}
 	if s := c.Query("status"); s != "" {
 		v, _ := strconv.Atoi(s)
@@ -528,6 +781,7 @@ type payReq struct {
 	PayMethod     string `json:"pay_method" binding:"required"`
 	TransactionID string `json:"transaction_id"`
 	Remark        string `json:"remark"`
+	CashPayMethod string `json:"cash_pay_method"`
 }
 
 func (h *OrderHandler) Pay(c *gin.Context) {
@@ -554,6 +808,21 @@ func (h *OrderHandler) Pay(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
+	} else if req.PayMethod == "mixed_balance" {
+		order, err := h.orderService.GetByID(uint(id))
+		if err != nil {
+			response.Error(c, http.StatusNotFound, "订单不存在")
+			return
+		}
+		if order.CustomerID == nil {
+			response.Error(c, http.StatusBadRequest, "该订单无关联客户")
+			return
+		}
+		staffID := c.GetUint("staff_id")
+		if _, err := MixedBalancePayment(order.ShopID, *order.CustomerID, order.ID, req.CashPayMethod, staffID); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	if req.Remark != "" {
@@ -574,6 +843,11 @@ type updateOrderRemarkReq struct {
 	Remark string `json:"remark"`
 }
 
+type updateOrderCustomerPetReq struct {
+	CustomerID *uint `json:"customer_id"`
+	PetID      *uint `json:"pet_id"`
+}
+
 func (h *OrderHandler) UpdateRemark(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req updateOrderRemarkReq
@@ -586,6 +860,25 @@ func (h *OrderHandler) UpdateRemark(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+func (h *OrderHandler) UpdateCustomerPet(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req updateOrderCustomerPetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if err := h.orderService.UpdateCustomerPet(c.GetUint("shop_id"), uint(id), req.CustomerID, req.PetID); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.orderService.GetByID(uint(id))
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "订单不存在")
+		return
+	}
+	response.Success(c, result)
 }
 
 // PUT /b/orders/:id/refund

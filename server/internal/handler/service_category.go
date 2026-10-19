@@ -17,15 +17,24 @@ func NewServiceCategoryHandler() *ServiceCategoryHandler {
 }
 
 type serviceCategoryReq struct {
-	Name      string `json:"name" binding:"required"`
-	ParentID  *uint  `json:"parent_id"`
-	SortOrder int    `json:"sort_order"`
+	Name           string   `json:"name" binding:"required"`
+	ParentID       *uint    `json:"parent_id"`
+	CommissionRate *float64 `json:"commission_rate"`
+	SortOrder      int      `json:"sort_order"`
+}
+
+func validServiceCategoryCommissionRate(rate *float64) bool {
+	return rate == nil || (*rate >= 0 && *rate <= 100)
 }
 
 func (h *ServiceCategoryHandler) Create(c *gin.Context) {
 	var req serviceCategoryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if !validServiceCategoryCommissionRate(req.CommissionRate) {
+		response.Error(c, http.StatusBadRequest, "提成比例必须在0到100之间")
 		return
 	}
 
@@ -43,11 +52,12 @@ func (h *ServiceCategoryHandler) Create(c *gin.Context) {
 	}
 
 	cat := &model.ServiceCategory{
-		ShopID:    c.GetUint("shop_id"),
-		ParentID:  req.ParentID,
-		Name:      req.Name,
-		SortOrder: req.SortOrder,
-		Status:    1,
+		ShopID:         c.GetUint("shop_id"),
+		ParentID:       req.ParentID,
+		Name:           req.Name,
+		CommissionRate: req.CommissionRate,
+		SortOrder:      req.SortOrder,
+		Status:         1,
 	}
 
 	if err := database.DB.Create(cat).Error; err != nil {
@@ -85,9 +95,16 @@ func (h *ServiceCategoryHandler) Update(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "参数错误")
 		return
 	}
+	if !validServiceCategoryCommissionRate(req.CommissionRate) {
+		response.Error(c, http.StatusBadRequest, "提成比例必须在0到100之间")
+		return
+	}
 
 	cat.Name = req.Name
 	cat.SortOrder = req.SortOrder
+	if req.CommissionRate != nil {
+		cat.CommissionRate = req.CommissionRate
+	}
 
 	if err := database.DB.Save(&cat).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "更新失败: "+err.Error())

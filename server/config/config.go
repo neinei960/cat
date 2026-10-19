@@ -15,6 +15,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
+	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
 }
@@ -51,6 +52,13 @@ func (d *DatabaseConfig) DSN() string {
 		d.User, d.Password, d.Host, d.Port, d.Name, d.Charset)
 }
 
+func (s *ServerConfig) Address() string {
+	if s.Host == "" {
+		return fmt.Sprintf(":%d", s.Port)
+	}
+	return fmt.Sprintf("%s:%d", s.Host, s.Port)
+}
+
 var AppConfig Config
 
 func Load() error {
@@ -72,6 +80,7 @@ func Load() error {
 	viper.BindEnv("jwt.secret", "JWT_SECRET")
 	viper.BindEnv("jwt.expire_hour", "JWT_EXPIRE_HOUR")
 	// Server
+	viper.BindEnv("server.host", "SERVER_HOST")
 	viper.BindEnv("server.port", "SERVER_PORT")
 	viper.BindEnv("server.mode", "SERVER_MODE")
 	// WeChat

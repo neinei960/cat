@@ -30,6 +30,18 @@ func (r *ScheduleRepository) FindByShopAndDate(shopID uint, date string) ([]mode
 	return schedules, err
 }
 
+func (r *ScheduleRepository) FindByShopStaffsAndDate(shopID uint, staffIDs []uint, date string) ([]model.StaffSchedule, error) {
+	if len(staffIDs) == 0 {
+		return []model.StaffSchedule{}, nil
+	}
+
+	var schedules []model.StaffSchedule
+	err := database.DB.Where("shop_id = ? AND staff_id IN ? AND date = ?", shopID, staffIDs, date).
+		Order("staff_id ASC").
+		Find(&schedules).Error
+	return schedules, err
+}
+
 func (r *ScheduleRepository) BatchUpsert(schedules []model.StaffSchedule) error {
 	tx := database.DB.Begin()
 	for _, s := range schedules {

@@ -48,6 +48,7 @@ func Setup(mode string) *gin.Engine {
 	petService := service.NewPetService(petRepo)
 	apptService := service.NewAppointmentService(apptRepo, scheduleRepo, serviceRepo, staffRepo, orderRepo)
 	orderService := service.NewOrderService(orderRepo, apptRepo)
+	careReportService := service.NewOrderCareReportService(orderRepo, repository.NewPetBathReportRepository())
 	boardingService := service.NewBoardingService(boardingRepo, orderRepo, customerRepo, petRepo)
 	feedingService := service.NewFeedingService(feedingRepo, orderRepo, customerRepo, petRepo)
 	notifService := service.NewNotificationService(notifRepo, customerRepo)
@@ -62,7 +63,7 @@ func Setup(mode string) *gin.Engine {
 	customerTagHandler := handler.NewCustomerTagHandler(customerTagService)
 	petHandler := handler.NewPetHandler(petService, customerService)
 	apptHandler := handler.NewAppointmentHandler(apptService)
-	orderHandler := handler.NewOrderHandler(orderService, petService, customerService, serviceService)
+	orderHandler := handler.NewOrderHandler(orderService, petService, customerService, serviceService, careReportService)
 	boardingHandler := handler.NewBoardingHandler(boardingService)
 	feedingHandler := handler.NewFeedingHandler(feedingService)
 	dashHandler := handler.NewDashboardHandler(dashService)
@@ -107,6 +108,7 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/staffs", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Create)
 		b.GET("/staffs", staffHandler.List)
 		b.PUT("/staffs/order", middleware.RequireMinRole(model.StaffRoleManager), staffHandler.Reorder)
+		b.GET("/staffs/calendar-resources", staffHandler.CalendarResources)
 		b.GET("/staffs/:id", staffHandler.Get)
 		b.PUT("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Update)
 		b.DELETE("/staffs/:id", middleware.RequireRole(model.StaffRoleAdmin), staffHandler.Delete)
@@ -170,6 +172,8 @@ func Setup(mode string) *gin.Engine {
 		b.POST("/customers/:id/member-card", memberCardHandler.OpenCard)
 		b.POST("/customers/:id/recharge", memberCardHandler.Recharge)
 		b.GET("/customers/:id/member-card", memberCardHandler.GetCard)
+		b.PUT("/customers/:id/member-card/disable", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.DisableCard)
+		b.DELETE("/customers/:id/member-card", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.DeleteCard)
 		b.PUT("/customers/:id/adjust-balance", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.AdjustBalance)
 		b.GET("/customers/:id/recharge-records", memberCardHandler.GetRecords)
 		b.PUT("/recharge-records/:id", middleware.RequireMinRole(model.StaffRoleManager), memberCardHandler.UpdateRecord)
@@ -217,6 +221,9 @@ func Setup(mode string) *gin.Engine {
 		b.PUT("/appointments/:id/assign", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.AssignStaff)
 		b.PUT("/appointments/:id/reschedule", middleware.RequireMinRole(model.StaffRoleManager), apptHandler.Reschedule)
 
+		// Orders
+		b.POST("/orders/:id/care-report", orderHandler.CreateCareReport)
+
 		// Feeding
 		b.GET("/feeding/settings", feedingHandler.GetSettings)
 		b.PUT("/feeding/settings/pricing", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.UpdatePricing)
@@ -225,6 +232,7 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/feeding/plans", feedingHandler.ListPlans)
 		b.GET("/feeding/plans/:id", feedingHandler.GetPlan)
 		b.PUT("/feeding/plans/:id", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.UpdatePlan)
+		b.DELETE("/feeding/plans/:id", middleware.RequireMinRole(model.StaffRoleManager), feedingHandler.DeletePlan)
 		b.PUT("/feeding/plans/:id/pause", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.PausePlan)
 		b.PUT("/feeding/plans/:id/resume", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.ResumePlan)
 		b.PUT("/feeding/plans/:id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), feedingHandler.CancelPlan)
@@ -247,50 +255,109 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/boarding/cabinets/availability", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.GetAvailableCabinets)
 		b.GET("/boarding/holidays", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListHolidays)
 		b.POST("/boarding/holidays", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreateHoliday)
+		b.PUT("/boarding/holidays/range", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdateHolidayRange)
 		b.DELETE("/boarding/holidays/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.DeleteHoliday)
 		b.GET("/boarding/policies", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListPolicies)
 		b.POST("/boarding/policies", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreatePolicy)
 		b.PUT("/boarding/policies/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdatePolicy)
+		b.GET("/boarding/special-items", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListSpecialItems)
+		b.POST("/boarding/special-items", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreateSpecialItem)
+		b.PUT("/boarding/special-items/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdateSpecialItem)
+		b.DELETE("/boarding/special-items/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.DeleteSpecialItem)
 		b.POST("/boarding/orders/price-preview", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.PricePreview)
 		b.POST("/boarding/orders", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CreateOrder)
 		b.GET("/boarding/orders", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ListOrders)
 		b.GET("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.GetOrder)
+		b.DELETE("/boarding/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), boardingHandler.DeleteOrder)
+		b.PUT("/boarding/orders/:id/deworming", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.UpdateDeworming)
 		b.GET("/boarding/dashboard", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Dashboard)
 		b.PUT("/boarding/orders/:id/check-in", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckIn)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/check-in", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckInRoom)
+		b.PUT("/boarding/orders/:id/adjust-price", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.AdjustPrice)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/adjust-price", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.AdjustRoomPrice)
 		b.PUT("/boarding/orders/:id/check-out", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckOut)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/check-out", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CheckOutRoom)
 		b.PUT("/boarding/orders/:id/extend", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Extend)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/extend", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ExtendRoom)
 		b.PUT("/boarding/orders/:id/change-cabinet", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ChangeCabinet)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/change-cabinet", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.ChangeRoomCabinet)
 		b.PUT("/boarding/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.Cancel)
+		b.PUT("/boarding/orders/:id/rooms/:room_id/cancel", middleware.RequireMinRole(model.StaffRoleStaff), boardingHandler.CancelRoom)
 
 		// Service Records
 		svcRecordRepo := repository.NewServiceRecordRepository()
 		petBathReportRepo := repository.NewPetBathReportRepository()
 		b.POST("/service-records", func(c *gin.Context) {
 			var req struct {
-				AppointmentID uint   `json:"appointment_id" binding:"required"`
-				PetID         uint   `json:"pet_id" binding:"required"`
-				Notes         string `json:"notes"`
-				Photos        string `json:"photos"`
-				SkinIssues    string `json:"skin_issues"`
-				FurCondition  string `json:"fur_condition"`
-				Weight        string `json:"weight"`
+				AppointmentID   uint   `json:"appointment_id" binding:"required"`
+				PetID           uint   `json:"pet_id" binding:"required"`
+				Notes           string `json:"notes"`
+				Photos          string `json:"photos"`
+				SkinIssues      string `json:"skin_issues"`
+				DentalCondition string `json:"dental_condition"`
+				OtherIssues     string `json:"other_issues"`
+				FurCondition    string `json:"fur_condition"`
+				Weight          string `json:"weight"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
 				response.Error(c, 400, "参数错误")
 				return
 			}
 			record := &model.ServiceRecord{
-				ShopID:        c.GetUint("shop_id"),
-				AppointmentID: req.AppointmentID,
-				PetID:         req.PetID,
-				StaffID:       c.GetUint("staff_id"),
-				Notes:         req.Notes,
-				Photos:        req.Photos,
-				SkinIssues:    req.SkinIssues,
-				FurCondition:  req.FurCondition,
-				Weight:        req.Weight,
+				ShopID:          c.GetUint("shop_id"),
+				AppointmentID:   req.AppointmentID,
+				PetID:           req.PetID,
+				StaffID:         c.GetUint("staff_id"),
+				Notes:           req.Notes,
+				Photos:          req.Photos,
+				SkinIssues:      req.SkinIssues,
+				DentalCondition: req.DentalCondition,
+				OtherIssues:     req.OtherIssues,
+				FurCondition:    req.FurCondition,
+				Weight:          req.Weight,
 			}
 			if err := svcRecordRepo.Create(record); err != nil {
+				response.Error(c, 500, "保存失败")
+				return
+			}
+			response.Success(c, record)
+		})
+		b.PUT("/service-records/:id", func(c *gin.Context) {
+			recordID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil || recordID == 0 {
+				response.Error(c, 400, "记录不存在")
+				return
+			}
+			var req struct {
+				AppointmentID   uint   `json:"appointment_id" binding:"required"`
+				PetID           uint   `json:"pet_id" binding:"required"`
+				Notes           string `json:"notes"`
+				Photos          string `json:"photos"`
+				SkinIssues      string `json:"skin_issues"`
+				DentalCondition string `json:"dental_condition"`
+				OtherIssues     string `json:"other_issues"`
+				FurCondition    string `json:"fur_condition"`
+				Weight          string `json:"weight"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.Error(c, 400, "参数错误")
+				return
+			}
+			record, err := svcRecordRepo.FindByID(c.GetUint("shop_id"), uint(recordID))
+			if err != nil {
+				response.Error(c, 404, "记录不存在")
+				return
+			}
+			record.AppointmentID = req.AppointmentID
+			record.PetID = req.PetID
+			record.Notes = req.Notes
+			record.Photos = req.Photos
+			record.SkinIssues = req.SkinIssues
+			record.DentalCondition = req.DentalCondition
+			record.OtherIssues = req.OtherIssues
+			record.FurCondition = req.FurCondition
+			record.Weight = req.Weight
+			if err := svcRecordRepo.Update(record); err != nil {
 				response.Error(c, 500, "保存失败")
 				return
 			}
@@ -459,6 +526,7 @@ func Setup(mode string) *gin.Engine {
 		b.PUT("/orders/:id", orderHandler.Update)
 		b.PUT("/orders/:id/pay", orderHandler.Pay)
 		b.PUT("/orders/:id/remark", orderHandler.UpdateRemark)
+		b.PUT("/orders/:id/customer-pet", orderHandler.UpdateCustomerPet)
 		b.PUT("/orders/:id/refund", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Refund)
 		b.PUT("/orders/:id/cancel", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Cancel)
 		b.DELETE("/orders/:id", middleware.RequireMinRole(model.StaffRoleManager), orderHandler.Delete)
@@ -468,7 +536,9 @@ func Setup(mode string) *gin.Engine {
 		b.GET("/dashboard/overview", dashHandler.Overview)
 		b.GET("/dashboard/revenue", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Revenue)
 		b.GET("/dashboard/services", dashHandler.ServiceRanking)
+		b.GET("/dashboard/project-revenue", dashHandler.ProjectRevenueTree)
 		b.GET("/dashboard/staff", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.StaffPerformance)
+		b.GET("/dashboard/staff/:staff_id/commission-details", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.StaffCommissionDetails)
 		b.GET("/dashboard/category", dashHandler.CategoryStats)
 		b.GET("/dashboard/members", dashHandler.MemberStats)
 		b.POST("/dashboard/aggregate", middleware.RequireMinRole(model.StaffRoleManager), dashHandler.Aggregate)

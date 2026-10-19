@@ -35,13 +35,13 @@ type serviceUsageRow struct {
 	Count     int64
 }
 
-func (r *ServiceRepository) FindByShopID(shopID uint, page, pageSize int, orderBy string) ([]model.Service, int64, error) {
+func (r *ServiceRepository) FindByShopID(shopID uint, page, pageSize int, orderBy string, customerID uint) ([]model.Service, int64, error) {
 	var services []model.Service
 	var total int64
 	db := database.DB.Model(&model.Service{}).Where("shop_id = ?", shopID)
 	db.Count(&total)
 
-	if orderBy == "monthly_usage" {
+	if orderBy == "monthly_usage" || (orderBy == "customer_usage" && customerID > 0) {
 		err := db.Preload("PriceRules").Order("sort_order ASC, id ASC").Find(&services).Error
 		if err != nil {
 			return nil, total, err
@@ -55,8 +55,20 @@ func (r *ServiceRepository) FindByShopID(shopID uint, page, pageSize int, orderB
 		for i := range services {
 			services[i].MonthlyUsageCount = usageMap[services[i].ID]
 		}
+		if customerID > 0 {
+			customerUsageMap, err := r.GetCustomerUsageCounts(shopID, customerID)
+			if err != nil {
+				return nil, total, err
+			}
+			for i := range services {
+				services[i].CustomerUsageCount = customerUsageMap[services[i].ID]
+			}
+		}
 
 		sort.SliceStable(services, func(i, j int) bool {
+			if services[i].CustomerUsageCount != services[j].CustomerUsageCount {
+				return services[i].CustomerUsageCount > services[j].CustomerUsageCount
+			}
 			if services[i].MonthlyUsageCount != services[j].MonthlyUsageCount {
 				return services[i].MonthlyUsageCount > services[j].MonthlyUsageCount
 			}
@@ -125,6 +137,28 @@ func (r *ServiceRepository) GetCurrentMonthUsageCounts(shopID uint) (map[uint]in
 		counts[row.ServiceID] += row.Count
 	}
 
+	return counts, nil
+}
+
+func (r *ServiceRepository) GetCustomerUsageCounts(shopID uint, customerID uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64)
+	if customerID == 0 {
+		return counts, nil
+	}
+
+	var rows []serviceUsageRow
+	if err := database.DB.Table("order_items").
+		Select("order_items.item_id as service_id, COUNT(*) as count").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Where("orders.shop_id = ? AND orders.customer_id = ? AND orders.status <> 2 AND order_items.item_type = 1 AND orders.deleted_at IS NULL AND order_items.deleted_at IS NULL",
+			shopID, customerID).
+		Group("order_items.item_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.ServiceID] = row.Count
+	}
 	return counts, nil
 }
 

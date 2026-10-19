@@ -62,23 +62,27 @@
           </view>
         </view>
         <view class="mc-btns">
-          <button class="btn-recharge" @click="showRechargeModal = true">充值</button>
+          <button class="btn-recharge" @click="openRechargeModal">充值</button>
           <button class="btn-adjust" v-if="isAdmin" @click="showAdjustModal = true">调整余额</button>
+          <button class="btn-disable" v-if="isAdmin" @click="confirmDisableCard">作废</button>
+          <button class="btn-delete" v-if="isAdmin && canDeleteMemberCard" @click="confirmDeleteCard">删除</button>
         </view>
       </view>
 
       <!-- 无会员卡 -->
       <view v-else class="no-card">
         <text class="no-card-text">该客户暂未开通会员卡</text>
-        <button class="btn-open-card" @click="showOpenCardModal = true">开通会员卡</button>
+        <button class="btn-open-card" @click="openOpenCardModal">开通会员卡</button>
       </view>
 
       <!-- 流水记录 -->
       <view v-if="records.length > 0" class="records">
         <view class="records-header">
           <text class="records-title">充值/消费记录</text>
-          <text v-if="records.length > 3 && !showAllRecords" class="records-toggle" @click="showAllRecords = true">查看全部 {{ records.length }} 条</text>
-          <text v-if="showAllRecords" class="records-toggle" @click="showAllRecords = false">收起</text>
+          <view v-if="hasExpandableRecords" class="records-arrow" @click="showAllRecords = !showAllRecords">
+            <text class="records-arrow-count">{{ records.length }}条</text>
+            <text :class="['records-arrow-icon', showAllRecords ? 'open' : '']">⌄</text>
+          </view>
         </view>
         <view class="record-item" v-for="r in displayRecords" :key="r.ID">
           <view class="record-left">
@@ -188,7 +192,7 @@
     </view>
 
     <!-- 开卡弹窗 -->
-    <view class="modal-mask" v-if="showOpenCardModal" @click="showOpenCardModal = false">
+    <view class="modal-mask" v-if="showOpenCardModal" @click="closeOpenCardModal">
       <view class="modal-body" @click.stop>
         <text class="modal-title">开通会员卡</text>
         <view class="form-item">
@@ -206,17 +210,17 @@
         </view>
         <view class="form-item">
           <text class="label">充值金额 *</text>
-          <input v-model="rechargeAmount" type="digit" :placeholder="'最低' + minRecharge" class="input input-amount" />
+          <input v-model="openCardAmount" type="digit" :placeholder="'最低' + minRecharge" class="input input-amount" />
         </view>
         <view class="modal-btns">
-          <view class="modal-btn cancel" @click="showOpenCardModal = false">取消</view>
+          <view class="modal-btn cancel" @click="closeOpenCardModal">取消</view>
           <view class="modal-btn confirm" @click="doOpenCard">确认开卡</view>
         </view>
       </view>
     </view>
 
     <!-- 充值弹窗 -->
-    <view class="modal-mask" v-if="showRechargeModal" @click="showRechargeModal = false">
+    <view class="modal-mask" v-if="showRechargeModal" @click="closeRechargeModal">
       <view class="modal-body" @click.stop>
         <text class="modal-title">充值</text>
         <view class="form-item">
@@ -224,7 +228,7 @@
           <input v-model="rechargeAmount" type="digit" placeholder="请输入金额" class="input input-amount" />
         </view>
         <view class="modal-btns">
-          <view class="modal-btn cancel" @click="showRechargeModal = false">取消</view>
+          <view class="modal-btn cancel" @click="closeRechargeModal">取消</view>
           <view class="modal-btn confirm" @click="doRecharge">确认充值</view>
         </view>
       </view>
@@ -297,7 +301,7 @@ import { getCustomer, getCustomerPets, updateCustomer } from '@/api/customer'
 import { getAppointmentList } from '@/api/appointment'
 import { getAppointmentStatusLabel, getAppointmentStatusBadgeStyle } from '@/utils/appointment-status'
 import { getCustomerTags } from '@/api/customer-tag'
-import { getCustomerCard, getCardTemplates, openCard, recharge, adjustBalance, getRechargeRecords, updateRechargeRecord, deleteRechargeRecord } from '@/api/member-card'
+import { getCustomerCard, getCardTemplates, openCard, disableCard as disableMemberCard, deleteCard as deleteMemberCard, recharge, adjustBalance, getRechargeRecords, updateRechargeRecord, deleteRechargeRecord } from '@/api/member-card'
 import { useAuthStore } from '@/store/auth'
 import { getPersonalityColor, getPersonalityBg } from '@/utils/personality'
 import { hasStaffRoleAtLeast } from '@/utils/staff-role'
@@ -358,6 +362,7 @@ const showRechargeModal = ref(false)
 const showAdjustModal = ref(false)
 const showTagModal = ref(false)
 const selectedTplId = ref(0)
+const openCardAmount = ref('')
 const rechargeAmount = ref('')
 const adjustMode = ref<'delta' | 'set'>('delta')
 const adjustAmount = ref('')
@@ -367,7 +372,9 @@ const tagOptions = ref<CustomerTag[]>([])
 const selectedTagIDs = ref<number[]>([])
 
 const showAllRecords = ref(false)
-const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 3))
+const hasExpandableRecords = computed(() => records.value.length > 1)
+const displayRecords = computed(() => showAllRecords.value ? records.value : records.value.slice(0, 1))
+const canDeleteMemberCard = computed(() => !!memberCard.value && roundMoney(memberCard.value.balance) === 0 && records.value.length === 0)
 const editingRecord = ref<RechargeRecord | null>(null)
 const editForm = ref({ amount: '', remark: '' })
 const deletingRecordId = ref<number | null>(null)
@@ -377,11 +384,40 @@ const minRecharge = computed(() => {
   return tpl ? tpl.min_recharge : 0
 })
 
+function roundMoney(value: number) {
+  return Math.round((value || 0) * 100) / 100
+}
+
 function selectTpl(tpl: MemberCardTemplate) {
   selectedTplId.value = tpl.ID
-  if (!rechargeAmount.value || parseFloat(rechargeAmount.value) < tpl.min_recharge) {
-    rechargeAmount.value = String(tpl.min_recharge)
+  if (!openCardAmount.value || parseFloat(openCardAmount.value) < tpl.min_recharge) {
+    openCardAmount.value = String(tpl.min_recharge)
   }
+}
+
+function resetOpenCardForm() {
+  selectedTplId.value = 0
+  openCardAmount.value = ''
+}
+
+function openOpenCardModal() {
+  resetOpenCardForm()
+  showOpenCardModal.value = true
+}
+
+function closeOpenCardModal() {
+  showOpenCardModal.value = false
+  resetOpenCardForm()
+}
+
+function openRechargeModal() {
+  rechargeAmount.value = ''
+  showRechargeModal.value = true
+}
+
+function closeRechargeModal() {
+  showRechargeModal.value = false
+  rechargeAmount.value = ''
 }
 
 onLoad(async (query) => {
@@ -426,15 +462,14 @@ async function doOpenCard() {
   if (!selectedTplId.value) {
     uni.showToast({ title: '请选择会员卡', icon: 'none' }); return
   }
-  const amount = parseFloat(rechargeAmount.value)
+  const amount = parseFloat(openCardAmount.value)
   if (!amount || amount < minRecharge.value) {
     uni.showToast({ title: `充值金额不能低于${minRecharge.value}元`, icon: 'none' }); return
   }
   try {
     await openCard(id.value, { template_id: selectedTplId.value, recharge_amount: amount })
     uni.showToast({ title: '开卡成功', icon: 'success' })
-    showOpenCardModal.value = false
-    rechargeAmount.value = ''
+    closeOpenCardModal()
     await loadAll()
   } catch (e: any) {
     uni.showToast({ title: e.message || '开卡失败', icon: 'none' })
@@ -449,8 +484,7 @@ async function doRecharge() {
   try {
     await recharge(id.value, { amount })
     uni.showToast({ title: '充值成功', icon: 'success' })
-    showRechargeModal.value = false
-    rechargeAmount.value = ''
+    closeRechargeModal()
     await loadAll()
   } catch (e: any) {
     uni.showToast({ title: e.message || '充值失败', icon: 'none' })
@@ -488,6 +522,48 @@ async function doAdjust() {
   } catch (e: any) {
     uni.showToast({ title: e.message || '调整失败', icon: 'none' })
   }
+}
+
+function confirmDisableCard() {
+  if (!memberCard.value) return
+  if (roundMoney(memberCard.value.balance) > 0) {
+    uni.showToast({ title: '请先退款或调整余额为0', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '作废会员卡',
+    content: '作废后会员卡不可再充值或余额支付，历史流水会保留。确定作废吗？',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await disableMemberCard(id.value)
+        uni.showToast({ title: '已作废', icon: 'success' })
+        await loadAll()
+      } catch (e: any) {
+        uni.showToast({ title: e.message || '作废失败', icon: 'none' })
+      }
+    },
+  })
+}
+
+function confirmDeleteCard() {
+  if (!memberCard.value) return
+  uni.showModal({
+    title: '删除会员卡',
+    content: '仅误建且没有流水的会员卡可以删除，删除后可重新开卡。确定删除吗？',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await deleteMemberCard(id.value)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await loadAll()
+      } catch (e: any) {
+        uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+      }
+    },
+  })
 }
 
 function editRecord(r: RechargeRecord) {
@@ -648,9 +724,11 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .mc-stat { flex: 1; text-align: center; background: #F9FAFB; padding: 16rpx; border-radius: 12rpx; }
 .mc-stat-val { display: block; font-size: 28rpx; font-weight: 600; color: #4F46E5; }
 .mc-stat-label { display: block; font-size: 22rpx; color: #9CA3AF; margin-top: 4rpx; }
-.mc-btns { display: flex; gap: 16rpx; }
-.btn-recharge { flex: 1; min-height: 92rpx; background: linear-gradient(135deg, #4F46E5, #6366F1); color: #fff; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; box-shadow: 0 12rpx 26rpx rgba(79, 70, 229, 0.18); }
-.btn-adjust { flex: 1; min-height: 92rpx; background: #fff; color: #F59E0B; border: 2rpx solid #F59E0B; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; }
+.mc-btns { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.btn-recharge { flex: 1 1 220rpx; min-height: 92rpx; background: linear-gradient(135deg, #4F46E5, #6366F1); color: #fff; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; box-shadow: 0 12rpx 26rpx rgba(79, 70, 229, 0.18); }
+.btn-adjust { flex: 1 1 220rpx; min-height: 92rpx; background: #fff; color: #F59E0B; border: 2rpx solid #F59E0B; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; }
+.btn-disable { flex: 1 1 180rpx; min-height: 92rpx; background: #fff; color: #EF4444; border: 2rpx solid #FCA5A5; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; }
+.btn-delete { flex: 1 1 180rpx; min-height: 92rpx; background: #FEF2F2; color: #DC2626; border: 2rpx solid #FECACA; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; }
 .adjust-mode-tabs { display: flex; gap: 0; margin-bottom: 20rpx; background: #F3F4F6; border-radius: 12rpx; padding: 4rpx; }
 .adjust-tab { flex: 1; text-align: center; font-size: 26rpx; padding: 14rpx 0; border-radius: 10rpx; color: #6B7280; }
 .adjust-tab-active { background: #fff; color: #4F46E5; font-weight: 600; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.06); }
@@ -663,7 +741,10 @@ function goTagManage() { uni.navigateTo({ url: '/pages/customer/tag-manage' }) }
 .records { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #F3F4F6; }
 .records-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12rpx; }
 .records-title { font-size: 26rpx; font-weight: 600; color: #6B7280; }
-.records-toggle { font-size: 24rpx; color: #4F46E5; }
+.records-arrow { display: inline-flex; align-items: center; gap: 8rpx; color: #4F46E5; }
+.records-arrow-count { font-size: 22rpx; color: #9CA3AF; }
+.records-arrow-icon { font-size: 26rpx; line-height: 1; transform: rotate(0deg); transition: transform 0.2s ease; }
+.records-arrow-icon.open { transform: rotate(180deg); }
 .record-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid #F9FAFB; }
 .record-item:last-child { border-bottom: none; }
 .record-left { display: flex; align-items: center; gap: 12rpx; }

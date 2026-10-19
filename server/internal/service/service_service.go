@@ -21,7 +21,7 @@ func (s *ServiceService) GetByID(id uint) (*model.Service, error) {
 	return s.repo.FindByID(id)
 }
 
-func (s *ServiceService) List(shopID uint, page, pageSize int, orderBy string) ([]model.Service, int64, error) {
+func (s *ServiceService) List(shopID uint, page, pageSize int, orderBy string, customerID uint) ([]model.Service, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -31,7 +31,7 @@ func (s *ServiceService) List(shopID uint, page, pageSize int, orderBy string) (
 	if pageSize > 500 {
 		pageSize = 500
 	}
-	return s.repo.FindByShopID(shopID, page, pageSize, orderBy)
+	return s.repo.FindByShopID(shopID, page, pageSize, orderBy, customerID)
 }
 
 func (s *ServiceService) ListActive(shopID uint) ([]model.Service, error) {

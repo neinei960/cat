@@ -49,6 +49,14 @@ const fuzzyReactionSample = `树街の猫|宝贝洗护小调查
 💭性格小秘密
 反应：吹风会挣扎`
 
+const singleDigitBirthDateSample = `树街の猫|宝贝洗护小调查
+
+📇基本信息
+大名：贝贝
+品种：英短
+性别：母
+出生日期：2019.11.4`
+
 function assertEqual(actual: unknown, expected: unknown, label: string) {
   if (actual !== expected) {
     throw new Error(`${label}: expected "${String(expected)}", got "${String(actual)}"`)
@@ -70,7 +78,7 @@ runCase('dental', dentalSample, {
   name: '白菜',
   breed: '橘猫',
   gender: 1,
-  birthDate: '2021-7',
+  birthDate: '2021-07',
   neutered: true,
   dailyDiet: '猫粮',
   furMatted: '',
@@ -87,7 +95,7 @@ runCase('grooming', groomingSample, {
   name: '猪蹄',
   breed: '英短乳白',
   gender: 1,
-  birthDate: '2018-8',
+  birthDate: '2018-08',
   neutered: true,
   dailyDiet: '',
   furMatted: '否',
@@ -104,6 +112,12 @@ runCase('fuzzyReaction', fuzzyReactionSample, {
   name: '团子',
   reactions: '吹风会挣扎',
   reactionsLabel: '反应',
+})
+
+runCase('singleDigitBirthDate', singleDigitBirthDateSample, {
+  surveyType: 'grooming',
+  name: '贝贝',
+  birthDate: '2019-11-04',
 })
 
 console.log('parser tests passed')
