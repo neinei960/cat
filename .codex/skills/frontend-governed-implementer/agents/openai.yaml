@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Governed Implementer"
+  short_description: "Implement incremental H5 UI refactors for this repo"
+  default_prompt: "Use $frontend-governed-implementer to implement an approved incremental H5 UI refactor in this repository."

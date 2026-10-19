@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Page Governor"
+  short_description: "Govern old H5 pages in this repo incrementally"
+  default_prompt: "Use $frontend-page-governor to analyze and govern an existing H5 page in this repository."
